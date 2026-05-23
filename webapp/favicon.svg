@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none" aria-label="r2-workshop">
+  <!-- r2-workshop favicon: hexagonal R2 frame in gold (#d4a853),
+       with an EKG-style waveform inside reading left to right.
+       Matches the icon used on reality2-ai.github.io's r2-workshop
+       card. SVG so it stays crisp at any browser-tab resolution
+       + on hi-DPI displays. -->
+  <path d="M256 72L400 156V324L256 408L112 324V156Z"
+        fill="none" stroke="#d4a853" stroke-width="18"
+        stroke-linejoin="round" opacity="0.85"/>
+  <path d="M152 260 L200 260 L220 200 L256 320 L292 180 L312 280 L340 240 L360 260"
+        fill="none" stroke="#d4a853" stroke-width="10"
+        stroke-linecap="round" stroke-linejoin="round"
+        opacity="0.7"/>
+</svg>

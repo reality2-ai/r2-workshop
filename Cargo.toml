@@ -1,0 +1,40 @@
+# r2-workshop workspace.
+# firmware/esp32-s3 is excluded — it has its own xtensa target and
+# rust-toolchain (esp), and integrating it into the host workspace
+# breaks `cargo build` for non-firmware crates.
+
+[workspace]
+resolver = "2"
+members = [
+    "crates/r2-fnv",
+    "crates/r2-cbor",
+    "crates/r2-wire",
+    "crates/r2-core",
+    "crates/r2-bootstrap",
+    "crates/r2-trust",
+    "crates/r2-transport",
+    "crates/r2-route",
+    "crates/r2-engine",
+    "dashboard",
+    "tools/r2-workshop-tg",
+    # r2-wasm has cdylib + wasm32-only deps (wasm-bindgen, getrandom/js).
+    # It is built with `wasm-pack` from the webapp/ package, NOT
+    # by the host workspace. Excluded so `cargo check --workspace` on
+    # x86_64-linux doesn't try to compile the wasm-bindgen targets.
+]
+exclude = [
+    "firmware/esp32-s3",
+    "crates/r2-wasm",
+    # r2-esp depends on esp-idf-svc + esp32-nimble — both
+    # xtensa-esp32*-espidf only. Built by firmware/esp32-s3 via path dep.
+    "crates/r2-esp",
+]
+
+[workspace.package]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/reality2-ai/r2-workshop"
+
+[profile.release]
+strip = true
+lto = true

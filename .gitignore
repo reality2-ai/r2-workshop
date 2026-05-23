@@ -1,0 +1,85 @@
+# r2-workshop .gitignore
+# Establish before any secrets land in the working tree.
+# See specifications/SECRETS-POLICY.md for what counts as a secret and why.
+
+# ──── Secrets ─────────────────────────────────────────────────────────
+# Trust group private key — the signing authority's secret.
+# Only the *public* TG cert is committed (trust_keys/tg_cert.bin or .pub).
+trust_keys/*_priv*
+trust_keys/*_secret*
+trust_keys/*.priv
+trust_keys/*.key
+trust_keys/private/
+trust_keys/secrets/
+
+# Generic private-key file patterns (defence in depth — github secret-scanning
+# triggers on these, even in private repos under some org policies).
+*.pem
+*.p12
+*.pfx
+*_priv.bin
+*_secret.bin
+id_rsa
+id_ed25519
+id_ecdsa
+*.ppk
+
+# WiFi credentials (compile-time fallback). Commit only the .example.
+firmware/**/wifi_config.toml
+!firmware/**/wifi_config.toml.example
+
+# Per-device NVS dumps (contain Ed25519 device keys).
+*.nvs
+nvs_*.bin
+device_*.bin
+
+# Dashboard runtime state (contains device pks + per-device calibration
+# matrices). Local-only by default; export selectively for the paper.
+dashboard/.state/
+dashboard/calibration.json
+dashboard/peers.json
+
+# ──── Build artefacts ─────────────────────────────────────────────────
+target/
+build/
+**/Cargo.lock.bak
+*.bin.bak
+
+# ESP-IDF / esp-idf-svc generated
+sdkconfig
+sdkconfig.old
+managed_components/
+dependencies.lock
+
+# ESP-IDF SDK + Python venv that `embuild` downloads on first build.
+# Multi-gigabyte; reproduced by any developer running `cargo build`.
+.embuild/
+**/.embuild/
+
+# wasm-pack output; reproduced by any developer running
+#   wasm-pack build crates/r2-wasm --target web --release
+crates/*/pkg/
+
+# Build-time-generated sdkconfig fragments (host-specific absolute paths).
+**/sdkconfig.partitions.generated
+**/sdkconfig.*.generated
+
+# ──── External / vendor reference material ────────────────────────────
+# Vendored snapshot directories under docs/ retain only their files,
+# not their original .git history. PROVENANCE.md inside each documents
+# the upstream URL.
+
+# ──── Editor / OS cruft ───────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+.claude/settings.local.json
+
+# ──── Logs / scratch ──────────────────────────────────────────────────
+*.log
+scratch/
+tmp/

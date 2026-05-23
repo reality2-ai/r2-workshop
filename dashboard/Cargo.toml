@@ -1,0 +1,48 @@
+[package]
+name = "r2-dashboard"
+version = "0.2.0"
+edition = "2021"
+description = "R2 sensor dashboard — receives R2-WIRE events and serves a live web UI"
+
+[dependencies]
+axum = { version = "0.8", features = ["ws"] }
+tokio = { version = "1", features = ["full"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["cors", "fs"] }
+# Explicit hyper deps for the protocol-detect single-port listener
+# (R2-WIRE §13.5 — port 21042 carries R2-WIRE events in BOTH raw-TCP
+# and WebSocket form; we accept-then-peek to dispatch each connection
+# to either axum or the sensor TCP handler).
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["service", "tokio"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+r2-fnv = { path = "../crates/r2-fnv" }
+r2-cbor = { path = "../crates/r2-cbor" }
+r2-wire = { path = "../crates/r2-wire" }
+clap = { version = "4", features = ["derive"] }
+r2-bootstrap = { path = "../crates/r2-bootstrap" }
+socket2 = { version = "0.6.3", features = ["all"] }
+# Ed25519 for Phase 5b — verify the firmware's announce signature.
+# Pinned to match r2-core / firmware so cross-component compat is exact.
+ed25519-dalek = { version = "=2.1.1", default-features = false, features = ["alloc", "fast"] }
+hex = "0.4"
+# Phase 9-light: SHA-256 over the firmware blob for the OTA preamble.
+sha2 = "0.10"
+# Phase 5 (SPEC-R2-WORKSHOP-ACCESS): trust-group membership + cert issuance
+# for the QR / link viewer-enrolment flow.
+r2-trust = { path = "../crates/r2-trust" }
+# QR codes for the invite modal — PNG output, base64-embedded in the
+# JSON response so the webapp can <img src="data:image/png;base64,...">.
+qrcode = { version = "0.14", default-features = false, features = ["image"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+base64 = "0.22"
+# CSPRNG for token entropy + r2-trust's RngCore/CryptoRng-requiring
+# constructors. OsRng pulls /dev/urandom on Linux.
+rand = "0.8"
+# Phase 5 / SPEC-R2-WORKSHOP-ACCESS §5.2: off-network viewer path via
+# the R2 relay (https://relay.reality2.ai/r2). Dashboard speaks the
+# same HELLO+binary protocol that notekeeper's webapp uses; r2-wasm
+# already covers the viewer side.
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+futures-util = "0.3"

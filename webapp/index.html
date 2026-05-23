@@ -1,0 +1,4945 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<title>R2 Workshop Rig — WASM viewer</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0a0e17;
+    color: #e0e0e0;
+    min-height: 100vh;
+  }
+  .header {
+    background: linear-gradient(135deg, #1a1f35 0%, #0d1220 100%);
+    border-bottom: 1px solid #2a3050;
+    padding: 16px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .header h1 { font-size: 20px; font-weight: 600; color: #fff; }
+  .header h1 span { color: #4a9eff; }
+  .header-controls {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .connection-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+  }
+  .status-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: #ff4444;
+    transition: background 0.3s;
+  }
+  .status-dot.connected { background: #44ff88; }
+
+  .btn-connect {
+    padding: 8px 16px;
+    border: 1px solid #3b82f6;
+    border-radius: 8px;
+    background: #1e3a5f;
+    color: #93c5fd;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .btn-connect:hover:not(:disabled) { background: #2563eb; color: white; }
+  .btn-connect:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* ── Bootstrap log panel ── */
+  .bootstrap-panel {
+    display: none;
+    max-width: 1600px;
+    margin: 0 auto;
+    padding: 0 16px;
+  }
+  .bootstrap-panel.visible { display: block; }
+  .bootstrap-log-card {
+    background: #0c1017;
+    border: 1px solid #1e293b;
+    border-radius: 12px;
+    padding: 16px 20px;
+    position: relative;
+    margin-top: 12px;
+  }
+  .bootstrap-log-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  .bootstrap-log-header h2 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #64748b;
+    margin: 0;
+  }
+  .bootstrap-close {
+    background: none;
+    border: none;
+    color: #64748b;
+    font-size: 18px;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+  .bootstrap-close:hover { color: #e0e0e0; background: #1e293b; }
+
+  /* ── Link tab + invite modal (SPEC-R2-WORKSHOP-ACCESS) ─────────────── */
+  .invite-overlay {
+    position: fixed; inset: 0; z-index: 1000;
+    background: rgba(0,0,0,0.7);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .invite-overlay[hidden] { display: none; }
+  .invite-modal {
+    background: #0c1017; border: 1px solid #1e293b; border-radius: 12px;
+    padding: 24px; min-width: 380px; max-width: 480px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+  }
+  .invite-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .invite-header h2 { margin: 0; font-size: 18px; color: #e0e0e0; }
+  .invite-help { color: #94a3b8; font-size: 13px; margin: 0 0 16px 0; }
+  .invite-qr-wrap {
+    background: #fff; padding: 12px; border-radius: 8px;
+    display: flex; justify-content: center; margin-bottom: 16px;
+  }
+  .invite-qr-wrap img { width: 256px; height: 256px; image-rendering: pixelated; }
+  .invite-url-group { margin-bottom: 12px; }
+  .invite-url-group label {
+    display: block; font-size: 11px; text-transform: uppercase;
+    letter-spacing: 1px; color: #64748b; margin-bottom: 6px;
+  }
+  .invite-url-row { display: flex; gap: 8px; }
+  .invite-url-row input {
+    flex: 1; background: #1e293b; border: 1px solid #334155;
+    color: #cbd5e1; padding: 6px 10px; border-radius: 6px;
+    font-family: 'SF Mono', Consolas, monospace; font-size: 11px;
+  }
+  .invite-url-row button {
+    background: #4a9eff; border: none; color: white;
+    padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;
+  }
+  .invite-url-row button:hover { background: #2563eb; }
+  .invite-countdown {
+    text-align: center; color: #94a3b8; font-size: 13px; margin-top: 16px;
+  }
+  .invite-countdown.expired { color: #ef4444; }
+  .invite-mode-toggle {
+    display: flex;
+    margin: 12px auto 4px;
+    width: fit-content;
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    padding: 3px;
+    gap: 2px;
+  }
+  .invite-mode-toggle button {
+    background: transparent;
+    color: #94a3b8;
+    border: none;
+    padding: 7px 16px;
+    font-size: 13px;
+    cursor: pointer;
+    border-radius: 5px;
+    font-family: inherit;
+  }
+  .invite-mode-toggle button.active {
+    background: #3b82f6;
+    color: #fff;
+    font-weight: 600;
+  }
+  .invite-mode-hint {
+    color: #64748b;
+    font-size: 12px;
+    text-align: center;
+    margin: 0 0 10px;
+  }
+  .invite-step-label {
+    color: #cbd5e1; font-size: 13px; margin: 12px 0 6px 0;
+    text-transform: uppercase; letter-spacing: 1px;
+  }
+  .invite-step-side { color: #64748b; text-transform: none; letter-spacing: 0; font-size: 12px; }
+
+  .link-member-card {
+    background: #0c1017; border: 1px solid #1e293b; border-radius: 12px;
+    padding: 14px 18px; margin-bottom: 8px;
+    display: grid; grid-template-columns: 1fr auto; gap: 8px 16px;
+    align-items: center;
+  }
+  .link-member-card.revoked { opacity: 0.5; }
+  .link-member-card .name { font-weight: 600; color: #e0e0e0; }
+  .link-member-card .meta { color: #64748b; font-size: 12px; margin-top: 2px; }
+  .link-member-card .meta .pill {
+    display: inline-block; padding: 2px 8px; border-radius: 10px;
+    background: #1e293b; color: #94a3b8; font-size: 11px; margin-right: 6px;
+  }
+  .link-member-card .meta .pill.controller { background: #1e3a8a; color: #bfdbfe; }
+  .link-member-card .meta .pill.sensor     { background: #14532d; color: #bbf7d0; }
+  .link-member-card .meta .pill.viewer     { background: #4c1d95; color: #ddd6fe; }
+  .link-member-card button.revoke {
+    background: #7f1d1d; border: 1px solid #b91c1c; color: #fecaca;
+    padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;
+  }
+  .link-member-card button.revoke:hover { background: #b91c1c; color: white; }
+  .link-member-card button.revoke:disabled { opacity: 0.5; cursor: not-allowed; }
+  .link-member-card .self-label { color: #64748b; font-size: 12px; font-style: italic; }
+  .bootstrap-log-entries {
+    max-height: 200px;
+    overflow-y: auto;
+    font-family: 'SF Mono', Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.7;
+    background: #080b10;
+    border-radius: 6px;
+    padding: 10px 14px;
+  }
+  .bootstrap-log-entries::-webkit-scrollbar { width: 6px; }
+  .bootstrap-log-entries::-webkit-scrollbar-track { background: transparent; }
+  .bootstrap-log-entries::-webkit-scrollbar-thumb { background: #2a3050; border-radius: 3px; }
+  .bs-line { color: #94a3b8; }
+  .bs-line.amber { color: #fbbf24; }
+  .bs-line.green { color: #34d399; }
+  .bs-line.red { color: #f87171; }
+
+  /* ── Main layout ── */
+  /* `display: grid/block` here would beat the implicit display:none from
+     the [hidden] attribute used by setView() to switch tabs — restore it. */
+  [hidden] { display: none !important; }
+  .main {
+    /* Single-column stack: Run Control bar at top, full-width sensor
+       grid below. The previous 1fr / 280px sidebar held Run Control
+       + Connected Sensors; both have been promoted to the sensor
+       cards themselves (per-card LED) or to a horizontal toolbar at
+       the top of the view. */
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 16px;
+    max-width: 1600px;
+    margin: 0 auto;
+  }
+
+  /* Run-control toolbar (Live tab) — mirrors `.devices-bulk-actions`
+     visually so the operator's eye lands in the same place across
+     tabs. Single horizontal row on wide screens; wraps on narrow. */
+  .run-control-bar {
+    background: #0c1017;
+    border: 1px solid #1e293b;
+    border-radius: 12px;
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .run-control-bar .state-indicator {
+    margin: 0;            /* override the default 14px bottom margin */
+    padding: 6px 14px;
+    font-size: 13px;
+  }
+  .run-control-bar .run-name-row {
+    margin: 0;
+    flex: 1 1 200px;
+  }
+  .run-control-bar .btn-group {
+    flex-direction: row;
+    gap: 8px;
+  }
+  .run-control-bar .btn {
+    padding: 8px 14px;
+    font-size: 13px;
+  }
+
+  /* Sensor charts area — always 2-col; lone sensor spans both */
+  .sensors-area {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .sensor-card:only-child {
+    grid-column: 1 / -1;
+  }
+
+  /* Right sidebar */
+  .sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .card {
+    background: #111827;
+    border: 1px solid #1e293b;
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .card h2 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #64748b;
+    margin-bottom: 14px;
+  }
+
+  /* Sensor chart card */
+  .sensor-card { position: relative; min-width: 0; }
+  .sensor-label {
+    font-size: 16px;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .sensor-label .sensor-addr {
+    font-size: 11px;
+    font-weight: 400;
+    color: #4a9eff;
+    font-family: 'SF Mono', monospace;
+    margin-left: 0;
+  }
+  /* Small pencil button beside the sensor / device name — opens a
+     prompt() to set a friendly alias. Pointer-on-hover so it reads
+     as clickable, low-contrast otherwise so it doesn't compete with
+     the LED + name. */
+  .rename-btn {
+    background: transparent;
+    color: #64748b;
+    border: none;
+    padding: 0 4px;
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+    border-radius: 4px;
+  }
+  .rename-btn:hover { background: rgba(148, 163, 184, 0.12); color: #e2e8f0; }
+
+  /* Downsample picker next to the merged-CSV button — small, in-row. */
+  .data-bin-row {
+    display: inline-flex; align-items: center; gap: 6px;
+    color: #94a3b8; font-size: 12px;
+  }
+  .data-bin-row select {
+    background: #1e293b; color: #e2e8f0;
+    border: 1px solid #334155; border-radius: 4px;
+    padding: 4px 6px; font-size: 12px;
+    font-family: inherit;
+  }
+
+  /* Per-card status LED — bigger than the sidebar's 10px dot so the
+     operator can read it from across the room. Animation classes
+     come from .virt-led.tg-* further down. */
+  .virt-led.virt-led-lg {
+    width: 18px; height: 18px;
+    border-width: 2px;
+  }
+  .sensor-stats {
+    display: flex;
+    /* Allow the row to wrap on narrow screens (phones in portrait
+       can't fit 5 chips + labels). The wrap is deterministic once
+       each chip has a stable width — which is now enforced for
+       both value chips and the rate chip below. */
+    flex-wrap: wrap;
+    gap: 8px 16px;  /* row gap + column gap */
+    margin-top: 8px;
+    font-family: 'SF Mono', monospace;
+    font-size: 12px;
+    /* Tabular figures + a fixed-width container per value stops the
+       layout from reflowing every ~10 ms as `-0.123 g` becomes
+       ` 0.045 g` etc. Numbers stay aligned, eyes can read them. */
+    font-variant-numeric: tabular-nums;
+  }
+  .sensor-stats span { opacity: 0.7; }
+  /* Each chip occupies a stable width regardless of value sign / digit
+     count. 8ch covers the worst-case content + unit:
+       "-1.234 g"  → 8 chars
+       "100.0 Hz"  → 8 chars
+     The previous 7ch left the rate chip free to widen when Hz hit
+     three digits, which on phones tripped the flex-row wrap point
+     so Hz hopped to a second line. */
+  .sensor-stats .vx,
+  .sensor-stats .vy,
+  .sensor-stats .vz,
+  .sensor-stats .vmag {
+    display: inline-block;
+    min-width: 8ch;
+    text-align: right;
+  }
+  .sensor-stats .vx { color: #ff6384; }
+  .sensor-stats .vy { color: #36a2eb; }
+  .sensor-stats .vz { color: #4bc0c0; }
+  .sensor-stats .vmag { color: #f59e0b; }
+  .chart-container { position: relative; height: 260px; }
+
+  /* Per-sensor event log */
+  .sensor-event-log {
+    max-height: 80px;
+    overflow-y: auto;
+    font-family: 'SF Mono', Consolas, monospace;
+    font-size: 0.75rem;
+    line-height: 1.5;
+    background: #111827;
+    border-radius: 6px;
+    padding: 6px 10px;
+    margin-top: 8px;
+  }
+  .sensor-event-log::-webkit-scrollbar { width: 5px; }
+  .sensor-event-log::-webkit-scrollbar-track { background: transparent; }
+  .sensor-event-log::-webkit-scrollbar-thumb { background: #2a3050; border-radius: 3px; }
+  .sensor-event-line { color: #64748b; }
+  .sensor-event-line .sel-time { color: #4a9eff; }
+  .sensor-event-line .sel-text { color: #94a3b8; }
+  .sensors-area.dual .chart-container { height: 260px; }
+
+  /* Controls */
+  .state-indicator {
+    text-align: center;
+    padding: 14px;
+    border-radius: 8px;
+    margin-bottom: 14px;
+    font-size: 16px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+  }
+  .state-idle { background: #1e293b; color: #64748b; }
+  .state-calibrating { background: #2d1f00; color: #fbbf24; }
+  .state-recording  { background: #002d1a; color: #34d399; }
+  .state-rocking    { background: #002d1a; color: #34d399; }
+
+  .btn-group { display: flex; flex-direction: column; gap: 8px; }
+  .btn {
+    padding: 12px 16px;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .btn:hover { transform: translateY(-1px); }
+  .btn:active { transform: translateY(0); }
+  .btn:disabled { opacity: 0.3; cursor: not-allowed; transform: none; }
+  .btn-start { background: #059669; color: white; }
+  .btn-start:hover:not(:disabled) { background: #047857; }
+  .btn-mark { background: #d97706; color: white; }
+  .btn-mark:hover:not(:disabled) { background: #b45309; }
+  .btn-stop { background: #dc2626; color: white; }
+  .btn-stop:hover:not(:disabled) { background: #b91c1c; }
+
+  .cal-status {
+    margin-top: 10px;
+    font-size: 11px;
+    color: #64748b;
+    font-family: 'SF Mono', monospace;
+    min-height: 16px;
+  }
+
+  /* Event log */
+  .log-card { grid-column: 1 / -1; }
+  .log-entries {
+    max-height: 120px;
+    overflow-y: auto;
+    font-family: 'SF Mono', Consolas, monospace;
+    font-size: 11px;
+    line-height: 1.6;
+  }
+  .log-entry { color: #64748b; }
+  .log-entry .time { color: #4a9eff; }
+  .log-entry .src  { color: #a78bfa; }
+  .log-entry .event { color: #34d399; }
+  .log-entry .value { color: #fbbf24; }
+
+  /* Log row below main grid. Padding matches `.devices-main` so the
+     Event Log card lines up exactly with the device cards above on
+     the Devices tab; `margin-top` adds the gap that was missing
+     between the cards and the log on that tab. */
+  .log-row {
+    /* Match .bootstrap-panel padding so Events and Connection Log
+       have identical width when both are visible (16px horizontal,
+       not 24px). */
+    padding: 0 16px 16px;
+    max-width: 1600px;
+    margin: 16px auto 0;
+  }
+
+  /* Mobile + tablet portrait. Bumped from the original 900px so iPad
+     portrait (1024 CSS px) and similar fall into the stacked layout
+     instead of squashing every card into the left half while the
+     280 px sidebar grabs the right half. Each device — chart card
+     OR fleet card — stacks one above the other. */
+  @media (max-width: 1024px) {
+    .main {
+      grid-template-columns: 1fr;
+      padding: 12px;
+    }
+    /* Sidebar (Run Control, status, connection log) above the
+       sensor charts on mobile — operator's thumb is at the bottom
+       of the screen, so the *content* they're watching belongs
+       lower and the *controls they reach for* belong higher. */
+    .sidebar { order: -1; }
+    .sensors-area,
+    .sensors-area.dual {
+      grid-template-columns: 1fr;
+    }
+    .sensor-card:only-child { grid-column: 1; }
+    .devices-area {
+      grid-template-columns: 1fr;
+    }
+    .chart-container { height: 220px; }
+    .header {
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 12px 16px;
+    }
+    .header-controls {
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .devices-main { padding: 12px; }
+    .devices-summary { flex-wrap: wrap; gap: 10px; }
+    .devices-bulk-actions { flex-wrap: wrap; }
+  }
+
+  /* ── Phase 8a: Devices view ─────────────────────────────────────────── */
+  .view-toggle {
+    display: inline-flex;
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    overflow: hidden;
+    margin-right: 12px;
+  }
+  .view-toggle button {
+    background: transparent;
+    border: 0;
+    color: #94a3b8;
+    padding: 7px 14px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .view-toggle button.active {
+    background: #4a9eff;
+    color: #fff;
+    font-weight: 600;
+  }
+
+  .devices-main {
+    max-width: 1600px;
+    margin: 0 auto;
+    /* Horizontal padding matches .main (16px) so the Devices / Data /
+       Link content areas line up with the Live grid and the
+       Events / Connections panels. Previously 24px → cards looked
+       inset by 8px on each side relative to everything else. */
+    padding: 12px 16px 0;
+  }
+  .devices-area {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 12px;
+  }
+
+  .device-card {
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 10px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .device-card .device-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 600;
+    color: #f1f5f9;
+  }
+  .device-card .online-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: #22c55e;
+    box-shadow: 0 0 6px #22c55e;
+    flex-shrink: 0;
+  }
+  .device-card.stale .online-dot { background: #facc15; box-shadow: 0 0 6px #facc15; }
+  .device-card.offline .online-dot { background: #475569; box-shadow: none; }
+
+  .device-card .device-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    color: #94a3b8;
+    font-family: 'SF Mono', Menlo, monospace;
+  }
+  .device-card .device-row .label { color: #64748b; }
+  .device-card .device-row .value { color: #e2e8f0; }
+
+  .battery-bar {
+    height: 6px; background: #0f172a; border-radius: 3px; overflow: hidden;
+    margin-top: 4px;
+  }
+  .battery-bar > div {
+    height: 100%;
+    background: linear-gradient(90deg, #22c55e, #84cc16);
+    transition: width 0.4s ease;
+  }
+  .battery-bar > div.low { background: linear-gradient(90deg, #f97316, #facc15); }
+  .battery-bar > div.crit { background: #ef4444; }
+
+  /* Virtual LED — solid until Phase 5L sends FSM state, then animated */
+  .virt-led {
+    width: 14px; height: 14px; border-radius: 50%;
+    border: 1px solid #475569;
+    background: #334155;
+    flex-shrink: 0;
+  }
+  /* Per-state colour + glow. Opacity is driven by `tickVirtualLeds()`
+     (rAF loop) from `Date.now()` so every virtual LED on the page is
+     phase-locked to the same wall clock the sensors sync to via
+     SPEC-R2-WORKSHOP-TIMESYNC. CSS animations were dropped because
+     setting `animation-delay` on a running animation didn't restart
+     the timeline cleanly — the dots looked like they were "trying to
+     catch up" between cycles. */
+  .virt-led.tg-boot       { background: #f8fafc; box-shadow: 0 0 8px #f8fafc; }
+  .virt-led.tg-advertising { background: #3b82f6; box-shadow: 0 0 8px #3b82f6; }
+  .virt-led.tg-ble        { background: #06b6d4; box-shadow: 0 0 8px #06b6d4; }
+  .virt-led.tg-streaming  { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
+  .virt-led.tg-catchup    { background: #facc15; box-shadow: 0 0 8px #facc15; }
+  .virt-led.tg-cal        { background: #a855f7; box-shadow: 0 0 8px #a855f7; }
+  .virt-led.tg-low        { background: #f97316; box-shadow: 0 0 8px #f97316; }
+  .virt-led.tg-ota        { background: #ec4899; box-shadow: 0 0 8px #ec4899; }
+  .virt-led.tg-error      { background: #ef4444; box-shadow: 0 0 8px #ef4444; }
+  .virt-led.tg-streaming-sim { background: #a855f7; box-shadow: 0 0 8px #a855f7; }
+  .virt-led.tg-recording { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
+  .virt-led.tg-resetting  { background: #94a3b8; box-shadow: 0 0 6px #94a3b8; }
+
+  /* Health-source dot — second indicator next to the FSM-state dot. */
+  .health-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    flex-shrink: 0;
+    border: 1px solid #475569;
+  }
+  .health-dot.health-real { background: #22c55e; box-shadow: 0 0 4px #22c55e; }
+  .health-dot.health-sim  { background: #a855f7; box-shadow: 0 0 6px #a855f7; animation: led-pulse 2.0s ease-in-out infinite; }
+  .health-label {
+    font-size: 0.78em;
+    color: #94a3b8;
+    margin-left: 4px;
+  }
+  .health-label.health-sim-text { color: #c4b5fd; }
+  .health-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 4px;
+  }
+
+  @keyframes led-pulse     { 0%,100% { opacity: 1; } 50% { opacity: 0.25; } }
+  @keyframes led-heartbeat { 0%, 30%, 100% { opacity: 1; } 15%, 45% { opacity: 0.3; } }
+  @keyframes led-strobe    { 0% { opacity: 1; } 50% { opacity: 0; } }
+  @keyframes led-flash     { 0% { opacity: 0; } 30%, 70% { opacity: 1; } 100% { opacity: 0; } }
+
+  .device-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: auto;
+  }
+  .btn-update {
+    flex: 1;
+    background: #475569;
+    color: #f1f5f9;
+    border: 0;
+    border-radius: 6px;
+    padding: 7px 10px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .btn-update:hover { background: #64748b; }
+  .btn-update:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* Secondary destructive action — reset sensor (amber outline). */
+  .btn-reset {
+    flex: 1;
+    background: transparent;
+    color: #f59e0b;
+    border: 1px solid #b45309;
+    border-radius: 6px;
+    padding: 7px 10px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .btn-reset:hover { background: rgba(245, 158, 11, 0.12); }
+  .btn-reset:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* Identify — toggles the sensor's LED to solid white so the
+     operator can physically locate it in a rack. Idle state is a
+     calm slate outline like btn-logs; when active, the button
+     inverts to a bright white fill so the dashboard mirrors what
+     the operator sees on the bench. */
+  .btn-identify {
+    flex: 0 0 auto;
+    background: transparent;
+    color: #94a3b8;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 7px 10px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .btn-identify:hover { background: rgba(148, 163, 184, 0.10); }
+  .btn-identify.active {
+    background: #f8fafc;
+    color: #0b1220;
+    border-color: #f8fafc;
+    box-shadow: 0 0 12px rgba(248, 250, 252, 0.55);
+  }
+
+  /* Tertiary action — live log tail (slate outline). */
+  .btn-logs {
+    flex: 0 0 auto;
+    background: transparent;
+    color: #94a3b8;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 7px 10px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .btn-logs:hover { background: rgba(148, 163, 184, 0.10); }
+  .btn-logs.open { color: #4a9eff; border-color: #4a9eff; }
+
+  .device-log-panel {
+    margin-top: 10px;
+    background: #080b10;
+    border: 1px solid #1e293b;
+    border-radius: 6px;
+    padding: 8px 10px;
+    max-height: 180px;
+    overflow-y: auto;
+    font-family: 'SF Mono', Consolas, monospace;
+    font-size: 11px;
+    line-height: 1.55;
+    color: #94a3b8;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .device-log-panel::-webkit-scrollbar { width: 5px; }
+  .device-log-panel::-webkit-scrollbar-track { background: transparent; }
+  .device-log-panel::-webkit-scrollbar-thumb { background: #2a3050; border-radius: 3px; }
+
+  .devices-summary {
+    display: flex;
+    gap: 18px;
+    color: #94a3b8;
+    font-size: 13px;
+    margin-bottom: 10px;
+    padding: 10px 14px;
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 8px;
+  }
+  .devices-summary strong { color: #e2e8f0; }
+  .devices-repo-link {
+    margin-left: auto;
+    color: #4a9eff;
+    text-decoration: none;
+    font-size: 13px;
+  }
+  .devices-repo-link:hover { text-decoration: underline; }
+
+  /* Run-name input inside the Run Control card (Live tab sidebar). */
+  .run-name-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .run-name-row label { color: #94a3b8; font-size: 12px; flex: 0 0 auto; }
+  .run-name-row input[type="text"] {
+    flex: 1 1 auto;
+    background: #0a0e17;
+    color: #e2e8f0;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-family: 'SF Mono', Consolas, monospace;
+    font-size: 12px;
+  }
+
+  /* Per-card capture file list */
+  .data-files {
+    margin-top: 8px;
+    background: #0a0e17;
+    border: 1px solid #1e293b;
+    border-radius: 6px;
+    max-height: 220px;
+    overflow-y: auto;
+    font-family: 'SF Mono', Consolas, monospace;
+    font-size: 12px;
+  }
+  .data-file-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 10px;
+    border-bottom: 1px solid #131a26;
+  }
+  .data-file-row:last-child { border-bottom: 0; }
+  /* The "last marked" capture across all sensors — same filename per
+     sensor — is what the `💾 Download merged CSV (last marked)`
+     button bundles. Highlight those rows so the operator can see at
+     a glance which files belong to the merged export. */
+  .data-file-row.marked-export {
+    background: rgba(34, 197, 94, 0.06);
+    border-left: 2px solid #22c55e;
+    padding-left: 8px;
+  }
+  .data-file-row.marked-export .name { color: #e2e8f0; font-weight: 500; }
+  .data-file-row .name { flex: 1; color: #cbd5e1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .data-file-row .meta { color: #475569; font-size: 11px; }
+  .data-file-row button {
+    background: transparent;
+    color: #94a3b8;
+    border: 1px solid #334155;
+    border-radius: 4px;
+    padding: 2px 8px;
+    cursor: pointer;
+    font-size: 12px;
+  }
+  .data-file-row button.danger { color: #f87171; border-color: #7f1d1d; }
+  .data-file-row button:hover { background: rgba(148, 163, 184, 0.10); }
+  .data-empty { color: #475569; padding: 18px; text-align: center; font-size: 12px; }
+  .data-card-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .data-card-actions button {
+    flex: 1;
+    background: transparent;
+    color: #f59e0b;
+    border: 1px solid #b45309;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .data-card-actions button:hover { background: rgba(245, 158, 11, 0.12); }
+
+  /* Fleet-wide actions row above the device cards. Mirrors the
+     per-card .btn-update / .btn-reset styling so the relationship
+     is visually obvious (the fleet action is just the card action
+     applied to every card). */
+  .devices-bulk-actions {
+    /* Same card chrome as Live's `.run-control-bar` so the
+       "toolbar slot" reads consistently across Devices / Data /
+       Link / Live tabs. */
+    background: #0c1017;
+    border: 1px solid #1e293b;
+    border-radius: 12px;
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+  .btn-bulk-update,
+  .btn-bulk-reset {
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .btn-bulk-update {
+    background: #475569;
+    color: #f1f5f9;
+    border: 0;
+  }
+  .btn-bulk-update:hover { background: #64748b; }
+  .btn-bulk-reset {
+    background: transparent;
+    color: #f59e0b;
+    border: 1px solid #b45309;
+  }
+  .btn-bulk-reset:hover { background: rgba(245, 158, 11, 0.12); }
+  .btn-bulk-update:disabled,
+  .btn-bulk-reset:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* "Newer firmware available" dot next to the device card's
+     firmware line. Distinct hue (pink) from the LED/health colours
+     so it doesn't get confused with online/offline state. */
+  .fw-update-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #ec4899;
+    margin-left: 6px;
+    box-shadow: 0 0 4px #ec4899;
+    vertical-align: middle;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1><span>R2</span> Rocker Rig — Dashboard</h1>
+  <div class="header-controls">
+    <div class="view-toggle" id="viewToggle">
+      <button id="viewLive"    class="active" onclick="setView('live')">Live</button>
+      <button id="viewDevices"               onclick="setView('devices')">Devices</button>
+      <button id="viewData"                  onclick="setView('data')">Data</button>
+      <button id="viewLink"                  onclick="setView('link')">Link</button>
+    </div>
+    <button class="btn-connect" id="btn-connect" onclick="startBootstrap()">&#x1F50D; Connect Sensors</button>
+    <div class="connection-status">
+      <div class="status-dot" id="wsDot"></div>
+      <span id="wsStatus">Connecting...</span>
+      <span style="margin-left:14px; color:#64748b;">Sensors:</span>
+      <span id="sensorCount" style="font-weight:600; color:#4a9eff;">0</span>
+    </div>
+  </div>
+</div>
+
+<!-- ── Devices view (Phase 8a) ─────────────────────────────────────── -->
+<div class="devices-main" id="devicesMain" hidden>
+  <div class="devices-summary" id="devicesSummary">
+    <span><strong id="dsTotal">0</strong> known</span>
+    <span><strong id="dsOnline" style="color:#22c55e;">0</strong> online</span>
+    <span><strong id="dsStale" style="color:#facc15;">0</strong> stale</span>
+    <span><strong id="dsOffline" style="color:#64748b;">0</strong> offline</span>
+    <span><strong id="dsNeedsUpdate" style="color:#ec4899;">0</strong> needs update</span>
+    <a class="devices-repo-link"
+       href="https://github.com/reality2-ai/r2-workshop#readme"
+       target="_blank" rel="noopener">↗ Project README</a>
+  </div>
+  <div class="devices-bulk-actions">
+    <button class="btn-bulk-update" id="bulkPullLatestBtn" onclick="requestUpdateAllFromLatest()" hidden>✨ Update Outdated from Latest</button>
+    <button class="btn-bulk-update" id="bulkUpdateBtn" onclick="requestUpdateAll()">⬆ Update All Firmware…</button>
+    <button class="btn-bulk-reset"  id="bulkResetBtn"  onclick="requestResetAll()">↻ Reset All Sensors</button>
+  </div>
+  <div class="devices-area" id="devicesArea">
+    <div class="card" id="devicesPlaceholder" style="color:#475569; text-align:center; padding:40px;">
+      No sensors known yet — wait for an announce or click <em>Connect Sensors</em>.
+    </div>
+  </div>
+</div>
+
+<!-- ── Link view (SPEC-R2-WORKSHOP-ACCESS) ───────────────────────────── -->
+<!-- Operator-facing rename of the "Access" spec tab — calm-tech, no
+     R2 jargon. Internal URL paths remain `/api/access/*`. -->
+<div class="devices-main" id="linkMain" hidden>
+  <div class="devices-bulk-actions">
+    <button class="btn-bulk-update" id="linkOnboardBtn" onclick="openOnboardModal()">🔍 Onboard a visitor</button>
+    <button class="btn-bulk-reset"  id="linkRefreshBtn" onclick="loadLinkMembers()">↻ Refresh</button>
+  </div>
+  <div class="devices-area" id="linkPendingArea" hidden>
+    <div class="card" style="background:#1e1b2c; border-color:#7c3aed;">
+      <h3 style="margin:0 0 8px 0; color:#ddd6fe; font-size:14px;">🔔 Pending pair requests</h3>
+      <div id="linkPendingRows"></div>
+    </div>
+  </div>
+  <div class="devices-area" id="linkArea">
+    <div class="card" id="linkPlaceholder" style="color:#475569; text-align:center; padding:40px;">
+      Loading paired devices…
+    </div>
+  </div>
+</div>
+
+<!-- Onboard-a-visitor modal — per SPEC-R2-WORKSHOP-ACCESS v0.3 §8.
+     Two static QRs (WiFi-join + plain dashboard URL). No token, no
+     countdown. The visitor scans, joins the lab WiFi, opens the
+     dashboard URL, then asks to pair from the not-enrolled landing
+     page. The operator approves on the same Link tab. -->
+<div class="invite-overlay" id="onboardOverlay" hidden onclick="if(event.target.id==='onboardOverlay') closeOnboardModal()">
+  <div class="invite-modal">
+    <div class="invite-header">
+      <h2>Onboard a visitor</h2>
+      <button class="bootstrap-close" onclick="closeOnboardModal()">&times;</button>
+    </div>
+    <p class="invite-help">
+      Show the visitor these QR codes. They scan step 1 to join the lab WiFi, then step 2 to open the dashboard — from there they ask to pair and you approve them on this tab.
+    </p>
+
+    <div id="onboardWifiBlock" hidden>
+      <p class="invite-step-label">Step 1: Join the hotspot WiFi <span id="onboardWifiSsidLabel" class="invite-step-side"></span></p>
+      <div class="invite-qr-wrap">
+        <img id="onboardWifiQrImg" alt="WiFi-join QR" />
+      </div>
+      <div class="invite-url-group">
+        <label>Or type these by hand:</label>
+        <div class="invite-url-row">
+          <input id="onboardWifiSsid" readonly />
+          <button onclick="copyInputToClipboard('onboardWifiSsid', this)">Copy</button>
+        </div>
+        <div class="invite-url-row" style="margin-top:6px;">
+          <input id="onboardWifiPsk" type="password" readonly />
+          <button onclick="toggleOnboardWifiPskReveal()" id="onboardWifiPskReveal">Show</button>
+          <button onclick="copyInputToClipboard('onboardWifiPsk', this)">Copy</button>
+        </div>
+      </div>
+    </div>
+
+    <p class="invite-step-label">Step 2: Open the dashboard</p>
+    <div class="invite-qr-wrap">
+      <img id="onboardDashQrImg" alt="Dashboard URL QR" />
+    </div>
+    <div class="invite-url-group">
+      <label>Or open this URL on the device:</label>
+      <div class="invite-url-row">
+        <input id="onboardDashUrl" readonly />
+        <button onclick="copyInputToClipboard('onboardDashUrl', this)">Copy</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Data view (SPEC-R2-WORKSHOP-CAPTURE) ──────────────────────────── -->
+<div class="devices-main" id="dataMain" hidden>
+  <div class="devices-bulk-actions">
+    <button class="btn-bulk-update" id="dataMergedBtn" onclick="downloadMergedLatest()">💾 Download merged CSV (last marked)</button>
+    <label class="data-bin-row" title="Average samples into time buckets so timestamps line up across sensors. Raw = no averaging, every sample point of every sensor appears in its own row.">
+      Sample at:
+      <select id="dataMergedBin">
+        <option value="0">Raw</option>
+        <option value="10">10 ms</option>
+        <option value="100" selected>100 ms</option>
+        <option value="1000">1 s</option>
+      </select>
+    </label>
+    <button class="btn-bulk-reset"  id="dataDeleteAllBtn" onclick="requestDeleteAllFleet()">🗑 Delete all data across devices</button>
+  </div>
+  <div class="devices-area" id="dataArea">
+    <div class="card" id="dataPlaceholder" style="color:#475569; text-align:center; padding:40px;">
+      No sensors known yet.
+    </div>
+  </div>
+</div>
+
+<div class="main" id="liveMain">
+  <!-- Run Control bar — horizontal toolbar style, matching
+       Devices / Data tabs' bulk-actions row. -->
+  <div class="run-control-bar">
+    <div class="state-indicator state-idle" id="captureStateLabel">IDLE</div>
+    <div class="run-name-row">
+      <label for="runName">Run name:</label>
+      <input type="text" id="runName" placeholder="run-01" maxlength="32" />
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-start" id="captureStartBtn" onclick="captureStart()">&#x25B6; Start</button>
+      <button class="btn btn-mark"  id="captureMarkBtn"  onclick="captureMark()" disabled>&#x2691; Mark</button>
+      <button class="btn btn-stop"  id="captureStopBtn"  onclick="captureStop()" disabled>&#x25A0; Stop</button>
+    </div>
+  </div>
+
+  <!-- Sensor charts (populated dynamically) -->
+  <div class="sensors-area" id="sensorsArea">
+    <div class="card" id="sensorPlaceholder" style="color:#475569; text-align:center; padding:60px;">
+      Waiting for sensors…
+    </div>
+  </div>
+</div>
+
+<!-- Events -->
+<div class="log-row" id="eventLogRow">
+  <div class="card log-card">
+    <h2>Events</h2>
+    <div class="log-entries" id="logEntries"></div>
+  </div>
+</div>
+
+<!-- Connections panel (between graphs and the events feed) -->
+<div class="bootstrap-panel" id="bootstrap-panel">
+  <div class="bootstrap-log-card">
+    <div class="bootstrap-log-header">
+      <h2>Connections</h2>
+    </div>
+    <div class="bootstrap-log-entries" id="bootstrap-log"></div>
+  </div>
+</div>
+
+<script>
+// Service-worker registration is currently DISABLED — an earlier
+// SW (v15/v16) got into a state where it intercepted every /api/*
+// fetch and returned `Failed to fetch`. `sw.js` is now a self-
+// uninstalling kill switch that drops every cache it ever made;
+// any browser that previously installed one will clear itself the
+// next time it lands on this page. Re-enabling the stale-while-
+// revalidate behaviour is a separate, careful refactor (track in
+// PLAN or git history).
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then((regs) => {
+    regs.forEach((r) => r.unregister().catch(() => {}));
+  });
+}
+</script>
+
+<script type="module">
+const MAX_POINTS = 200;
+
+// ── Global state ──
+let totalEvents = 0;
+
+// Latest firmware snapshot from `/api/firmware/available`. Refreshed
+// on page load + every minute. Shape:
+//   { source: 'github'|'local'|'none', version, assets: [{carrier,
+//     version, url, size}], note?: string, fetched_at_ms }
+// `null` until the first fetch resolves.
+let availableFirmware = null;
+
+// ── Per-sensor state ── keyed by source_addr (IP:port)
+const sensors = new Map();
+
+function getSensorKey(addr) {
+  return addr ? addr.split(':')[0] : addr;
+}
+
+function getOrCreateSensor(addr) {
+  const key = getSensorKey(addr);
+  if (sensors.has(key)) return sensors.get(key);
+
+  const area = document.getElementById('sensorsArea');
+  const placeholder = document.getElementById('sensorPlaceholder');
+  if (placeholder) placeholder.remove();
+
+  const safeKey = key.replace(/\./g, '-');
+  const card = document.createElement('div');
+  card.className = 'card sensor-card';
+  card.id = 'sensor-' + safeKey;
+
+  card.innerHTML = `
+    <div class="sensor-label" id="slabel-${safeKey}">
+      <span class="virt-led virt-led-lg" id="sled-${safeKey}"></span>
+      <span class="slabel-name">${key}</span>
+      <button class="rename-btn" title="Rename this sensor" onclick="renameSensor('${key}')">✏️</button>
+      <span class="sensor-addr">${key}</span>
+    </div>
+    <div class="chart-container">
+      <canvas id="chart-${safeKey}"></canvas>
+    </div>
+    <div class="sensor-stats">
+      <span>x: <span class="vx" id="vx-${safeKey}">&mdash;</span></span>
+      <span>y: <span class="vy" id="vy-${safeKey}">&mdash;</span></span>
+      <span>z: <span class="vz" id="vz-${safeKey}">&mdash;</span></span>
+      <span>|A|: <span class="vmag" id="vmag-${safeKey}">&mdash;</span></span>
+      <span style="margin-left:auto; color:#475569; display: inline-block; width: 8ch; text-align: right; font-variant-numeric: tabular-nums;" id="rate-${safeKey}">&mdash; Hz</span>
+    </div>
+    <div class="sensor-event-log" id="slog-${safeKey}"></div>
+  `;
+  area.appendChild(card);
+  setTimeout(() => sensors.forEach(s => s.chart.resize()), 50);
+
+  const ctx = document.getElementById('chart-' + safeKey).getContext('2d');
+  const chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [
+        { label: 'x (g)', data: [], borderColor: '#ff6384', borderWidth: 1.5, pointRadius: 0, tension: 0.2 },
+        { label: 'y (g)', data: [], borderColor: '#36a2eb', borderWidth: 1.5, pointRadius: 0, tension: 0.2 },
+        { label: 'z (g)', data: [], borderColor: '#4bc0c0', borderWidth: 1.5, pointRadius: 0, tension: 0.2 },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      scales: {
+        x: { display: true, grid: { color: '#1e293b' }, ticks: { color: '#475569', maxTicksLimit: 8 } },
+        y: { display: true, grid: { color: '#1e293b' }, ticks: { color: '#475569' }, title: { display: true, text: 'Acceleration (g)', color: '#64748b' }, suggestedMin: -2, suggestedMax: 2 },
+      },
+      plugins: { legend: { labels: { color: '#94a3b8', usePointStyle: true } } },
+    },
+  });
+
+  const sensor = {
+    key,
+    deviceName: null,
+    hostname: null,     // hardware-reported hostname (from announce)
+    // Phase 8a (Devices view) state — populated by handlers in handleEvent.
+    fwVer: null,
+    devicePk: null,
+    bootTsMs: null,
+    battery: null,    // { voltage_mv, percent, charging, ts }
+    fsmState: null,   // populated once Phase 5L firmware emits status events
+    dataSource: null, // 0 = real ADXL355, 1 = sim fallback; null = unknown (no status yet)
+    pendingReset: false, // transient: true between Reset button click and sensor reconnect
+    pendingOta:   false, // transient: true through the OTA upload + reboot + reconnect cycle
+    lastSeen: Date.now(),
+    online: true,
+    chart,
+    sampleTimes: [],
+    logCount: 0,
+  };
+  sensors.set(key, sensor);
+  addSensorLog(sensor, 'connected');
+  updateSensorList();
+  return sensor;
+}
+
+function setDeviceName(sensor, name) {
+  if (!name) return;
+
+  // Deduplicate: if another sensor card already has this name (same physical device,
+  // different IP — e.g. after DHCP renewal or reconnect), destroy the stale card.
+  for (const [key, existing] of sensors) {
+    if (existing !== sensor && existing.deviceName === name) {
+      // Destroy the stale duplicate card
+      const staleKey = key.replace(/\./g, '-');
+      const staleCard = document.getElementById('sensor-' + staleKey);
+      if (staleCard) {
+        if (existing.chart) { existing.chart.destroy(); }
+        staleCard.remove();
+      }
+      sensors.delete(key);
+      break;
+    }
+  }
+
+  if (sensor.deviceName === name) return;
+  sensor.deviceName = name;
+  const sk = sensor.key.replace(/\./g, '-');
+  // Update only the inner name span — leave the LED dot + sensor-addr
+  // structure intact so the LED class survives renames.
+  const nameEl = document.querySelector('#slabel-' + sk + ' .slabel-name');
+  if (nameEl) nameEl.textContent = name;
+  updateSensorList();
+}
+
+// Map .tg-* state class → (period_ms, opacityFn(phase∈[0,1)) → [0,1]).
+// Each shape function mirrors the firmware's `render()` helper in
+// `firmware/.../src/led.rs` so the virtual LED pulses identically to
+// the physical RGB LED beside it. Phase comes from
+// `Date.now() % period_ms` — the same wall clock the firmware syncs
+// to via SPEC-R2-WORKSHOP-TIMESYNC, so every dot on the page AND every
+// physical LED in the rig agrees on the current phase.
+//
+// `pulse`     — smooth sin oscillation (firmware led.rs `pulse()`)
+// `heartbeat` — gaussian lub-dub        (firmware led.rs `heartbeat()`)
+// `tick`      — single gaussian bump    (firmware led.rs `single_tick()`)
+// `strobe`    — 50% square wave         (firmware led.rs `strobe()`)
+// `flash`     — one-shot ramp up/down   (matches `led-flash` keyframes)
+const VIRT_LED_SHAPES = {
+  // p (phase 0..1) returns opacity 0..1
+  pulse:     (p) => 0.5 + 0.5 * Math.sin(p * 2 * Math.PI),
+  heartbeat: (p) => {
+    const b1 = Math.exp(-Math.pow((p - 0.00) * 14, 2));
+    const b2 = Math.exp(-Math.pow((p - 0.18) * 14, 2)) * 0.7;
+    return Math.max(0, Math.min(1, b1 + b2));
+  },
+  tick:      (p) => Math.exp(-Math.pow((p - 0.05) * 14, 2)),
+  strobe:    (p) => (p < 0.5 ? 1 : 0),
+  flash:     (p) => (p < 0.3 ? p / 0.3 : p < 0.7 ? 1 : (1 - p) / 0.3),
+};
+const VIRT_LED_STATES = {
+  'tg-boot':           { periodMs: 1000, shape: 'flash' },
+  'tg-advertising':    { periodMs: 1000, shape: 'pulse' },
+  'tg-ble':            { periodMs:  400, shape: 'pulse' },
+  'tg-streaming':      { periodMs: 2400, shape: 'heartbeat' },
+  'tg-catchup':        { periodMs: 2400, shape: 'heartbeat' },
+  'tg-low':            { periodMs: 1500, shape: 'pulse' },
+  'tg-ota':            { periodMs:  180, shape: 'strobe' },
+  'tg-error':          { periodMs:  250, shape: 'pulse' },
+  'tg-streaming-sim':  { periodMs: 2000, shape: 'pulse' },
+  'tg-recording':      { periodMs:  500, shape: 'tick' },
+  'tg-resetting':      { periodMs:  500, shape: 'pulse' },
+  // tg-cal is a solid state — no entry → tickVirtualLeds leaves it alone.
+};
+
+let _virtLedRafScheduled = false;
+function tickVirtualLeds() {
+  _virtLedRafScheduled = false;
+  const nowMs = Date.now();
+  const els = document.getElementsByClassName('virt-led');
+  for (const el of els) {
+    let state = null;
+    for (const cls of el.classList) {
+      if (VIRT_LED_STATES[cls]) { state = VIRT_LED_STATES[cls]; break; }
+    }
+    if (!state) {
+      // Solid or no recognised state — full brightness.
+      el.style.opacity = '';
+      continue;
+    }
+    const phase = (nowMs % state.periodMs) / state.periodMs;
+    const op = VIRT_LED_SHAPES[state.shape](phase);
+    // Floor at 0.06 so the dim half of the cycle still shows the
+    // colour rather than disappearing into the dark page background.
+    el.style.opacity = (0.06 + 0.94 * Math.max(0, Math.min(1, op))).toFixed(3);
+  }
+  if (els.length > 0) {
+    _virtLedRafScheduled = true;
+    requestAnimationFrame(tickVirtualLeds);
+  }
+}
+function syncVirtLedPhase(_el) {
+  // No-op now — opacity is driven globally by tickVirtualLeds(). The
+  // function name is kept so existing call sites don't break.
+  if (!_virtLedRafScheduled) {
+    _virtLedRafScheduled = true;
+    requestAnimationFrame(tickVirtualLeds);
+  }
+}
+
+// Per-card LED refresh. The header's "Sensors:" count is bumped here
+// too; the previous sidebar "Connected Sensors" box is gone — its
+// information has been promoted onto each card via the .virt-led
+// next to the sensor name.
+function updateSensorList() {
+  const countEl = document.getElementById('sensorCount');
+  if (countEl) countEl.textContent = sensors.size;
+  for (const s of sensors.values()) {
+    const sk = s.key.replace(/\./g, '-');
+    const ledEl = document.getElementById('sled-' + sk);
+    if (!ledEl) continue;
+    const cls = ledClassFor(s);
+    ledEl.className = 'virt-led virt-led-lg ' + cls;
+    syncVirtLedPhase(ledEl);
+  }
+}
+
+function addSensorLog(sensor, text) {
+  const sk = sensor.key.replace(/\./g, '-');
+  const el = document.getElementById('slog-' + sk);
+  if (!el) return;
+  const now = new Date();
+  const ts = now.toLocaleTimeString('en-NZ', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const line = document.createElement('div');
+  line.className = 'sensor-event-line';
+  line.innerHTML = `<span class="sel-time">[${ts}]</span> <span class="sel-text">${text}</span>`;
+  el.appendChild(line);
+  sensor.logCount++;
+  while (sensor.logCount > 20) {
+    el.removeChild(el.firstChild);
+    sensor.logCount--;
+  }
+  el.scrollTop = el.scrollHeight;
+}
+
+// ── Bootstrap ──
+function startBootstrap() {
+  const btn = document.getElementById('btn-connect');
+  btn.disabled = true;
+  btn.textContent = 'Scanning…';
+
+  // Safety net — the controller's bootstrap loop runs continuously and
+  // only emits `Done` when every known sensor is simultaneously Active.
+  // If any sensor never reports presence the button would otherwise be
+  // stuck on "Scanning…" forever. Reset after 60 s no matter what; the
+  // log panel keeps showing live progress in the background.
+  if (window.__connectButtonTimeout) clearTimeout(window.__connectButtonTimeout);
+  window.__connectButtonTimeout = setTimeout(resetConnectButton, 60_000);
+
+  const panel = document.getElementById('bootstrap-panel');
+  panel.classList.add('visible');
+  document.getElementById('bootstrap-log').innerHTML = '';
+
+  sendCmd('bootstrap').catch(e => {
+    addBootstrapLine('Error: ' + (e.message || e), 'red');
+    resetConnectButton();
+  });
+}
+
+
+function handleBootstrapEvent(msg) {
+  const evt = msg.event;
+  if (!evt) return;
+
+  // Reset event clears the bootstrap log panel for a fresh run AND
+  // wipes the sensor cards. Pressing Connect Sensors cycles the
+  // hotspot (BootstrapConfig::cycle_hotspot = true), so every
+  // currently-streaming sensor is about to lose WiFi and re-pair —
+  // their cards represent stale state until they reconnect. Clearing
+  // makes that explicit: the Live / Devices tabs show "Waiting for
+  // sensors…" and repopulate as each sensor's fresh announce lands
+  // over the new TCP session.
+  if (evt === null || 'Reset' in msg.event) {
+    document.getElementById('bootstrap-log').innerHTML = '';
+    document.getElementById('bootstrap-panel').classList.add('visible');
+    addBootstrapLine('↺ Restarting…', 'amber');
+    sensors.clear();
+    document.getElementById('sensorsArea').innerHTML =
+      '<div class="card" id="sensorPlaceholder" style="color:#475569; text-align:center; padding:60px;">Waiting for sensors…</div>';
+    if (typeof renderDevicesIfVisible === 'function') renderDevicesIfVisible();
+    updateSensorList();
+    return;
+  }
+
+  switch (evt.kind) {
+    case 'Log':
+      addBootstrapLine(evt.data, '');
+      // Recognise steady-state messages — when the bootstrap loop has
+      // either found sensors already streaming OR set up the hotspot and
+      // is now waiting in scan-quiet mode, there's nothing further the
+      // user is blocked on. Re-enable the button so they can re-trigger.
+      // The bootstrap loop keeps running in the background regardless.
+      if (/scan quiet for|sensor\(s\) streaming|Hotspot ready/i.test(evt.data)) {
+        resetConnectButton();
+      }
+      break;
+    case 'SensorFound':
+      addBootstrapLine('Found sensor: ' + evt.data.addr, 'amber');
+      break;
+    case 'SensorConnected':
+      addBootstrapLine('\u2713 ' + evt.data.name + ' connected (' + evt.data.ip + ')', 'green');
+      // Per-sensor success \u2014 reset the button now rather than waiting
+      // for `Done`, which only fires when *all* known sensors are
+      // simultaneously Active (a state the loop may never reach if any
+      // sensor drops out, and never re-fires after the first time).
+      resetConnectButton();
+      break;
+    case 'Done':
+      addBootstrapLine(evt.data.count + ' sensor(s) connected', 'green');
+      resetConnectButton();
+      break;
+    case 'Error':
+      addBootstrapLine('ERROR: ' + evt.data, 'red');
+      resetConnectButton();
+      break;
+  }
+}
+
+function resetConnectButton() {
+  const btn = document.getElementById('btn-connect');
+  if (!btn) return;
+  btn.disabled = false;
+  btn.textContent = '\uD83D\uDD0D Connect Sensors';
+  if (window.__connectButtonTimeout) {
+    clearTimeout(window.__connectButtonTimeout);
+    window.__connectButtonTimeout = null;
+  }
+}
+
+function addBootstrapLine(text, cls) {
+  const el = document.getElementById('bootstrap-log');
+  const line = document.createElement('div');
+  line.className = 'bs-line' + (cls ? ' ' + cls : '');
+  line.textContent = text;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+
+// ── WASM hive bootstrap + WebSocket /r2 (R2-INTERNET §5) ──────────────────
+//
+// This viewer is the browser-side R2 hive. It receives raw R2-WIRE frames
+// (with src_addr envelope) over WSS, decodes them in WebAssembly via the
+// vendored r2-wasm bundle, and drives the existing Live + Devices UI by
+// synthesising the same {event, source_addr, payload, ...} message shape
+// the legacy JSON-pushing dashboard used. Existing handlers below stay
+// unchanged.
+import init, {
+  fnv1a_32 as wasmFnv1a32,
+  decode_compact_frame as wasmDecodeFrame,
+  r2_version as wasmVersion,
+  // SPEC-R2-WORKSHOP-ACCESS — viewer enrolment + cert lifecycle.
+  generate_device_keypair as wasmGenerateDeviceKeypair,
+  complete_join as wasmCompleteJoin,
+  R2Member as WasmR2Member,
+  // Used to sign the relay HELLO when we don't yet have a paired
+  // R2Member (notekeeper does the same — see notekeeper:1475).
+  // Pure WASM, doesn't depend on browser SubtleCrypto Ed25519
+  // support, which is missing on older mobile Safari / Chrome.
+  sign_ed25519 as wasmSignEd25519,
+  // Track D — browser-side R2 hive carrying the rocker viewer sentant.
+  // Audit 2026-05-23 Finding C. The sentant subscribes to the sensor
+  // event family and maintains a per-sensor state table; JS reads it
+  // back via `hive.peek_state()`. v0.1 slice is observation-only: JS
+  // keeps owning UI rendering, the hive runs in parallel.
+  R2WorkshopHive as WasmRockerHive,
+} from './pkg/r2_wasm.js';
+
+/// Browser-side rocker hive (Track D). Constructed lazily once
+/// `init()` resolves in `bootstrapHive`. Every R2-WIRE frame the
+/// dashboard pushes on `/r2` is forwarded into the hive via
+/// `hive.send_event(hash, payload)` alongside the existing JS
+/// dispatch. The hive maintains its own per-sensor state for the
+/// follow-up slice that migrates UI rendering through it.
+let rockerHive = null;
+
+let ws;
+let HASH_TO_NAME = new Map();           // u32 event_hash → friendly name
+const LSB_PER_G_AT_2G = 256000;         // ADXL355 scale at ±2 g
+const TEXT_DECODER = new TextDecoder('utf-8');
+
+const KNOWN_EVENT_NAMES = [
+  'r2.sensor.announce',
+  'r2.sensor.acceleration',
+  'r2.sensor.acceleration.batch',
+  'r2.sensor.battery',
+  'r2.sensor.status',
+  'r2.sensor.event.log',
+  'r2.sensor.cal.sample.resp',
+  'r2.sensor.sync_pong',
+  'r2.sensor.capture.state',
+  // Controller-synthesised status events (SPEC-R2-WORKSHOP-WIRE §2,
+  // rows 22-28). Per-name JS handlers don't yet exist for most of
+  // these in v0.1 — the R2-WIRE events on /r2 drives the
+  // UI for them. They're listed here so the sentant subscription
+  // path (rockerHive.send_event) gets the friendly name resolved
+  // and inbound event_count is accurate.
+  'r2.peer.disconnected',
+  'r2.dash.ota.progress',
+  'r2.dash.reset.progress',
+  'r2.dash.capture.progress',
+  'r2.dash.access.event',
+  'r2.dash.bootstrap.progress',
+  'r2.dash.device.alias.changed',
+  // Operator-plane response (§2.1 row 32). Required for the JS-side
+  // handleCmdResponse correlator to fire — without it the dashboard's
+  // reply resolves to event name 'unknown' and pending sendCmd
+  // promises time out.
+  'r2.dash.cmd.response',
+];
+
+async function bootstrapHive() {
+  try {
+    await init();
+  } catch (err) {
+    console.error('[hive] WASM init FAILED:', err);
+    document.getElementById('wsStatus').textContent = 'WASM init failed (see console)';
+    return;
+  }
+  console.log('[hive] r2-wasm loaded:', wasmVersion());
+
+  // Track D — instantiate the rocker viewer hive. From this point on
+  // every R2-WIRE event arriving via /r2 is also forwarded into
+  // `rockerHive.send_event(hash, payload)` (see onRawFrame). The
+  // sentant maintains a per-sensor state table; JS can inspect it
+  // via `JSON.parse(rockerHive.peek_state())` from devtools. UI
+  // rendering still flows through the existing JS state in this
+  // slice; the next slice migrates rendering to use the hive's
+  // snapshot directly.
+  try {
+    rockerHive = new WasmRockerHive();
+    window.rockerHive = rockerHive; // devtools convenience
+    console.log('[hive] R2WorkshopHive constructed; forwarding /r2 events into the sentant');
+  } catch (err) {
+    console.warn('[hive] R2WorkshopHive construct failed (continuing without it):', err);
+    rockerHive = null;
+  }
+
+  // Cross-origin cert import. The lab-origin webapp (loaded from
+  // http://<lan_ip>:21042) issues a "Save for off-network use" link
+  // that opens the static-host build with a #bundle=… fragment
+  // carrying the cert + relay_url. The fragment never traverses the
+  // network, so the cert stays client-side. After import we wipe
+  // the fragment so a reload doesn't re-trigger the import path.
+  await tryImportOffNetworkBundle();
+
+  // SPEC-R2-WORKSHOP-ACCESS §8 trailing paragraph + §11.2:
+  //   * KeyHolder-on-localhost shortcut → straight through.
+  //   * Existing IndexedDB cert (incl. one just imported above) → through.
+  //   * Otherwise → render the not-enrolled landing page in place of
+  //     the regular tabs. The /ws/* connects below are skipped to
+  //     avoid a "connected, see live data" view leaking through the
+  //     pairing gate.
+  const allowed = await accessGate();
+  if (!allowed) {
+    console.log('[hive] not enrolled — landing page rendered, deferring WS setup');
+    return;
+  }
+
+  // Operator-assigned device aliases. Fire-and-forget — the WS
+  // `device_alias` events will keep us in sync after this; this
+  // initial fetch primes the map so cards render with the right
+  // names on first paint.
+  loadDeviceAliases();
+
+  // Restore the merged-CSV downsample picker's saved selection from
+  // localStorage. Per-browser preference; survives reload.
+  restoreMergedBinPref();
+
+  console.log('[hive] hash table:');
+  for (const name of KNOWN_EVENT_NAMES) {
+    const hash = wasmFnv1a32(new TextEncoder().encode(name)) >>> 0;
+    HASH_TO_NAME.set(hash, name);
+    console.log('  0x' + hash.toString(16).padStart(8, '0'), name);
+  }
+  // Pick transport, in order of preference:
+  //   1. `?relay=` URL parameter (legacy pre-pairing path; rare now
+  //      that the operator-initiated invite-QR is gone).
+  //   2. HTTPS origin + persisted relay_url in IndexedDB → off-network
+  //      viewer leg (the github.io / reality2.ai/r2-workshop case after
+  //      cross-origin cert hand-off). Mixed-content blocking means
+  //      direct /r2 can't reach the lab dashboard from here.
+  //   3. Otherwise — same-origin lab dashboard, use /r2 (R2-WIRE channel)
+  //      directly.
+  const relayUrlParam = getRelayUrlParam();
+  const persistedRelay = (location.protocol === 'https:')
+    ? await idbGet('relay_url').catch(() => null)
+    : null;
+  if (relayUrlParam) {
+    console.log('[hive] using relay transport (URL param) →', relayUrlParam);
+    connectRelay(relayUrlParam);
+  } else if (persistedRelay) {
+    console.log('[hive] using relay transport (persisted) →', persistedRelay);
+    connectRelay(persistedRelay);
+  } else {
+    console.log('[hive] connecting to /r2 …');
+    connectRaw();
+  }
+}
+
+// /ws/status was removed in v0.2 — every status notification that
+// used to ride its JSON channel (bootstrap progress, peer_disconnected,
+// OTA progress, access events, device_alias renames) now flows as a
+// R2-WIRE event on /r2. Dispatchers live in handleEvent above.
+// SPEC-R2-WORKSHOP-DASHBOARD §5.3 has been removed.
+
+function connectRaw() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${proto}//${location.host}/r2`);
+  ws.binaryType = 'arraybuffer';
+  ws.onopen = () => {
+    document.getElementById('wsDot').className = 'status-dot connected';
+    document.getElementById('wsStatus').textContent = 'Connected';
+  };
+  ws.onclose = () => {
+    document.getElementById('wsDot').className = 'status-dot';
+    document.getElementById('wsStatus').textContent = 'Disconnected';
+    setTimeout(connectRaw, 2000);
+  };
+  ws.onerror = (e) => console.warn('[hive] ws error', e);
+  ws.onmessage = (e) => {
+    if (typeof e.data === 'string') return; // shouldn't happen on /r2
+    onRawFrame(new Uint8Array(e.data));
+  };
+}
+
+// ── Off-network relay path (SPEC-R2-WORKSHOP-ACCESS §5.2) ──────────────
+//
+// When the page is loaded from a static host (GitHub Pages) with
+// `?relay=wss://...` in the URL, the dashboard's controller is
+// unreachable. Use the R2 relay instead: open a WSS to it, send a
+// HELLO signed with whatever identity we have (existing cert in
+// IndexedDB if paired, or an ephemeral keypair if not yet), and
+// then either (a) wait for our access request to be approved if
+// we're pre-paired, or (b) start receiving live R2-WIRE frames if
+// we're already paired.
+//
+// The relay is a dumb forwarder — every binary frame the dashboard
+// publishes to the same trust-group bucket lands here, and the
+// existing onRawFrame() handler decodes it. Trust comes from
+// end-to-end Ed25519 / DEK (not from the relay).
+
+let relayWs = null;
+let relayEphemeralSk = null;  // pre-pairing ephemeral keypair
+let relayEphemeralPk = null;
+let relayJoinParam   = null;  // {tg_hash, entropy_hex} when pre-pairing
+
+function getRelayUrlParam() {
+  const url = new URL(location.href);
+  return url.searchParams.get('relay');
+}
+
+/// Connect to the R2 relay. Identity selection:
+///   * If we already have a paired R2Member in IndexedDB, use its
+///     sign_relay_hello().
+///   * Else generate an ephemeral keypair, derive tg_hash from
+///     the `?join=` token, manually build the HELLO. Used during
+///     off-network pairing — we connect to the relay BEFORE we
+///     have a cert.
+async function connectRelay(relayUrl) {
+  if (relayWs) { try { relayWs.close(); } catch (_) {} }
+
+  // Determine HELLO identity.
+  let helloJson;
+  if (viewerIdentity) {
+    // Paired path — use the R2Member's signed HELLO. trust_group
+    // hash + device_id + signature all come from inside the cert.
+    const ts = BigInt(Math.floor(Date.now() / 1000));
+    helloJson = viewerIdentity.sign_relay_hello(ts);
+  } else {
+    // Pre-pairing path. Need a `?join=` token; without it we have
+    // no idea which TG to dial.
+    const joinParam = parseJoinParam();
+    if (!joinParam) {
+      console.warn('[relay] no cert + no ?join= — cannot connect');
+      return;
+    }
+    relayJoinParam = joinParam;
+    // tg_hash on the wire matches r2-relay's "exact 16 hex chars"
+    // bucket lookup (r2-relay/src/ws.rs:236). The dashboard's
+    // invite token now carries the full 16-hex SHA-256(TG_PK)[..8]
+    // (notekeeper-aligned) so no prefix gymnastics — bucket
+    // routing is unambiguous.
+    const tgHashFull = joinParam.tg_hash;
+    const kp = wasmGenerateDeviceKeypair();
+    relayEphemeralSk = new Uint8Array(kp.secret_key);
+    relayEphemeralPk = new Uint8Array(kp.public_key);
+    const device_id_hex = bytesToHex(relayEphemeralPk);
+    const ts = Math.floor(Date.now() / 1000);
+    const msg = `${tgHashFull}:${device_id_hex}:${ts}`;
+    // Sign with the ephemeral SK via the WASM bundle's sign_ed25519
+    // (same path notekeeper uses — notekeeper:1475). Pure WASM,
+    // no dependency on browser SubtleCrypto Ed25519 (which is missing
+    // on iOS Safari < 17 and Chrome < 113 — would silently throw
+    // and kill the connect-relay chain before HELLO ever went out).
+    const sig = wasmSignEd25519(relayEphemeralSk, new TextEncoder().encode(msg));
+    helloJson = JSON.stringify({
+      type: 'hello',
+      version: 1,
+      trust_group: tgHashFull,
+      device_id: device_id_hex,
+      timestamp: ts,
+      signature: bytesToHex(sig),
+    });
+  }
+
+  relayWs = new WebSocket(relayUrl);
+  relayWs.binaryType = 'arraybuffer';
+  relayWs.onopen = () => {
+    relayWs.send(helloJson);
+    document.getElementById('wsStatus').textContent = 'Connecting…';
+  };
+  relayWs.onclose = (ev) => {
+    document.getElementById('wsDot').className = 'status-dot';
+    document.getElementById('wsStatus').textContent = `Disconnected (${ev.code})`;
+    setTimeout(() => connectRelay(relayUrl), 3000);
+  };
+  relayWs.onerror = (e) => console.warn('[relay] error', e);
+  relayWs.onmessage = (e) => {
+    if (typeof e.data === 'string') {
+      handleRelayText(e.data);
+    } else {
+      // Binary frame. Two possibilities (matches notekeeper):
+      //   1. Join-protocol frame: [0xFF, opcode, ...]. Sensor R2-WIRE
+      //      envelopes never start with 0xFF (their first byte is the
+      //      high byte of a u16 src_addr_len ≤ 64), so this is
+      //      unambiguous.
+      //   2. Sensor R2-WIRE envelope from another peer in the same
+      //      bucket — pass to onRawFrame for chart updates.
+      const buf = new Uint8Array(e.data);
+      if (isJoinFrame(buf)) {
+        if (buf[1] === JOIN_RESPONSE) {
+          relayHandleJoinResponse(buf);
+        }
+        // JOIN_REQUEST from another peer: ignored — we're not the
+        // KeyHolder. (The controller's dashboard is.)
+      } else {
+        onRawFrame(buf);
+      }
+    }
+  };
+}
+
+function handleRelayText(text) {
+  let msg;
+  try { msg = JSON.parse(text); } catch (_) { return; }
+  if (msg.type === 'welcome') {
+    document.getElementById('wsDot').className = 'status-dot connected';
+    document.getElementById('wsStatus').textContent = 'Connected (relay)';
+    // If we're pre-pairing, send the JOIN_REQUEST binary frame now.
+    if (!viewerIdentity && relayJoinParam) {
+      relaySendAccessRequest(relayJoinParam);
+    }
+    return;
+  }
+  if (msg.type === 'pong') return;
+  // Access protocol is now binary-only (notekeeper-aligned) — see
+  // relayHandleJoinResponse on the binary onmessage branch.
+}
+
+// Join-protocol wire constants — matches r2-notekeeper byte for
+// byte (notekeeper:1336-1338) and dashboard/src/relay.rs. r2-relay
+// only forwards BINARY frames peer-to-peer (it drops unrecognised
+// text), so the access handshake rides the binary channel.
+//
+// JOIN_REQUEST  = [0xFF, 0x01, devicePk(32), joinCode(16), name]
+// JOIN_RESPONSE = [0xFF, 0x02, devicePk(32), tgPk(32), encrypted]
+const JOIN_MAGIC    = 0xFF;
+const JOIN_REQUEST  = 0x01;
+const JOIN_RESPONSE = 0x02;
+
+function isJoinFrame(buf) {
+  return buf.length >= 2 && buf[0] === JOIN_MAGIC;
+}
+
+function relaySendAccessRequest(joinParam) {
+  if (!relayWs || relayWs.readyState !== WebSocket.OPEN) return;
+  // joinParam.entropy_hex is 32 hex chars = the 16-byte join code
+  // that r2-workshop's invite envelope ships; r2-trust expects 16
+  // bytes here. r2-workshop's request-and-approve gate doesn't
+  // actually validate it (the operator's approval is the gate),
+  // but we include it for protocol parity with notekeeper.
+  const joinCode = hexToBytes(joinParam.entropy_hex);
+  // Prefer the name the user typed on the landing page; fall back
+  // to hostname so older auto-pairing-without-form paths still work.
+  const nameStr = (_pendingRequestName && _pendingRequestName.trim())
+    ? _pendingRequestName.trim().slice(0, 64) + ' (relay)'
+    : ((location.hostname || 'browser').slice(0, 32)) + ' (relay)';
+  const nameBytes = new TextEncoder().encode(nameStr);
+
+  const req = new Uint8Array(2 + 32 + 16 + nameBytes.length);
+  req[0] = JOIN_MAGIC; req[1] = JOIN_REQUEST;
+  req.set(relayEphemeralPk, 2);
+  req.set(joinCode,        2 + 32);
+  req.set(nameBytes,       2 + 32 + 16);
+  relayWs.send(req);
+}
+
+/// Parse a notekeeper-format JOIN_RESPONSE binary frame:
+///   [0xFF, 0x02, targetPk(32), tgPk(32), encrypted(rest)]
+/// If the target_pk matches our ephemeral pk, decrypt with
+/// wasmCompleteJoin, persist the cert to IndexedDB, reload.
+async function relayHandleJoinResponse(frame) {
+  if (!relayEphemeralSk || !relayEphemeralPk) return;
+  if (frame.length < 2 + 32 + 32 + 1) {
+    console.warn('[relay] JOIN_RESPONSE too short:', frame.length);
+    return;
+  }
+  const targetPk  = frame.subarray(2,    2 + 32);
+  const tgPk      = frame.subarray(34,   34 + 32);
+  const encrypted = frame.subarray(66);
+  // Filter to our device_pk so we ignore responses for other
+  // peers in the same bucket.
+  if (bytesToHex(targetPk) !== bytesToHex(relayEphemeralPk)) {
+    return;
+  }
+  try {
+    const nowSecs = BigInt(Math.floor(Date.now() / 1000));
+    const member = wasmCompleteJoin(relayEphemeralSk, tgPk, encrypted, nowSecs);
+    await idbPut(IDB_KEY, new Uint8Array(member.to_bytes()));
+    viewerIdentity = member;
+    viewerIdentityPkHex = bytesToHex(relayEphemeralPk);
+    // Strip ?join= from the URL before reload so the next accessGate
+    // sees a paired + relay-only load, not a "fresh ?join= with
+    // stale cert" → re-pair loop.
+    try {
+      const u = new URL(location.href);
+      u.searchParams.delete('join');
+      window.history.replaceState({}, '', u.toString());
+    } catch (_) { /* fall through to reload anyway */ }
+    location.reload();
+  } catch (err) {
+    console.error('[relay] JOIN_RESPONSE decode/complete_join failed:', err);
+  }
+}
+
+// Envelope from dashboard's /r2 (Phase 5d step 3):
+//   [u16 BE: src_addr_len][src_addr utf-8]
+//   [u32 BE: ts_ms_low32]
+//   [u16 BE: frame_len][frame bytes]
+function onRawFrame(buf) {
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  let off = 0;
+  const srcLen = dv.getUint16(off); off += 2;
+  const src = TEXT_DECODER.decode(buf.subarray(off, off + srcLen));
+  off += srcLen;
+  const tsMs = dv.getUint32(off); off += 4;
+  const frameLen = dv.getUint16(off); off += 2;
+  const frame = buf.subarray(off, off + frameLen);
+
+  let decoded;
+  try {
+    decoded = wasmDecodeFrame(frame);
+  } catch (err) {
+    console.warn('[hive] decode_compact_frame failed:', err);
+    return;
+  }
+
+  const eventHash = decoded.event_hash >>> 0;
+  const eventName = HASH_TO_NAME.get(eventHash) || 'unknown';
+  // serde-wasm-bindgen serialises Vec<u8> as a JS Array (not Uint8Array)
+  // — coerce so our CBOR decoder's DataView/subarray calls work.
+  let payloadBytes = decoded.payload;
+  if (payloadBytes && !(payloadBytes instanceof Uint8Array)) {
+    payloadBytes = new Uint8Array(payloadBytes);
+  }
+
+  // Track D — forward the raw R2-WIRE event into the rocker hive so
+  // the DashboardViewerSentant can update its per-sensor state in
+  // parallel with the JS-side state. Observation-only in this slice;
+  // peek_state() output is visible from devtools as
+  //   JSON.parse(rockerHive.peek_state())
+  // for verification. Wrapped in try/catch so a hive panic never
+  // disrupts the JS dispatch path.
+  if (rockerHive && payloadBytes) {
+    try {
+      rockerHive.send_event(eventHash, payloadBytes);
+    } catch (err) {
+      console.warn('[hive] rockerHive.send_event failed:', err);
+    }
+  }
+  const payload = payloadBytes && payloadBytes.length
+    ? remapPayload(eventName, decodeCbor(payloadBytes))
+    : null;
+  if (window.__r2_debug_frames) {
+    console.log('[hive frame]', src, eventName,
+                '0x' + eventHash.toString(16),
+                'payload:', payload);
+  }
+
+  const msg = {
+    event: eventName,
+    hash: '0x' + eventHash.toString(16).padStart(8, '0').toUpperCase(),
+    source_addr: src,
+    timestamp_ms: tsMs,
+    payload,
+    device_name: payload && payload.hostname,
+  };
+  handleEvent(msg);
+}
+
+// Minimal CBOR decoder — covers exactly the major types our SPEC uses.
+// uint, negint, bytes, text, array, map, bool, null. RFC 8949 §3.
+function decodeCbor(bytes) {
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let pos = 0;
+  function readHead() {
+    const ib = dv.getUint8(pos++);
+    const major = ib >> 5;
+    const ai = ib & 0x1f;
+    let len;
+    if (ai < 24) len = ai;
+    else if (ai === 24) { len = dv.getUint8(pos); pos += 1; }
+    else if (ai === 25) { len = dv.getUint16(pos); pos += 2; }
+    else if (ai === 26) { len = dv.getUint32(pos); pos += 4; }
+    else if (ai === 27) {
+      const hi = dv.getUint32(pos); const lo = dv.getUint32(pos + 4);
+      pos += 8;
+      len = hi * 0x100000000 + lo;
+    } else throw new Error('cbor head ai=' + ai + ' unsupported');
+    return { major, len };
+  }
+  function readValue() {
+    const { major, len } = readHead();
+    switch (major) {
+      case 0: return len;
+      case 1: return -1 - len;
+      case 2: { const b = bytes.subarray(pos, pos + len); pos += len; return b; }
+      case 3: { const s = TEXT_DECODER.decode(bytes.subarray(pos, pos + len)); pos += len; return s; }
+      case 4: { const arr = []; for (let i = 0; i < len; i++) arr.push(readValue()); return arr; }
+      case 5: { const obj = {}; for (let i = 0; i < len; i++) { const k = readValue(); const v = readValue(); obj[String(k)] = v; } return obj; }
+      case 7:
+        if (len === 20) return false;
+        if (len === 21) return true;
+        if (len === 22) return null;
+        throw new Error('cbor simple ' + len + ' unsupported');
+      default:
+        throw new Error('cbor major=' + major + ' unsupported');
+    }
+  }
+  return readValue();
+}
+
+// Minimal CBOR encoder — mirrors r2_cbor::Encoder for the int-keyed
+// maps used in operator commands (SPEC-R2-WORKSHOP-WIRE §2.1).
+// Covers exactly what the cmd payloads need: int keys, uint values,
+// text strings. Add more major types only when a command requires it.
+function cborEncodeUint(v) {
+  if (v <= 23)            return new Uint8Array([v]);
+  if (v <= 0xff)          return new Uint8Array([0x18, v]);
+  if (v <= 0xffff) {
+    const b = new Uint8Array(3); b[0] = 0x19;
+    new DataView(b.buffer).setUint16(1, v);
+    return b;
+  }
+  if (v <= 0xffffffff) {
+    const b = new Uint8Array(5); b[0] = 0x1a;
+    new DataView(b.buffer).setUint32(1, v >>> 0);
+    return b;
+  }
+  throw new Error('cbor uint too large: ' + v);
+}
+function cborEncodeText(s) {
+  const bytes = new TextEncoder().encode(s);
+  const n = bytes.length;
+  let header;
+  if (n <= 23)        header = new Uint8Array([0x60 + n]);
+  else if (n <= 0xff) header = new Uint8Array([0x78, n]);
+  else if (n <= 0xffff) {
+    header = new Uint8Array(3); header[0] = 0x79;
+    new DataView(header.buffer).setUint16(1, n);
+  } else throw new Error('cbor text too large');
+  const out = new Uint8Array(header.length + n);
+  out.set(header, 0); out.set(bytes, header.length);
+  return out;
+}
+function cborEncodeBool(b) {
+  // Major type 7 simple values: 0xf4 = false, 0xf5 = true (RFC 8949 §3.3).
+  return new Uint8Array([b ? 0xf5 : 0xf4]);
+}
+function cborEncodeMap(entries) {
+  // entries: [[intKey, value], ...]; value: number → uint, string → text,
+  // bool → simple. Add more major types when a cmd payload needs them.
+  const n = entries.length;
+  let header;
+  if (n <= 23)        header = new Uint8Array([0xa0 + n]);
+  else if (n <= 0xff) header = new Uint8Array([0xb8, n]);
+  else throw new Error('cbor map too large');
+  const parts = [header];
+  for (const [k, v] of entries) {
+    parts.push(cborEncodeUint(k));
+    if (typeof v === 'number')        parts.push(cborEncodeUint(v));
+    else if (typeof v === 'string')   parts.push(cborEncodeText(v));
+    else if (typeof v === 'boolean')  parts.push(cborEncodeBool(v));
+    else throw new Error('cbor value type unsupported: ' + typeof v);
+  }
+  let total = 0; for (const p of parts) total += p.length;
+  const out = new Uint8Array(total);
+  let off = 0; for (const p of parts) { out.set(p, off); off += p.length; }
+  return out;
+}
+
+// Operator-command machinery — SPEC-R2-WORKSHOP-WIRE §2.1.
+// Viewer hives emit r2.dash.cmd.* events on the /r2 socket as
+// bare R2-WIRE compact bodies (12-byte header + CBOR payload). The
+// dashboard replies with r2.dash.cmd.response correlated by req_id.
+//
+// Event hashes are baked in here rather than read from HASH_TO_NAME
+// because we need them at send-time before any frame has been
+// received that would populate the map (the map is built from
+// inbound traffic).
+const CMD_HASHES = {
+  'capture.start':         0x6d1a1639,
+  'capture.mark':          0xcde3e84e,
+  'capture.stop':          0x3a7d7a93,
+  'reset':                 0x2034348e,
+  'identify':              0xe6b434ff,
+  'bootstrap':             0x32cb97d3,
+  'device.alias.set':      0x39cbe30d,
+  'access.members.query':  0xd9d510ea,
+  'access.pending.query':  0xca2ef3a6,
+  'access.check':          0xec08004b,
+  'access.approve':        0x7753e6ae,
+  'access.deny':           0xad781a53,
+  'access.revoke':         0xeb2a8467,
+  'access.request':        0x3911a57e,
+};
+const CMD_RESPONSE_HASH = 0x4bf7986c;
+let _nextCmdReqId = 1;
+const _pendingCmds = new Map(); // req_id → { resolve, reject, kind, sentAt }
+
+/// Build a bare R2-WIRE compact body (12-byte header + payload),
+/// matching dashboard's build_dash_frame_body. Returns Uint8Array
+/// ready for ws.send().
+function buildCmdFrameBody(eventHash, payload) {
+  const out = new Uint8Array(12 + payload.length);
+  out[0] = 0x00;                              // version=0, msg_type=Event=0, flags=0
+  out[1] = (5 << 4) | (3 & 0x0F);             // ttl=5, k=3
+  const dv = new DataView(out.buffer);
+  dv.setUint16(2, 0);                          // msg_id = 0 (correlate via req_id in payload, not msg_id)
+  dv.setUint32(4, eventHash >>> 0);            // event_hash
+  dv.setUint32(8, 0);                          // target = broadcast
+  out.set(payload, 12);
+  return out;
+}
+
+/// Send a r2.dash.cmd.<kind> over the live /r2 socket. Resolves
+/// when the matching r2.dash.cmd.response arrives, or rejects on
+/// timeout / err status. `extraEntries` are appended after the
+/// req_id key. Falls back to rejection if the WS isn't ready.
+function sendCmd(kind, extraEntries = []) {
+  return new Promise((resolve, reject) => {
+    if (!ws || ws.readyState !== 1) {
+      reject(new Error('ws not connected'));
+      return;
+    }
+    const eventHash = CMD_HASHES[kind];
+    if (eventHash == null) {
+      reject(new Error('unknown cmd kind: ' + kind));
+      return;
+    }
+    const reqId = (_nextCmdReqId++) >>> 0;
+    const entries = [[0, reqId], ...extraEntries];
+    const payload = cborEncodeMap(entries);
+    const body = buildCmdFrameBody(eventHash, payload);
+    _pendingCmds.set(reqId, { resolve, reject, kind, sentAt: Date.now() });
+    try {
+      ws.send(body);
+    } catch (err) {
+      _pendingCmds.delete(reqId);
+      reject(err);
+      return;
+    }
+    // 5 s timeout — the dashboard's do_capture_* are synchronous
+    // (fan-out is fire-and-forget on per-peer channels), so a healthy
+    // round-trip is well under 100 ms.
+    setTimeout(() => {
+      const pending = _pendingCmds.get(reqId);
+      if (pending) {
+        _pendingCmds.delete(reqId);
+        reject(new Error(`cmd ${kind} timed out (req_id ${reqId})`));
+      }
+    }, 5000);
+  });
+}
+
+function handleCmdResponse(payload) {
+  const reqId = payload['0'];
+  const status = payload['1'];
+  const message = payload['2'];
+  const kind = payload['3'];
+  if (reqId == null) return;
+  const pending = _pendingCmds.get(reqId);
+  if (!pending) {
+    // Reply for a req_id we didn't issue (or already cleared on
+    // timeout). Other viewers' responses arrive here too — that's
+    // expected; broadcast-by-design. Silent ignore is correct.
+    return;
+  }
+  _pendingCmds.delete(reqId);
+  if (status === 'ok') {
+    // Pass the full payload so callers can read kind-specific
+    // extras (keys 4+ per SPEC-R2-WORKSHOP-WIRE §2.1) — e.g.
+    // access.members.query's snapshot at key 4.
+    pending.resolve({ kind, message, payload });
+  } else {
+    pending.reject(new Error(message || `cmd ${kind} failed`));
+  }
+}
+
+// Port of the dashboard's server-side remap_payload — turns int-keyed CBOR
+// maps into named-key JS objects, and scales raw ADXL355 LSB to g for
+// acceleration. Browser-side equivalent of dashboard/src/main.rs.
+function remapPayload(eventName, raw) {
+  if (!raw || typeof raw !== 'object') return raw;
+  function bytesToHex(v) {
+    if (v instanceof Uint8Array) {
+      return Array.from(v).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+    return v;
+  }
+  if (eventName === 'r2.sensor.acceleration') {
+    return {
+      seq:   raw['0'],
+      ts_ms: raw['1'],
+      x: typeof raw['2'] === 'number' ? raw['2'] / LSB_PER_G_AT_2G : null,
+      y: typeof raw['3'] === 'number' ? raw['3'] / LSB_PER_G_AT_2G : null,
+      z: typeof raw['4'] === 'number' ? raw['4'] / LSB_PER_G_AT_2G : null,
+      range: raw['10'],
+    };
+  }
+  const SCHEMA = {
+    'r2.sensor.battery':     [['0','voltage_mv'],['1','percent'],['2','charging'],['3','ts_ms'],['10','temp_c']],
+    'r2.sensor.announce':    [['0','device_pk'],['1','hostname'],['2','fw_ver'],['3','last_seq'],['4','boot_ts_ms'],['5','nonce'],['6','sig'],['8','device_cert'],['10','mounting_role']],
+    'r2.sensor.status':      [['0','state'],['1','uptime_ms'],['2','samples_total'],['3','samples_acked'],['4','sd_pct_used'],['5','rate_hz_active'],['6','range_active'],['7','data_source'],['10','error_code']],
+    'r2.sensor.capture.state': [['0','state'],['1','file']],
+    // Controller-synthesised events — payload shapes per
+    // SPEC-R2-WORKSHOP-WIRE §2 rows 22-28. Adding here lets handleEvent
+    // dispatch via named fields instead of int-keyed lookups.
+    // Cmd-response events (row 32) deliberately omitted — handleCmdResponse
+    // reads int keys directly because future cmd.* additions may extend the
+    // schema and we want forwards-compat.
+    'r2.peer.disconnected':            [['0','addr'],['1','ts_ms'],['2','reason'],['3','device_pk_hex']],
+    'r2.dash.ota.progress':            [['0','target'],['1','phase'],['2','size'],['3','message']],
+    'r2.dash.reset.progress':          [['0','target'],['1','phase'],['3','message']],
+    'r2.dash.capture.progress':        [['0','phase'],['1','peers'],['2','name'],['3','prefix'],['4','ts_ms']],
+    // key 0 mapped to `event` (not `subtype`) so the existing
+    // handleAccessWsEvent (which reads msg.event as the access-flow
+    // discriminator) works against this remapped payload unchanged.
+    'r2.dash.access.event':            [['0','event'],['1','device_pk'],['2','name'],['3','hint']],
+    'r2.dash.bootstrap.progress':      [['0','kind'],['1','message'],['2','addr'],['3','name'],['4','ip'],['5','count']],
+    'r2.dash.device.alias.changed':    [['0','device_pk'],['1','name']],
+  };
+  const map = SCHEMA[eventName];
+  if (!map) return raw;
+  const out = {};
+  for (const [intKey, name] of map) {
+    if (intKey in raw) out[name] = raw[intKey];
+  }
+  // bytes fields → hex (matches what the legacy server-side remap produced)
+  for (const k of ['device_pk','nonce','sig']) {
+    if (out[k] instanceof Uint8Array) out[k] = bytesToHex(out[k]);
+  }
+  return out;
+}
+
+bootstrapHive();
+
+function handleEvent(msg) {
+  totalEvents++;
+
+  // Operator-plane response — correlated to an in-flight sendCmd()
+  // promise. Per SPEC-R2-WORKSHOP-WIRE §2.1, /r2 is broadcast so
+  // every viewer receives every reply; sendCmd's req_id map ignores
+  // replies for req_ids it didn't issue. Handled before any per-
+  // sensor lookup since the response's src is "dash", not a sensor.
+  if (msg.event === 'r2.dash.cmd.response' && msg.payload) {
+    handleCmdResponse(msg.payload);
+    return;
+  }
+
+  // Controller-synthesised events — formerly carried on /r2
+  // as type=bootstrap / peer_disconnected / ota / reset / capture /
+  // access / device_alias JSON. Now ride r2.dash.*.progress events
+  // on /r2 per SPEC-R2-WORKSHOP-WIRE §2 rows 22-28. Each dispatcher
+  // synthesises the legacy-shaped msg object and calls the existing
+  // handler so UI behaviour is unchanged.
+  if (msg.event === 'r2.dash.bootstrap.progress') {
+    const p = msg.payload || {};
+    let event = null;
+    if (p.kind === 'Reset') {
+      event = { Reset: null };
+    } else if (p.kind === 'Log' || p.kind === 'Error') {
+      event = { kind: p.kind, data: p.message || '' };
+    } else if (p.kind === 'SensorFound') {
+      event = { kind: 'SensorFound', data: { addr: p.addr, name: p.name } };
+    } else if (p.kind === 'SensorConnected') {
+      event = { kind: 'SensorConnected', data: { addr: p.addr, name: p.name, ip: p.ip } };
+    } else if (p.kind === 'Done') {
+      event = { kind: 'Done', data: { count: p.count } };
+    }
+    if (event) handleBootstrapEvent({ event });
+    return;
+  }
+  if (msg.event === 'r2.peer.disconnected') {
+    const p = msg.payload || {};
+    const s = sensors.get(p.addr);
+    if (s) {
+      s.online = false;
+      s.lastSeen = 0;
+      s.fsmState = null;
+      s.dataSource = null;
+      s.captureState = 'idle';
+      s.captureFile = null;
+      updateSensorList();
+      updateCaptureUiFromFleet();
+      renderDevicesIfVisible();
+    }
+    return;
+  }
+  if (msg.event === 'r2.dash.ota.progress') {
+    // handleOtaEvent expects {target, phase, size?, message?} — same
+    // field names as the SCHEMA mapping above, so we can pass payload
+    // through directly.
+    handleOtaEvent(msg.payload || {});
+    return;
+  }
+  if (msg.event === 'r2.dash.access.event') {
+    handleAccessWsEvent(msg.payload || {});
+    return;
+  }
+  if (msg.event === 'r2.dash.device.alias.changed') {
+    const p = msg.payload || {};
+    if (p.device_pk) {
+      if (p.name) _deviceAliases[p.device_pk] = p.name;
+      else delete _deviceAliases[p.device_pk];
+      applyAliasesToAllSensors();
+    }
+    return;
+  }
+
+  // Only sensor-originated events create per-sensor cards. The
+  // controller-synthesised dash.* / peer.* events carry src like
+  // "dash" or a target addr that doesn't correspond to a streaming
+  // sensor; treating their src as a sensor key would spawn phantom
+  // blank cards in the Live + Devices tabs.
+  const sensor = (msg.source_addr && msg.event && msg.event.startsWith('r2.sensor.'))
+    ? getOrCreateSensor(msg.source_addr)
+    : null;
+
+  switch (msg.event) {
+    case 'r2.sensor.acceleration':
+      if (sensor) {
+        if (msg.device_name) setDeviceName(sensor, msg.device_name);
+        handleAcceleration(msg, sensor);
+      }
+      return;  // don't log raw acceleration frames — too noisy at 10Hz
+    case 'r2.sensor.announce':
+      if (sensor && msg.payload) {
+        // Schema field is `hostname` (key 1) per remapPayload SCHEMA;
+        // the legacy server-side `name` was a synthetic alias.
+        const hn = msg.payload.hostname;
+        if (hn) {
+          sensor.hostname = hn;
+          // Alias (if set by the operator) wins over the hardware
+          // hostname for display. setDeviceName updates the rendered
+          // label; we resolve the precedence here so a sensor that
+          // already has an alias doesn't briefly show its hostname
+          // between announce and the next applyAliasesToAllSensors.
+          const alias = msg.payload.device_pk
+            ? _deviceAliases[msg.payload.device_pk] : null;
+          setDeviceName(sensor, alias || hn);
+          addSensorLog(sensor, 'announced: ' + hn);
+        }
+        // Capture announce metadata for the Devices view (Phase 8a).
+        // Was previously only captured from the legacy `sensor.connected`
+        // synthetic event which the new /r2 path doesn't emit.
+        if (msg.payload.fw_ver)    sensor.fwVer    = msg.payload.fw_ver;
+        if (msg.payload.device_pk) sensor.devicePk = msg.payload.device_pk;
+        if (msg.payload.boot_ts_ms != null) sensor.bootTsMs = msg.payload.boot_ts_ms;
+        sensor.online = true;
+        sensor.lastSeen = Date.now();
+        renderDevicesIfVisible();
+        updateSensorList();
+      }
+      return;
+    case 'r2.sensor.battery':
+      if (sensor && msg.payload) {
+        sensor.battery = {
+          voltage_mv: msg.payload.voltage_mv ?? null,
+          percent:    msg.payload.percent    ?? null,
+          charging:   msg.payload.charging   ?? false,
+          ts:         Date.now(),
+        };
+        sensor.lastSeen = Date.now();
+        sensor.online = true;
+        renderDevicesIfVisible();
+      }
+      addLog(msg);
+      return;
+    case 'r2.sensor.status':
+      if (sensor && msg.payload) {
+        // Capture FSM state for the virtual LED + sidebar status dot
+        // (both light up once Phase 5L sends real state values).
+        if (msg.payload.state != null) sensor.fsmState = msg.payload.state;
+        // SPEC-R2-WORKSHOP-SENSOR-HEALTH: data_source key 7 → 0 real, 1 sim.
+        if (msg.payload.data_source != null) sensor.dataSource = msg.payload.data_source;
+        // First status frame after a reset / OTA clicks the transient indicator off.
+        if (sensor.pendingReset) sensor.pendingReset = false;
+        if (sensor.pendingOta) {
+          sensor.pendingOta = false;
+          if (sensor._otaFailsafe) { clearTimeout(sensor._otaFailsafe); sensor._otaFailsafe = null; }
+        }
+        sensor.lastSeen = Date.now();
+        sensor.online = true;
+        renderDevicesIfVisible();
+        updateSensorList(); // keep sidebar dot's colour in sync with fsmState
+      }
+      addLog(msg);
+      return;
+    case 'r2.sensor.capture.state':
+      if (sensor && msg.payload) {
+        // SPEC-R2-WORKSHOP-CAPTURE §3: state ∈ {0 idle, 1 calibrating, 2 recording},
+        // optional `file` echoed back when recording.
+        const st = msg.payload.state ?? 0;
+        sensor.captureState = ['idle', 'calibrating', 'recording'][st] || 'idle';
+        sensor.captureFile  = msg.payload.file ?? null;
+        // Whenever a peer finishes recording, refresh its file list so
+        // the new file shows up without an explicit poll. Also refresh
+        // on transition INTO recording so the operator sees the
+        // freshly-opened file size growing.
+        scheduleDataRefresh(sensor.key);
+        updateCaptureUiFromFleet();
+        renderDataViewIfVisible();
+      }
+      return;
+  }
+  // Any event we didn't return early from updates lastSeen too — useful
+  // for the Devices view's online/stale/offline classification.
+  if (sensor) {
+    sensor.lastSeen = Date.now();
+    sensor.online = true;
+  }
+  addLog(msg);
+}
+
+function handleAcceleration(msg, sensor) {
+  if (!msg.payload) return;
+  // The sensor already applies its captured calibration offset to the
+  // wire payload while Recording (sender.rs reads CaptureMgr::current_offset),
+  // so what arrives here is the value the operator wants charted.
+  const x = msg.payload.x ?? 0;
+  const y = msg.payload.y ?? 0;
+  const z = msg.payload.z ?? 0;
+  const mag = Math.sqrt(x*x + y*y + z*z);
+
+  const unit = ' g';
+  const sk = sensor.key.replace(/\./g, '-');
+  const setText = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  setText('vx-' + sk, x.toFixed(3) + unit);
+  setText('vy-' + sk, y.toFixed(3) + unit);
+  setText('vz-' + sk, z.toFixed(3) + unit);
+  setText('vmag-' + sk, mag.toFixed(3));
+
+  const now = Date.now();
+  sensor.sampleTimes.push(now);
+  if (sensor.sampleTimes.length > 50) sensor.sampleTimes.shift();
+  if (sensor.sampleTimes.length > 1) {
+    const dt = (sensor.sampleTimes[sensor.sampleTimes.length-1] - sensor.sampleTimes[0])
+               / (sensor.sampleTimes.length - 1);
+    setText('rate-' + sk, (1000/dt).toFixed(1) + ' Hz');
+  }
+
+  // Chart is hidden on the Devices tab — skip all chart work when not Live.
+  if (currentView !== 'live') return;
+
+  const label = new Date(msg.timestamp_ms).toLocaleTimeString('en-NZ', {
+    hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit'
+  });
+  sensor.chart.data.labels.push(label);
+  sensor.chart.data.datasets[0].data.push(x);
+  sensor.chart.data.datasets[1].data.push(y);
+  sensor.chart.data.datasets[2].data.push(z);
+  if (sensor.chart.data.labels.length > MAX_POINTS) {
+    sensor.chart.data.labels.shift();
+    sensor.chart.data.datasets[0].data.shift();
+    sensor.chart.data.datasets[1].data.shift();
+    sensor.chart.data.datasets[2].data.shift();
+  }
+  sensor.chart.update('none'); // skip animation on streaming updates — 10Hz * 2 sensors = too slow otherwise
+}
+
+function addLog(msg) {
+  const el = document.getElementById('logEntries');
+  const time = new Date(msg.timestamp_ms).toLocaleTimeString('en-NZ', {
+    hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit',
+    fractionalSecondDigits: 1
+  });
+  const src = msg.source_addr ? getSensorKey(msg.source_addr) : '?';
+  let valueStr = '';
+  if (msg.event === 'sensor.connected' && msg.device_name) {
+    valueStr = msg.device_name;
+  } else if (msg.payload && (msg.event === 'r2.sensor.acceleration' || msg.event === 'acceleration')) {
+    const x = msg.payload.x ?? 0, y = msg.payload.y ?? 0, z = msg.payload.z ?? 0;
+    valueStr = `x=${x.toFixed(3)} y=${y.toFixed(3)} z=${z.toFixed(3)}`;
+  } else if (msg.payload) {
+    valueStr = JSON.stringify(msg.payload);
+  }
+  const entry = document.createElement('div');
+  entry.className = 'log-entry';
+  entry.innerHTML = `<span class="time">${time}</span> <span class="src">[${src}]</span> <span class="event">${msg.event}</span> <span class="value">${valueStr}</span>`;
+  el.insertBefore(entry, el.firstChild);
+  while (el.children.length > 100) el.removeChild(el.lastChild);
+}
+
+// ── Phase 8a — Devices view ────────────────────────────────────────────
+//
+// "Live" shows charts; "Devices" shows fleet status (one card per peer
+// with battery / fw_ver / last-seen / virtual LED / Update-Firmware
+// stub). Both views consume the same `sensors` Map; the per-event
+// handlers above update battery / fwVer / lastSeen on each sensor
+// object and call renderDevicesIfVisible().
+
+let currentView = 'live';
+// Sensors send `r2.sensor.status` every 2 s — these thresholds are
+// counted in "how many status events have we missed?" 4 s = ~1 missed
+// (probably a network blip), 6 s = 3 missed (confident offline).
+const STALE_MS    = 4_000;
+const OFFLINE_MS  = 6_000;
+
+function setView(name) {
+  // Viewer-role guard: if the operator-only Link tab is hidden,
+  // any stray setView('link') call (history nav, hash links, etc.)
+  // falls back to Live.
+  if (name === 'link') {
+    const btn = document.getElementById('viewLink');
+    if (btn && btn.hidden) name = 'live';
+  }
+  currentView = name;
+  // Toggle the `hidden` attribute (CSS hook) AND set inline `display` so we
+  // win against any cached/legacy CSS that beats the [hidden] selector — past
+  // regressions came from `.main { display: grid; }` overriding `[hidden]`.
+  const live    = document.getElementById('liveMain');
+  const devices = document.getElementById('devicesMain');
+  const data    = document.getElementById('dataMain');
+  const link    = document.getElementById('linkMain');
+  live.hidden    = (name !== 'live');
+  devices.hidden = (name !== 'devices');
+  if (data) data.hidden = (name !== 'data');
+  if (link) link.hidden = (name !== 'link');
+  live.style.display    = (name === 'live')    ? 'grid'  : 'none';
+  devices.style.display = (name === 'devices') ? 'block' : 'none';
+  if (data) data.style.display = (name === 'data') ? 'block' : 'none';
+  if (link) link.style.display = (name === 'link') ? 'block' : 'none';
+  document.getElementById('viewLive').classList.toggle('active',    name === 'live');
+  document.getElementById('viewDevices').classList.toggle('active', name === 'devices');
+  const dataBtn = document.getElementById('viewData');
+  if (dataBtn) dataBtn.classList.toggle('active', name === 'data');
+  const linkBtn = document.getElementById('viewLink');
+  if (linkBtn) linkBtn.classList.toggle('active', name === 'link');
+  if (name === 'devices') renderDevices();
+  if (name === 'data')    renderDataView();
+  if (name === 'link')    loadLinkMembers();
+
+  // Connection Log + Event Log are only meaningful on Live / Devices
+  // (sensor activity feeds). Hide them on Data / Link to give those
+  // tabs the full content area. The Connect Sensors + 📝 Log buttons
+  // also go away in those modes — they don't apply.
+  //
+  // Note: role gating (applyRoleVisibility) is the source of truth
+  // for whether viewers see Connect Sensors at all — we only ever
+  // *hide* it here, never unhide. On Live/Devices we call
+  // applyRoleVisibility() to restore the role-correct state.
+  const showLogs = (name === 'live' || name === 'devices');
+  const bootstrapPanel = document.getElementById('bootstrap-panel');
+  const eventLogRow    = document.getElementById('eventLogRow');
+  const connectBtn     = document.getElementById('btn-connect');
+  if (bootstrapPanel) bootstrapPanel.style.display = showLogs ? '' : 'none';
+  if (eventLogRow)    eventLogRow.style.display    = showLogs ? '' : 'none';
+  // Connect Sensors uses `visibility: hidden` rather than
+  // `display: none` so the slot keeps its width on every tab —
+  // otherwise the tabs visibly shift when switching to Data/Link
+  // and back, and the operator loses their place. Clear any inline
+  // display leftover from earlier setView calls; role-gating (the
+  // [hidden] attribute) owns display for viewers.
+  if (connectBtn) {
+    connectBtn.style.display    = '';
+    connectBtn.style.visibility = showLogs ? '' : 'hidden';
+  }
+  if (showLogs) applyRoleVisibility();
+}
+
+// ── Data tab plumbing ────────────────────────────────────────────
+//
+// Mirrors renderDevices / deviceCardEls but on its own DOM tree.
+
+let lastMarkedFilename = null; // remembered between Mark and the "merged download" button press
+
+function renderDataViewIfVisible() {
+  if (currentView === 'data') renderDataView();
+}
+
+function renderDataView() {
+  const area = document.getElementById('dataArea');
+  if (!area) return;
+  const peers = [...sensors.values()];
+
+  const wantedKeys = new Set(peers.map((s) => s.key));
+  for (const [key, el] of dataCardEls) {
+    if (!wantedKeys.has(key)) { el.remove(); dataCardEls.delete(key); }
+  }
+
+  if (peers.length === 0) {
+    if (!area.querySelector('#dataPlaceholder')) {
+      area.innerHTML = '<div class="card" id="dataPlaceholder" style="color:#475569;text-align:center;padding:40px;">No sensors known yet.</div>';
+    }
+    updateCaptureUiFromFleet();
+    return;
+  }
+  const ph = area.querySelector('#dataPlaceholder');
+  if (ph) ph.remove();
+
+  peers.sort((a, b) => (a.deviceName ?? a.key).localeCompare(b.deviceName ?? b.key));
+  for (const s of peers) {
+    let el = dataCardEls.get(s.key);
+    if (!el) {
+      el = document.createElement('r2-data-card');
+      dataCardEls.set(s.key, el);
+      area.appendChild(el);
+      // First time a card appears, kick a list fetch.
+      scheduleDataRefresh(s.key, 100);
+    }
+    el.sensor = s;
+  }
+  for (const s of peers) {
+    const el = dataCardEls.get(s.key);
+    if (el) area.appendChild(el);
+  }
+  updateCaptureUiFromFleet();
+}
+
+/// Update the top-bar capture-state label + Start/Mark/Stop button
+/// disabled state based on the union of all peers' capture states.
+function updateCaptureUiFromFleet() {
+  const peers = [...sensors.values()];
+  let aggregate = 'idle';
+  for (const s of peers) {
+    if (s.captureState === 'calibrating')      aggregate = 'calibrating';
+    else if (s.captureState === 'recording' && aggregate !== 'calibrating') aggregate = 'recording';
+  }
+  // Mirror the active run name into the read-only runName input
+  // on viewer browsers (no-op on the controller — they keep what
+  // they typed).
+  updateRunNameDisplay();
+  const label = document.getElementById('captureStateLabel');
+  if (label) {
+    label.textContent = aggregate.toUpperCase();
+    label.classList.remove('state-idle', 'state-calibrating', 'state-recording');
+    label.classList.add(
+      aggregate === 'calibrating' ? 'state-calibrating'
+      : aggregate === 'recording' ? 'state-recording'
+      : 'state-idle'
+    );
+  }
+  // Button availability:
+  //   Start — always live so the operator can re-enter Calibrating
+  //           from any state (firmware `start()` is idempotent: it
+  //           closes any open file and resets the cal window).
+  //   Mark  — only while calibrating (locks offset + opens file).
+  //   Stop  — any non-idle state. Firmware Stop always transitions to
+  //           Idle, so this also serves as the escape from a stuck
+  //           Calibrating session (e.g. the operator decided not to
+  //           commit a Mark).
+  const btnStart = document.getElementById('captureStartBtn');
+  const btnMark  = document.getElementById('captureMarkBtn');
+  const btnStop  = document.getElementById('captureStopBtn');
+  // Start is only meaningful from Idle — a second Start press during
+  // Calibrating / Recording would either be a no-op or start a fresh
+  // session on top of the existing one, both of which are operator
+  // mistakes. Only Stop should be available once a session is in
+  // flight.
+  if (btnStart) btnStart.disabled = (peers.length === 0) || (aggregate !== 'idle');
+  if (btnMark)  btnMark .disabled = (aggregate !== 'calibrating');
+  if (btnStop)  btnStop .disabled = (aggregate === 'idle');
+
+  const merged = document.getElementById('dataMergedBtn');
+  if (merged) merged.disabled = !lastMarkedFilename;
+}
+
+/// Coalesce file-list refreshes per sensor — every capture.state
+/// change fires this, and we don't want a stack of overlapping
+/// fetches if many state events arrive in quick succession.
+const _dataRefreshTimers = new Map();
+function scheduleDataRefresh(key, delayMs = 600) {
+  if (_dataRefreshTimers.has(key)) clearTimeout(_dataRefreshTimers.get(key));
+  const t = setTimeout(() => {
+    _dataRefreshTimers.delete(key);
+    const card = dataCardEls.get(key);
+    if (card) card.refresh();
+  }, delayMs);
+  _dataRefreshTimers.set(key, t);
+}
+
+// ── Capture controls (Start / Mark / Stop) ──────────────────────────
+
+async function captureStart() {
+  try {
+    await sendCmd('capture.start');
+  } catch (err) {
+    console.warn('[capture] start', err);
+  }
+}
+
+async function captureMark() {
+  const input = document.getElementById('runName');
+  const name = (input?.value || '').trim();
+  if (!/^[A-Za-z0-9_-]+$/.test(name) || name.length > 32) {
+    alert('Run name must match [A-Za-z0-9_-]{1,32}');
+    return;
+  }
+  // Build a local-time stem like "2026-05-18_13-35-00". Filename
+  // becomes `<prefix>-<name>.csv` on every sensor in the fleet, so
+  // each shared run ends up with the same human-readable file.
+  const prefix = buildLocalTimePrefix(new Date());
+  try {
+    await sendCmd('capture.mark', [[1, name], [2, prefix]]);
+    // Mirror the prefix locally so "Download merged" knows which file
+    // to fetch from each sensor — controller-known too but we already
+    // have it here.
+    lastMarkedFilename = `${prefix}-${name}.csv`;
+    updateCaptureUiFromFleet();
+    // Re-render each data card so the new "marked-export" highlight
+    // lights up on whichever file matches the new bundle target.
+    renderDataViewIfVisible();
+  } catch (err) {
+    console.warn('[capture] mark', err);
+  }
+}
+
+/// Format a Date as `YYYY-MM-DD_HH-MM-SS` in the operator's local
+/// timezone. Charset stays within `[0-9_-]` so it survives the
+/// dashboard's and firmware's prefix validators and is FAT-LFN-safe.
+function buildLocalTimePrefix(d) {
+  const p2 = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}` +
+         `_${p2(d.getHours())}-${p2(d.getMinutes())}-${p2(d.getSeconds())}`;
+}
+
+async function captureStop() {
+  try {
+    await sendCmd('capture.stop');
+  } catch (err) {
+    console.warn('[capture] stop', err);
+  }
+  // Optimistically flip every sensor's capture state back to idle
+  // and re-evaluate the Run Control bar so Start re-enables now,
+  // not three round-trips later. The next real capture.state event
+  // from each sensor confirms (or corrects, if a peer never got the
+  // stop). Without this the buttons stay locked in the prior state
+  // for ~1s while the events stream in.
+  for (const s of sensors.values()) {
+    s.captureState = 'idle';
+    s.captureFile  = null;
+  }
+  updateCaptureUiFromFleet();
+  // Refresh every card after stop so the new file appears.
+  for (const card of dataCardEls.values()) card.refresh();
+}
+
+// ── Per-file download / delete (used from inline onclick="…") ─────
+
+async function downloadCaptureFile(addr, name, btn) {
+  // The actual download is browser-driven via an `<a>` click — no
+  // need to materialise the blob in JS for a 5..50 MB file. But the
+  // server takes a moment to start streaming bytes (it has to fetch
+  // from the sensor's data-tcp port first), and without visible
+  // feedback operators were double-clicking — firing two downloads.
+  // Disable + show ⏳ on the clicked button, re-enable after a short
+  // debounce so the browser's download dialog has had time to appear.
+  if (btn) {
+    if (btn.disabled) return;
+    const orig = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '⏳';
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = orig;
+    }, 2500);
+  }
+  const a = document.createElement('a');
+  a.href = `/api/data/${encodeURIComponent(addr)}/file/${encodeURIComponent(name)}`;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+async function deleteCaptureFile(addr, name) {
+  if (!confirm(`Delete ${name} on ${addr}?`)) return;
+  try {
+    const res = await fetch(`/api/data/${encodeURIComponent(addr)}/file/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    if (!res.ok) console.warn('[data] del', await res.text());
+  } catch (err) {
+    console.warn('[data] del', err);
+  }
+  const card = dataCardEls.get(addr);
+  if (card) await card.refresh();
+}
+
+// Pick + persist the merged-CSV downsample binning. localStorage
+// per-browser, restored on load by `restoreMergedBinPref()`.
+const LS_DATA_MERGED_BIN = 'r2rocker.data.merged.bin_ms';
+
+function restoreMergedBinPref() {
+  const sel = document.getElementById('dataMergedBin');
+  if (!sel) return;
+  const saved = localStorage.getItem(LS_DATA_MERGED_BIN);
+  if (saved != null) {
+    // Only restore if it's a recognised option (the picker has a
+    // fixed set; an unknown value would silently no-op).
+    for (const opt of sel.options) {
+      if (opt.value === saved) { sel.value = saved; break; }
+    }
+  }
+  sel.addEventListener('change', () => {
+    localStorage.setItem(LS_DATA_MERGED_BIN, sel.value);
+  });
+}
+
+async function downloadMergedLatest() {
+  if (!lastMarkedFilename) {
+    alert('No marked capture in this session yet.');
+    return;
+  }
+  // Same debounce + visible-state treatment as per-file downloads
+  // (server takes longer here — fetches in parallel from every
+  // sensor, then merges, so the start-of-bytes gap is bigger).
+  const btn = document.getElementById('dataMergedBtn');
+  if (btn) {
+    if (btn.disabled) return;
+    const orig = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '⏳ Preparing merge…';
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = orig;
+    }, 4000);
+  }
+  // Optional downsample bin from the picker. "0" / missing = raw merge.
+  const sel = document.getElementById('dataMergedBin');
+  const bin = sel ? parseInt(sel.value, 10) || 0 : 0;
+  let url = `/api/data/merged?file=${encodeURIComponent(lastMarkedFilename)}`;
+  let downloadName = `merged-${lastMarkedFilename}`;
+  if (bin > 0) {
+    url += `&bin_ms=${bin}`;
+    // Stash the bin in the saved filename so the operator can tell
+    // a 100 ms-averaged export apart from a raw merge in their
+    // downloads folder.
+    downloadName = `merged-${bin}ms-${lastMarkedFilename}`;
+  }
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = downloadName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+async function requestDeleteAllFleet() {
+  const cards = [...dataCardEls.values()];
+  if (cards.length === 0) return;
+  if (!confirm(`Delete ALL capture files on ALL ${cards.length} sensor(s)?`)) return;
+  // skipConfirm: per-card deleteAll() would otherwise reprompt for
+  // each sensor — fine at 2 devices, tedious at 20.
+  await Promise.allSettled(cards.map((c) => c.deleteAll({ skipConfirm: true })));
+}
+
+// ── Link tab plumbing (SPEC-R2-WORKSHOP-ACCESS) ─────────────────────────
+//
+// Internal URL paths are still `/api/access/*` (the spec is the source
+// of truth there); only the user-visible tab + button strings are
+// "Link". A future cert-handshake variant of /r2 will gate this
+// surface on cert role; for v0.1 the dashboard enforces KeyHolder via
+// a localhost-only ConnectInfo check (see SPEC-R2-WORKSHOP-ACCESS §11.1).
+
+// Operator-assigned device aliases — keyed by device_pk hex (the
+// sensor's Ed25519 public key as announced in r2.sensor.announce).
+// Persisted on the controller; fetched on dashboard load + kept
+// up-to-date via r2.dash.device.alias.changed on /r2. Wins over the
+// hostname the sensor self-reports.
+let _deviceAliases = {};
+
+async function loadDeviceAliases() {
+  try {
+    const res = await fetch('/api/devices/aliases');
+    if (!res.ok) return;
+    _deviceAliases = await res.json();
+    applyAliasesToAllSensors();
+  } catch (err) {
+    console.warn('[aliases] load failed:', err);
+  }
+}
+
+// Apply the current alias map to every known sensor's deviceName.
+// Called on initial load + after any alias change event arrives.
+function applyAliasesToAllSensors() {
+  for (const s of sensors.values()) {
+    const alias = s.devicePk ? _deviceAliases[s.devicePk] : null;
+    const newName = alias || s.hostname || s.key;
+    if (s.deviceName !== newName) {
+      s.deviceName = newName;
+      const sk = s.key.replace(/\./g, '-');
+      const nameEl = document.querySelector('#slabel-' + sk + ' .slabel-name');
+      if (nameEl) nameEl.textContent = newName;
+    }
+  }
+  updateSensorList();
+  renderDevicesIfVisible();
+  renderDataViewIfVisible();
+}
+
+// Operator-friendly rename. `addr` is the sensor IP (or IP:port);
+// device_pk is looked up via the sensor entry. Empty string clears
+// the alias and reverts to the hardware-reported hostname.
+async function renameSensor(addr) {
+  const s = sensors.get(getSensorKey(addr));
+  if (!s) return;
+  if (!s.devicePk) {
+    alert('This sensor hasn’t announced yet — wait a moment then try again.');
+    return;
+  }
+  const current = _deviceAliases[s.devicePk] || s.hostname || s.key;
+  const next = prompt(
+    'Rename this sensor (letters, numbers, dash, underscore, space; blank to reset):',
+    current,
+  );
+  if (next === null) return; // cancelled
+  try {
+    await sendCmd('device.alias.set', [[1, s.devicePk], [2, next.trim()]]);
+    // Optimistic local update — the WS broadcast will re-confirm.
+    if (next.trim()) {
+      _deviceAliases[s.devicePk] = next.trim();
+    } else {
+      delete _deviceAliases[s.devicePk];
+    }
+    applyAliasesToAllSensors();
+  } catch (err) {
+    alert(`Couldn’t set alias: ${err.message || err}`);
+  }
+}
+
+let _isKeyHolder = false; // updated optimistically on each /api/access/* hit
+
+async function loadLinkMembers() {
+  const area = document.getElementById('linkArea');
+  if (!area) return;
+  try {
+    // Snapshot rides back in cmd.response key 4 as a JSON-string per
+    // SPEC-R2-WORKSHOP-WIRE §2.1 ("Kind-specific response data").
+    const out = await sendCmd('access.members.query');
+    const json = out.payload?.['4'] ?? '[]';
+    const list = JSON.parse(json);
+    _isKeyHolder = true;
+    renderLinkMembersList(list, { forbidden: false });
+    // KeyHolder also sees pending requests.
+    await loadPendingRequests();
+  } catch (err) {
+    if (/forbidden/i.test(err.message || '')) {
+      _isKeyHolder = false;
+      renderLinkMembersList([], { forbidden: true });
+      document.getElementById('linkPendingArea').hidden = true;
+      return;
+    }
+    area.innerHTML = `<div class="card" style="color:#ef4444; padding:20px;">
+      Couldn't load paired devices: ${escapeText(String(err.message || err))}
+    </div>`;
+  }
+  // The "Onboard a visitor" button is the operator's helper trigger;
+  // visible only when we're the KeyHolder. /api/access/onboard would
+  // 403 otherwise, so hiding it just makes the read-only UX clean.
+  const onboardBtn = document.getElementById('linkOnboardBtn');
+  if (onboardBtn) onboardBtn.hidden = !_isKeyHolder;
+}
+
+async function loadPendingRequests() {
+  const area = document.getElementById('linkPendingArea');
+  const rows = document.getElementById('linkPendingRows');
+  if (!area || !rows) return;
+  try {
+    const out = await sendCmd('access.pending.query');
+    const list = JSON.parse(out.payload?.['4'] ?? '[]');
+    if (list.length === 0) { area.hidden = true; return; }
+    rows.innerHTML = list
+      .sort((a, b) => (b.requested_at_ms || 0) - (a.requested_at_ms || 0))
+      .map(renderPendingRequestRow)
+      .join('');
+    area.hidden = false;
+  } catch (err) {
+    area.hidden = true;
+  }
+}
+
+function renderPendingRequestRow(r) {
+  const age = Date.now() - (r.requested_at_ms || 0);
+  const pk_attr = escapeAttr(r.device_pk);
+  const pk_short = r.device_pk
+    ? `${r.device_pk.slice(0, 8)}…${r.device_pk.slice(-4)}`
+    : '—';
+  return `<div class="link-member-card" style="border-color:#7c3aed; margin-bottom:6px;">
+    <div>
+      <div class="name">${escapeText(r.name || 'Unnamed device')}</div>
+      <div class="meta">
+        <span class="pill viewer">pending viewer</span>
+        from ${escapeText(r.hint || '?')} · ${fmtAge(age)} · <code>${pk_short}</code>
+      </div>
+    </div>
+    <div style="display:flex; gap:6px;">
+      <button class="revoke" style="background:#14532d; border-color:#22c55e; color:#bbf7d0;" onclick="approvePending('${pk_attr}','${escapeAttr(r.name||'')}')">Approve</button>
+      <button class="revoke" onclick="denyPending('${pk_attr}')">Deny</button>
+    </div>
+  </div>`;
+}
+
+async function approvePending(device_pk, name) {
+  try {
+    await sendCmd('access.approve', [[1, device_pk]]);
+    // The list will refresh via r2.dash.access.event; reload to be safe.
+    loadLinkMembers();
+  } catch (err) {
+    alert(`Approve failed: ${err.message || err}`);
+  }
+}
+
+async function denyPending(device_pk) {
+  try {
+    await sendCmd('access.deny', [[1, device_pk]]);
+    loadLinkMembers();
+  } catch (err) {
+    alert(`Deny failed: ${err.message || err}`);
+  }
+}
+
+function renderLinkMembersList(members, opts) {
+  const area = document.getElementById('linkArea');
+  if (!area) return;
+
+  // §8 (2) — the operator's own browser is "this device" and cannot
+  // be revoked. We don't know our device_pk on the wire yet (slice 3
+  // adds IndexedDB identity), so for v0.1 the controller-side
+  // browser is identified as "the one talking to localhost" and the
+  // top card shows "Controller (this device)" outside the member list.
+  const hostIsLocal = ['localhost', '127.0.0.1', '::1'].includes(location.hostname);
+  let html = '';
+
+  if (hostIsLocal && _isKeyHolder) {
+    html += `<div class="link-member-card">
+      <div>
+        <div class="name">Controller (this device)</div>
+        <div class="meta">
+          <span class="pill controller">controller</span>
+          Holds the trust-group signing key. Cannot be revoked.
+        </div>
+      </div>
+      <div class="self-label">this device</div>
+    </div>`;
+  }
+
+  // Paired viewer (not the KeyHolder on localhost) — show a "this
+  // device" card with the off-network hand-off button. The button
+  // builds a #bundle=… URL pointing at the public HTTPS copy of the
+  // webapp; the user opens it once, and from then on the off-network
+  // origin has the same cert and can reach the dashboard via the
+  // relay from anywhere.
+  if (!hostIsLocal && viewerIdentityPkHex) {
+    const pkShort = `${viewerIdentityPkHex.slice(0, 8)}…${viewerIdentityPkHex.slice(-4)}`;
+    html += `<div class="link-member-card">
+      <div>
+        <div class="name">This device</div>
+        <div class="meta">
+          <span class="pill viewer">viewer</span>
+          Paired with this dashboard. <code>${pkShort}</code>
+        </div>
+        <p class="invite-help" style="margin-top:8px;">
+          Open the off-network URL to use this device when you're away from the lab WiFi. The cert stays on your device — the relay only forwards encrypted frames.
+        </p>
+      </div>
+      <button class="btn-update" onclick="exportOffNetworkAccess()">↗ Save for off-network use</button>
+    </div>`;
+  }
+
+  if (opts.forbidden) {
+    html += `<div class="card" style="color:#94a3b8; padding:20px;">
+      <p>This view is read-only on remote devices in v0.1.</p>
+      <p style="margin-top:8px; font-size:13px;">
+        Only the controller's own browser (running on the same machine as the
+        dashboard) can manage paired devices in this release. A future build
+        will use cryptographic identity instead of a localhost check.
+      </p>
+    </div>`;
+  } else if (members.length === 0) {
+    html += `<div class="card" id="linkEmpty" style="color:#64748b; padding:30px; text-align:center;">
+      No devices linked yet.<br>
+      ${_isKeyHolder ? 'Click <strong>Link a new viewer</strong> above to invite one.' : ''}
+    </div>`;
+  } else {
+    html += members
+      .slice()
+      .sort((a, b) => (b.paired_at_ms || 0) - (a.paired_at_ms || 0))
+      .map(renderMemberCard)
+      .join('');
+  }
+
+  area.innerHTML = html;
+}
+
+function renderMemberCard(m) {
+  const cls = m.revoked ? 'link-member-card revoked' : 'link-member-card';
+  const pairedAge = Date.now() - (m.paired_at_ms || 0);
+  const pairedAbs = m.paired_at_ms
+    ? new Date(m.paired_at_ms).toLocaleString('en-NZ', { hour12: false })
+    : '—';
+  const pkShort = m.device_pk
+    ? `${m.device_pk.slice(0, 8)}…${m.device_pk.slice(-4)}`
+    : '—';
+  const rolePill = `<span class="pill ${m.role}">${m.role}</span>`;
+  const revokedTag = m.revoked
+    ? `<span style="color:#ef4444; margin-left:6px;">revoked</span>`
+    : '';
+  const revokeBtn = (_isKeyHolder && !m.revoked)
+    ? `<button class="revoke" onclick="revokeMember('${escapeAttr(m.device_pk)}','${escapeAttr(m.name)}')">Revoke</button>`
+    : `<span class="self-label">—</span>`;
+  return `<div class="${cls}">
+    <div>
+      <div class="name">${escapeText(m.name)} ${revokedTag}</div>
+      <div class="meta">
+        ${rolePill}
+        Paired ${fmtAge(pairedAge)} · ${pairedAbs} · <code>${pkShort}</code>
+      </div>
+    </div>
+    ${revokeBtn}
+  </div>`;
+}
+
+async function revokeMember(device_pk, name) {
+  if (!confirm(`Revoke "${name}"? Once revoked, the device will be locked out the next time it tries to connect.`)) return;
+  try {
+    await sendCmd('access.revoke', [[1, device_pk]]);
+    // Optimistic refresh — the r2.dash.access.event broadcast will also trigger
+    // a reload via handleAccessWsEvent below.
+    loadLinkMembers();
+  } catch (err) {
+    alert(`Revoke failed: ${err}`);
+  }
+}
+
+// ── Onboard-a-visitor modal (SPEC-R2-WORKSHOP-ACCESS v0.3 §8) ────────────
+//
+// Replaces the v0.2 "Link a new viewer" invite-token flow with a static
+// pair of QRs. There is no token, no expiry, no server-side state — the
+// modal just fetches the two QR payloads on open and renders them. The
+// visitor's enrolment journey now starts on the not-enrolled landing
+// page after they've opened the dashboard URL.
+
+async function openOnboardModal() {
+  try {
+    const res = await fetch('/api/access/onboard');
+    if (res.status === 403) {
+      alert('Only the controller (this device) can show onboarding QRs.');
+      return;
+    }
+    if (!res.ok) {
+      const body = await res.text();
+      alert(`Couldn't load onboarding QRs: ${body}`);
+      return;
+    }
+    const info = await res.json();
+    // Step-1 WiFi-join QR — present iff the dashboard knows the
+    // hotspot creds (`--wifi-config` or NetworkManager exposes them).
+    if (info.wifi_qr_data_url) {
+      document.getElementById('onboardWifiQrImg').src = info.wifi_qr_data_url;
+      const ssidLabel = document.getElementById('onboardWifiSsidLabel');
+      ssidLabel.textContent = info.wifi_ssid ? `(${info.wifi_ssid})` : '';
+      if (info.wifi_ssid) document.getElementById('onboardWifiSsid').value = info.wifi_ssid;
+      if (info.wifi_psk)  {
+        const pskInp = document.getElementById('onboardWifiPsk');
+        const pskBtn = document.getElementById('onboardWifiPskReveal');
+        pskInp.value = info.wifi_psk;
+        pskInp.type = 'password';
+        pskBtn.textContent = 'Show';
+      }
+      document.getElementById('onboardWifiBlock').hidden = false;
+    } else {
+      document.getElementById('onboardWifiBlock').hidden = true;
+    }
+    // Step-2 dashboard-URL QR. Always present — even if the operator
+    // started the dashboard without WiFi creds, the visitor can still
+    // type the URL or scan it directly.
+    document.getElementById('onboardDashQrImg').src = info.dashboard_qr_data_url;
+    document.getElementById('onboardDashUrl').value = info.dashboard_url;
+    document.getElementById('onboardOverlay').hidden = false;
+  } catch (err) {
+    alert(`Couldn't load onboarding QRs: ${err}`);
+  }
+}
+
+function closeOnboardModal() {
+  document.getElementById('onboardOverlay').hidden = true;
+}
+
+function toggleOnboardWifiPskReveal() {
+  const inp = document.getElementById('onboardWifiPsk');
+  const btn = document.getElementById('onboardWifiPskReveal');
+  const showing = inp.type === 'text';
+  inp.type = showing ? 'password' : 'text';
+  btn.textContent = showing ? 'Show' : 'Hide';
+}
+
+async function copyInputToClipboard(inputId, btn) {
+  const el = document.getElementById(inputId);
+  if (!el) return;
+  try {
+    await navigator.clipboard.writeText(el.value);
+    const orig = btn.textContent;
+    btn.textContent = 'Copied!';
+    setTimeout(() => { btn.textContent = orig; }, 1500);
+  } catch (err) {
+    // Fallback: select the field so the user can hit Ctrl+C.
+    el.select();
+  }
+}
+
+/// Called from the /r2 message dispatcher — keeps the Link tab
+/// in sync when a member is added (claim) or revoked, without polling.
+/// Also handles the spec §7.3 self-revoke case: if a revoked event
+/// matches our own device_pk, wipe local identity + force the
+/// not-enrolled landing page.
+function handleAccessWsEvent(msg) {
+  if (msg.event === 'revoked' && viewerIdentity && msg.device_pk) {
+    const myPk = viewerIdentityPkHex;
+    if (myPk && msg.device_pk.toLowerCase() === myPk.toLowerCase()) {
+      console.warn('[access] this device has been revoked by the controller');
+      forgetViewerIdentity().then(() => renderNotEnrolledLanding('Your device has been removed from this dashboard by the operator.'));
+      return;
+    }
+  }
+  if (currentView !== 'link') return;
+  if (msg.event === 'member_added' || msg.event === 'revoked'
+      || msg.event === 'request_pending' || msg.event === 'request_approved'
+      || msg.event === 'request_denied') {
+    loadLinkMembers();
+  }
+}
+
+// ── Viewer identity (SPEC-R2-WORKSHOP-ACCESS §6) ────────────────────────
+//
+// Browser-side cert + key persistence. IndexedDB stores a single
+// 277-byte serialised `R2Member` blob keyed by 'self' under the
+// 'r2-workshop-access' database. Survives refresh / tab close /
+// browser restart; wiped on self-revoke (§7.3) or on operator-side
+// "Leave" (out of scope for v0.1).
+
+const IDB_NAME    = 'r2-workshop-access';
+const IDB_STORE   = 'members';
+const IDB_KEY     = 'self';
+const IDB_VERSION = 1;
+
+let viewerIdentity     = null;  // WasmR2Member instance once enrolled
+let viewerIdentityPkHex = null;  // cached hex form (lowercase)
+
+function idbOpen() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, IDB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(IDB_STORE)) {
+        db.createObjectStore(IDB_STORE);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror   = () => reject(req.error);
+  });
+}
+
+async function idbGet(key) {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx  = db.transaction(IDB_STORE, 'readonly');
+    const req = tx.objectStore(IDB_STORE).get(key);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror   = () => reject(req.error);
+  });
+}
+
+async function idbPut(key, value) {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx  = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).put(value, key);
+    tx.oncomplete = () => resolve();
+    tx.onerror    = () => reject(tx.error);
+  });
+}
+
+async function idbDelete(key) {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx  = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).delete(key);
+    tx.oncomplete = () => resolve();
+    tx.onerror    = () => reject(tx.error);
+  });
+}
+
+function bytesToHex(u8) {
+  return [...u8].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function hexToBytes(hex) {
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) {
+    out[i] = parseInt(hex.substr(i * 2, 2), 16);
+  }
+  return out;
+}
+
+function b64ToBytes(b64) {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function bytesToB64(u8) {
+  let bin = '';
+  for (let i = 0; i < u8.length; i++) bin += String.fromCharCode(u8[i]);
+  return btoa(bin);
+}
+
+/// Parse the `?join=` token + optional `&relay=` URL out of the URL.
+/// Returns `{ tg_hash, entropy_hex, relay }` or null.
+function parseJoinParam() {
+  const url = new URL(location.href);
+  const join = url.searchParams.get('join');
+  if (!join) return null;
+  const parts = join.split('.');
+  if (parts.length !== 2) return null;
+  const [tg_hash, entropy_hex] = parts;
+  // Accept either form: 16-hex (notekeeper-aligned, current default —
+  // matches r2-relay's exact-match bucket lookup) OR 8-hex (the
+  // pre-2026-05-19 short form, kept so existing in-room HTTP invites
+  // still claim correctly). Validation downstream is unchanged.
+  if ((tg_hash.length !== 8 && tg_hash.length !== 16)
+      || !/^[0-9a-fA-F]+$/.test(tg_hash)) return null;
+  if (entropy_hex.length !== 32 || !/^[0-9a-fA-F]+$/.test(entropy_hex)) return null;
+  return {
+    tg_hash: tg_hash.toLowerCase(),
+    entropy_hex: entropy_hex.toLowerCase(),
+    relay: url.searchParams.get('relay'),
+  };
+}
+
+/// Strip `?join=` (and `?relay=`) from the URL bar without reloading,
+/// so a refresh doesn't try to re-enrol with an already-consumed token.
+function clearJoinParam() {
+  const url = new URL(location.href);
+  url.searchParams.delete('join');
+  url.searchParams.delete('relay');
+  history.replaceState(null, '', url.pathname + (url.search || '') + url.hash);
+}
+
+/// Run the enrolment handshake: generate a device keypair, POST claim,
+/// decode the response, persist to IndexedDB. Returns true on success.
+async function runEnrolment(joinParam, deviceName) {
+  // 1. Generate the device keypair in WASM (uses getrandom — CSPRNG).
+  const kp = wasmGenerateDeviceKeypair();
+  const device_sk = new Uint8Array(kp.secret_key);
+  const device_pk = new Uint8Array(kp.public_key);
+  const device_pk_hex = bytesToHex(device_pk);
+
+  // 2. POST /api/access/claim.
+  const res = await fetch('/api/access/claim', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      tg_hash:     joinParam.tg_hash,
+      entropy_hex: joinParam.entropy_hex,
+      device_pk:   device_pk_hex,
+      device_name: deviceName,
+    }),
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`claim ${res.status}: ${txt}`);
+  }
+  const body = await res.json();
+  const tg_pk = hexToBytes(body.tg_pk_hex);
+  const encrypted = b64ToBytes(body.encrypted_b64);
+
+  // 3. Decrypt the credential bundle via WASM. `complete_join` runs
+  //    the device side of the join handshake (X25519 → XChaCha20-Poly1305)
+  //    and returns an R2Member handle that holds (sk, cert, dek, hk).
+  const nowSecs = BigInt(Math.floor(Date.now() / 1000));
+  const member = wasmCompleteJoin(device_sk, tg_pk, encrypted, nowSecs);
+
+  // 4. Persist to IndexedDB. The 277-byte blob carries everything the
+  //    next page load needs to come up enrolled.
+  const blob = member.to_bytes();
+  await idbPut(IDB_KEY, new Uint8Array(blob));
+
+  viewerIdentity      = member;
+  viewerIdentityPkHex = device_pk_hex;
+
+  console.log(`[access] enrolled as ${deviceName} (${device_pk_hex.slice(0,8)}…)`);
+  return true;
+}
+
+/// Try to load an existing R2Member from IndexedDB. On success,
+/// populate `viewerIdentity` and return true. On absence or
+/// expiry, return false and (if expired) wipe the record.
+async function loadExistingIdentity() {
+  const blob = await idbGet(IDB_KEY).catch(() => null);
+  if (!blob) return false;
+  let member;
+  try {
+    member = WasmR2Member.from_bytes(new Uint8Array(blob));
+  } catch (err) {
+    console.warn('[access] stale IndexedDB blob, wiping:', err);
+    await idbDelete(IDB_KEY);
+    return false;
+  }
+  const nowSecs = BigInt(Math.floor(Date.now() / 1000));
+  if (!member.is_valid(nowSecs)) {
+    console.warn('[access] persisted cert has expired — wiping');
+    await idbDelete(IDB_KEY);
+    return false;
+  }
+  viewerIdentity      = member;
+  viewerIdentityPkHex = bytesToHex(new Uint8Array(member.public_key));
+  return true;
+}
+
+async function forgetViewerIdentity() {
+  viewerIdentity      = null;
+  viewerIdentityPkHex = null;
+  await idbDelete(IDB_KEY).catch(() => {});
+  await idbDelete('relay_url').catch(() => {});
+}
+
+// ── Cross-origin cert hand-off ─────────────────────────────────────────
+//
+// The lab-origin webapp (http://<lan_ip>:21042) has the cert in its own
+// IndexedDB after enrolment. A copy of the same webapp loaded from a
+// public HTTPS host (https://reality2.ai/r2-workshop/ — a custom-domain
+// front-end on the gh-pages deploy) lives in a different origin and
+// therefore a different IndexedDB store. To let the same device use
+// the off-network host without re-enrolling, the lab-origin webapp
+// builds a #bundle=… URL that the new origin can import. The fragment
+// never traverses the network, so the cert stays client-side; the
+// operator is the transport.
+
+const OFF_NETWORK_HOST = 'https://reality2.ai/r2-workshop/';
+
+/// Build a #bundle=… URL pointing at the off-network host that, when
+/// opened, will copy this device's cert + relay_url into the off-network
+/// origin's IndexedDB. Returns null if we have no identity to export.
+function buildOffNetworkBundleUrl(memberBlobBytes, relayUrl) {
+  const bundle = {
+    v: 1,
+    m: bytesToB64(memberBlobBytes),
+    r: relayUrl || null,
+  };
+  const json = JSON.stringify(bundle);
+  // URL-safe base64 of the JSON. Modern browsers cap URLs at ~32k; the
+  // member blob is ~277 bytes b64'd ≈ 370, plus relay_url ≈ 30, so the
+  // fragment is well under 1k — fine for any browser/QR encoder.
+  const b64 = b64encode(json);
+  return `${OFF_NETWORK_HOST}#bundle=${encodeURIComponent(b64)}`;
+}
+
+/// On boot of the off-network copy of the webapp, detect a #bundle=…
+/// hand-off, decode it into IndexedDB, and clear the fragment so a
+/// refresh doesn't re-trigger the import. Idempotent — re-importing
+/// the same bundle is a no-op. Errors are logged but don't block the
+/// regular boot path (the user can re-export from lab-origin if the
+/// bundle is malformed).
+async function tryImportOffNetworkBundle() {
+  if (!location.hash || !location.hash.includes('bundle=')) return;
+  const m = location.hash.match(/bundle=([^&]+)/);
+  if (!m) return;
+  try {
+    const json = b64decode(decodeURIComponent(m[1]));
+    const obj = JSON.parse(json);
+    if (obj.v !== 1 || typeof obj.m !== 'string') {
+      console.warn('[access] off-network bundle: bad shape, ignoring');
+      return;
+    }
+    const blob = b64ToBytes(obj.m);
+    // Validate before persisting — a bundle pointing at a stale TG
+    // would still parse via WasmR2Member.from_bytes but fail
+    // is_valid; we'd rather catch that here than in accessGate.
+    const member = WasmR2Member.from_bytes(new Uint8Array(blob));
+    const nowSecs = BigInt(Math.floor(Date.now() / 1000));
+    if (!member.is_valid(nowSecs)) {
+      console.warn('[access] off-network bundle: cert expired, ignoring');
+      return;
+    }
+    await idbPut(IDB_KEY, new Uint8Array(blob));
+    if (obj.r) {
+      await idbPut('relay_url', obj.r);
+    } else {
+      await idbDelete('relay_url').catch(() => {});
+    }
+    console.log('[access] imported off-network bundle — device now enrolled at this origin');
+  } catch (err) {
+    console.warn('[access] off-network bundle import failed:', err);
+  } finally {
+    // Clear the fragment in any case — a malformed bundle that's left
+    // in the URL just churns on every reload otherwise.
+    if (location.hash) {
+      history.replaceState(null, '', location.pathname + location.search);
+    }
+  }
+}
+
+// Small base64 helpers. We already have b64ToBytes / bytesToB64 for
+// raw bytes; these wrap them for JSON strings, which is what the
+// bundle is encoded as.
+function b64encode(str) {
+  return btoa(unescape(encodeURIComponent(str)));
+}
+function b64decode(b64) {
+  return decodeURIComponent(escape(atob(b64)));
+}
+
+/// Triggered by the "Save for off-network use" button on the Link
+/// tab's "this device" card. Reads the cert + relay_url from local
+/// IndexedDB, builds the #bundle=… URL, and navigates to it. The
+/// off-network host's webapp picks up the fragment and imports.
+///
+/// Same-tab navigation is safer than window.open() here:
+///   1. iOS Safari blocks window.open() unless directly inside the
+///      click handler with no awaits beforehand, and we have awaits.
+///   2. After import the off-network page becomes the user's
+///      enrolled session anyway — opening it in the same tab is the
+///      action they actually want.
+async function exportOffNetworkAccess() {
+  if (!viewerIdentity || !viewerIdentityPkHex) {
+    alert("No cert to save — this device isn't enrolled.");
+    return;
+  }
+  try {
+    const blob = await idbGet(IDB_KEY).catch(() => null);
+    if (!blob) {
+      alert("Cert missing from local storage — try pairing again.");
+      return;
+    }
+    const relayUrl = await idbGet('relay_url').catch(() => null);
+    const url = buildOffNetworkBundleUrl(new Uint8Array(blob), relayUrl);
+    // Confirm before navigating so the user understands what's
+    // happening — otherwise the page jumps to github.io and they
+    // wonder what just happened.
+    const ok = confirm(
+      "Open the off-network site? Your cert will be copied into your browser's storage there, and you'll then be able to use the dashboard from anywhere with internet."
+    );
+    if (!ok) return;
+    location.href = url;
+  } catch (err) {
+    alert(`Couldn't build off-network link: ${err}`);
+  }
+}
+
+/// Ask the dashboard whether our `viewerIdentityPkHex` is still a known
+/// member. Returns true for 200 (enrolled + not revoked), false for
+/// 404 or revoked. Transient errors (network blip, fetch failure)
+/// return true conservatively — better to keep the session up on a
+/// flaky link than tear it down spuriously. The only persistent
+/// 404-style failure that drops the cert is the explicit "no such
+/// member" response.
+///
+/// Skipped entirely when we're loaded over HTTPS — the dashboard
+/// only speaks HTTP in v0.1, so an HTTPS origin (github.io static
+/// host) can never reach /api/access/whoami; the request would 404
+/// against the static host's missing-route handler and spuriously
+/// wipe a freshly-imported cert. The relay-side leg has its own
+/// teardown signal (r2.dash.access.event subtype=revoked, §7.3).
+async function dashboardKnowsMe() {
+  if (!viewerIdentityPkHex) return false;
+  if (location.protocol !== 'http:') {
+    // Off-network origin — defer the trust check to the relay leg.
+    return true;
+  }
+  try {
+    const res = await fetch(`/api/access/whoami/${encodeURIComponent(viewerIdentityPkHex)}`);
+    if (res.status === 404) return false;
+    if (!res.ok) return true; // transient — keep the session
+    const body = await res.json().catch(() => ({}));
+    return body.enrolled === true && body.revoked !== true;
+  } catch (err) {
+    console.warn('[access] whoami probe failed (network?), keeping session:', err);
+    return true;
+  }
+}
+
+// ── Not-enrolled landing page (SPEC-R2-WORKSHOP-ACCESS §8 trailing para) ─
+
+function isLocalHost() {
+  const h = location.hostname;
+  return h === 'localhost' || h === '127.0.0.1' || h === '::1';
+}
+
+function renderNotEnrolledLanding(banner) {
+  // Hide every regular tab + the connect/bootstrap button.
+  for (const id of ['liveMain', 'devicesMain', 'dataMain', 'linkMain', 'viewToggle', 'btn-connect']) {
+    const el = document.getElementById(id);
+    if (el) { el.hidden = true; el.style.display = 'none'; }
+  }
+  // Ensure the landing div exists.
+  let landing = document.getElementById('notEnrolledLanding');
+  if (!landing) {
+    landing = document.createElement('div');
+    landing.id = 'notEnrolledLanding';
+    landing.className = 'invite-overlay';
+    landing.style.cssText = 'position:relative; min-height: 60vh; background:transparent;';
+    landing.innerHTML = `
+      <div class="invite-modal" style="max-width: 520px;">
+        <div class="invite-header">
+          <h2 id="landingTitle">Pair this device</h2>
+        </div>
+        <p class="invite-help" id="landingBanner"></p>
+
+        <div id="landingRequestForm">
+          <p class="invite-help">
+            Type a name the operator will recognise — it'll appear on the controller's screen — then ask them to approve.
+          </p>
+          <div class="invite-url-group">
+            <label>Name this device:</label>
+            <div class="invite-url-row">
+              <input id="landingNameInput" placeholder="e.g. Dave's phone" maxlength="64" />
+              <button onclick="requestAccess()" id="landingRequestBtn">Ask to pair</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="landingWaiting" hidden>
+          <p class="invite-help">⏳ Waiting for the operator to approve <strong id="landingWaitingName"></strong>…</p>
+          <p class="invite-help" style="font-size:12px; color:#64748b;">
+            They'll see your request on their dashboard's <strong>Link</strong> tab. This page checks back every couple of seconds.
+          </p>
+          <div class="invite-url-row">
+            <button onclick="cancelRequest()" style="background:#64748b;">Cancel</button>
+          </div>
+        </div>
+
+        <div id="landingDenied" hidden>
+          <p class="invite-help" style="color:#f87171;">The operator declined this request.</p>
+          <div class="invite-url-row">
+            <button onclick="resetLandingForm()">Try again</button>
+          </div>
+        </div>
+
+        <details style="margin-top: 18px; color:#64748b; font-size:12px;">
+          <summary>Got a pairing link instead?</summary>
+          <div class="invite-url-row" style="margin-top:8px;">
+            <input id="landingPasteInput" placeholder="https://… or token" />
+            <button onclick="landingTryPaste()">Open</button>
+          </div>
+        </details>
+      </div>`;
+    document.body.appendChild(landing);
+  }
+  document.getElementById('landingBanner').textContent =
+    banner || 'Pairing this device unlocks the dashboard for this browser.';
+  landing.hidden = false;
+  landing.style.display = 'flex';
+}
+
+function resetLandingForm() {
+  document.getElementById('landingRequestForm').hidden = false;
+  document.getElementById('landingWaiting').hidden = true;
+  document.getElementById('landingDenied').hidden = true;
+}
+
+let _pendingRequestPoller = null;
+let _pendingRequestPk = null;
+let _pendingDeviceSk = null;
+let _pendingDevicePk = null;
+let _pendingRequestName = null;
+
+async function requestAccess() {
+  const name = (document.getElementById('landingNameInput').value || '').trim();
+  if (!name) {
+    alert("Please type a name the operator will recognise.");
+    return;
+  }
+  const relayUrl  = getRelayUrlParam();
+  const joinParam = parseJoinParam();
+  if (relayUrl && !joinParam) {
+    alert("This pairing link is missing the invite token. Ask the operator for a fresh link.");
+    return;
+  }
+  document.getElementById('landingRequestBtn').disabled = true;
+  try {
+    if (relayUrl) {
+      // Relay-mode pairing. connectRelay handles the
+      // ephemeral-keypair HELLO + auto-sends a notekeeper-format
+      // JOIN_REQUEST binary frame once the relay WELCOMEs us. The
+      // operator's approval comes back as a JOIN_RESPONSE binary
+      // frame; relayHandleJoinResponse decrypts, persists the
+      // cert, and reloads. No HTTP polling — the relay pushes.
+      _pendingRequestName = name;
+      document.getElementById('landingRequestForm').hidden = true;
+      document.getElementById('landingWaiting').hidden = false;
+      document.getElementById('landingWaitingName').textContent = name;
+      const waitingHint = document.querySelector('#landingWaiting p.invite-help + p.invite-help');
+      if (waitingHint) {
+        waitingHint.textContent =
+          "They'll see your request on their dashboard's Link tab. We'll switch over automatically once they approve.";
+      }
+      connectRelay(relayUrl);
+    } else {
+      // In-room path. Ephemeral keypair → r2.dash.cmd.access.request
+      // over /r2 (formerly POST /api/access/request before the cmd
+      // framework). Same shape that was here before the relay leg
+      // was added; only the transport changed.
+      const kp = wasmGenerateDeviceKeypair();
+      _pendingDeviceSk = new Uint8Array(kp.secret_key);
+      _pendingDevicePk = new Uint8Array(kp.public_key);
+      const pk_hex = bytesToHex(_pendingDevicePk);
+      _pendingRequestPk = pk_hex;
+      await sendCmd('access.request', [[1, pk_hex], [2, name]]);
+      document.getElementById('landingRequestForm').hidden = true;
+      document.getElementById('landingWaiting').hidden = false;
+      document.getElementById('landingWaitingName').textContent = name;
+      startPendingRequestPoll(pk_hex);
+    }
+  } catch (err) {
+    document.getElementById('landingRequestBtn').disabled = false;
+    alert(`Couldn't send the request: ${err.message || err}`);
+  }
+}
+
+function cancelRequest() {
+  stopPendingRequestPoll();
+  resetLandingForm();
+  document.getElementById('landingRequestBtn').disabled = false;
+  _pendingRequestPk = null;
+  _pendingDeviceSk = null;
+  _pendingDevicePk = null;
+}
+
+function startPendingRequestPoll(pk_hex) {
+  stopPendingRequestPoll();
+  const tick = async () => {
+    let out;
+    try {
+      out = await sendCmd('access.check', [[1, pk_hex]]);
+    } catch (err) {
+      // err covers status:"err" (not_found / bad_request) and timeouts.
+      // Both are transient from the polling caller's view — keep going.
+      return;
+    }
+    const decision = out.payload?.['4'];
+    if (decision === 'pending') return;
+    if (decision === 'denied') {
+      stopPendingRequestPoll();
+      document.getElementById('landingWaiting').hidden = true;
+      document.getElementById('landingDenied').hidden = false;
+      return;
+    }
+    if (decision !== 'approved') return; // unknown — keep polling
+    // Approved — finish enrolment client-side. Body rides in key 5
+    // as a JSON-string per SPEC-R2-WORKSHOP-WIRE §2.1.
+    try {
+      const body = JSON.parse(out.payload['5'] ?? '{}');
+      stopPendingRequestPoll();
+      const tg_pk = hexToBytes(body.tg_pk_hex);
+      const encrypted = b64ToBytes(body.encrypted_b64);
+      const nowSecs = BigInt(Math.floor(Date.now() / 1000));
+      const member = wasmCompleteJoin(_pendingDeviceSk, tg_pk, encrypted, nowSecs);
+      const blob = member.to_bytes();
+      await idbPut(IDB_KEY, new Uint8Array(blob));
+      // Persist relay_url alongside the cert per SPEC-R2-WORKSHOP-ACCESS
+      // v0.3 §3.4 + §6. Stored under a separate IndexedDB key because
+      // the R2Member binary blob doesn't have a slot for it. Used by
+      // the off-network reconnect path (§5.2) once that lands.
+      if (body.relay_url) {
+        await idbPut('relay_url', body.relay_url);
+      } else {
+        // Belt-and-braces: if a prior approval cached one and this
+        // round didn't, drop the stale value rather than rely on it.
+        await idbDelete('relay_url').catch(() => {});
+      }
+      viewerIdentity = member;
+      viewerIdentityPkHex = pk_hex;
+      // Reload — the regular path will see the IndexedDB cert and
+      // come up enrolled.
+      location.reload();
+    } catch (err) {
+      console.warn('[access] approve finalisation failed:', err);
+    }
+  };
+  _pendingRequestPoller = setInterval(tick, 2000);
+  tick();
+}
+
+function stopPendingRequestPoll() {
+  if (_pendingRequestPoller) {
+    clearInterval(_pendingRequestPoller);
+    _pendingRequestPoller = null;
+  }
+}
+
+function landingTryPaste() {
+  const v = (document.getElementById('landingPasteInput').value || '').trim();
+  if (!v) return;
+  // Try to extract `?join=` from a pasted URL, or accept a literal
+  // `<tg_hash>.<entropy_hex>` token.
+  let token = null;
+  try {
+    const u = new URL(v);
+    token = u.searchParams.get('join');
+  } catch (_) {
+    if (/^[0-9a-f]{8}\.[0-9a-f]{32}$/i.test(v)) token = v;
+  }
+  if (!token) {
+    alert("That doesn't look like a pairing link. Ask the operator to copy the URL again.");
+    return;
+  }
+  // Rewrite to a same-origin URL and let the normal load path handle it.
+  location.href = `/?join=${encodeURIComponent(token)}`;
+}
+
+/// Top-level access-gate run on page load. Returns true if the rest of
+/// the dashboard is allowed to come up; false if the landing page is
+/// rendered instead.
+///
+/// Order matters:
+///   1. `?join=` first — even on localhost (an operator testing the
+///      pairing flow from an incognito window on the same machine
+///      legitimately wants to enrol as a fresh viewer, not silently
+///      slip past the gate via the loopback shortcut).
+///   2. Existing IndexedDB cert next — persistent viewer identity.
+///   3. KeyHolder loopback shortcut — only if no token and no cert.
+///   4. Landing page — non-localhost, no token, no cert.
+/// Global role flag set by accessGate(). True if this browser is
+/// driving the controller (KeyHolder identity), false if it's a paired
+/// viewer. The controller sees mutate-controls (Connect Sensors, OTA,
+/// Reset, Start/Mark/Stop, Grant access, Revoke, Delete-all data);
+/// viewers see the read-only surface.
+let isControllerRole = false;
+
+/// Apply role-driven hide/show to the controller-only elements once
+/// `isControllerRole` is settled. Called at end of accessGate.
+function applyRoleVisibility() {
+  // Selectors driven by the controller-only feature surface — keep
+  // this list together so it's auditable in one place. Calm-tech:
+  // viewers see fewer buttons, not greyed-out buttons.
+  const controllerOnlyIds = [
+    'btn-connect',           // Connect Sensors (BLE bootstrap)
+    'bulkPullLatestBtn',     // Update Outdated from Latest
+    'bulkUpdateBtn',         // Update All Firmware
+    'bulkResetBtn',          // Reset All Sensors
+    'captureStartBtn',       // Run-control Start
+    'captureMarkBtn',        // Run-control Mark
+    'captureStopBtn',        // Run-control Stop
+    'dataDeleteAllBtn',      // Data — Delete all across devices
+    'linkOnboardBtn',        // Link — Onboard a visitor (controller-only)
+    // NOTE: viewLink is intentionally NOT in this list. Viewers see
+    // the Link tab so they can access the "Save for off-network use"
+    // button on their own "this device" card. The member-list area
+    // renders read-only / forbidden for them; the onboard button
+    // above is still controller-only.
+  ];
+  for (const id of controllerOnlyIds) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    if (isControllerRole) {
+      // Restore previous visibility — only the bulkPullLatest
+      // button starts hidden, the rest are visible by default.
+      if (id !== 'bulkPullLatestBtn') el.hidden = false;
+    } else {
+      el.hidden = true;
+    }
+  }
+  // Per-card "Update Firmware" / "Reset Sensor" buttons are
+  // rendered by R2DeviceCard's _update; the renderer reads
+  // window.isControllerRole and skips them for viewers. The
+  // capture state indicator stays visible for both roles —
+  // viewers see CALIBRATING / RECORDING just like the controller.
+
+  // The Run-name input is the only Live-tab control that has a
+  // viewer-side reason to exist (showing the name of the run
+  // currently being recorded) but no viewer-side reason to be
+  // editable. Switch it to readonly + neutral styling for viewers;
+  // its `value` is then driven by the most recent capture.state
+  // event the dashboard saw (see updateRunNameDisplay).
+  const runName = document.getElementById('runName');
+  if (runName) {
+    runName.readOnly = !isControllerRole;
+    runName.placeholder = isControllerRole ? 'run-01' : '(no run in progress)';
+    runName.style.cursor = isControllerRole ? '' : 'default';
+    runName.style.opacity = isControllerRole ? '' : '0.85';
+  }
+}
+
+/// Extract the operator-supplied run name from a capture filename
+/// like `2026-05-18_18-05-06-test.csv` or `0001779000000000-test.csv`.
+/// Returns null when the filename doesn't match either prefix shape.
+function parseRunNameFromFilename(filename) {
+  if (!filename) return null;
+  // Strip `.csv` (or `cap-...csv` fallback prefix).
+  const stripped = filename.replace(/^cap-/, '').replace(/\.csv$/, '');
+  // Date-prefix form: `YYYY-MM-DD_HH-MM-SS-<name>`
+  let m = stripped.match(/^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}-(.+)$/);
+  if (m) return m[1];
+  // ts16-prefix form (legacy fallback): `0001779000000000-<name>`
+  m = stripped.match(/^\d{16}-(.+)$/);
+  if (m) return m[1];
+  return null;
+}
+
+/// Reflect the current recording's run name into the read-only
+/// runName input on viewers, AND track the current capture filename
+/// in `lastMarkedFilename` so the "Download merged CSV" button
+/// works for viewers too. The controller keeps whatever the
+/// operator typed in the input (might be empty before Mark), but
+/// also benefits from the filename tracking — though the
+/// controller path already sets `lastMarkedFilename` in captureMark.
+function updateRunNameDisplay() {
+  // Find any sensor currently in 'recording' state and read its
+  // file. They should all share the same filename (operator marked
+  // once for the fleet) so first match wins.
+  let activeFilename = null;
+  let runName = null;
+  for (const s of sensors.values()) {
+    if (s.captureState === 'recording' && s.captureFile) {
+      activeFilename = s.captureFile;
+      runName = parseRunNameFromFilename(s.captureFile);
+      if (runName) break;
+    }
+  }
+  // Viewers: the run-name input is read-only — mirror the active
+  // run there (or clear when idle).
+  if (!isControllerRole) {
+    const input = document.getElementById('runName');
+    if (input) input.value = runName || '';
+  }
+  // Both roles: keep lastMarkedFilename in sync with the latest
+  // recording so the "Download merged CSV" button is correctly
+  // enabled. Viewers never call captureMark themselves, so without
+  // this they'd never see the button enable. Update the button's
+  // disabled state inline — calling updateCaptureUiFromFleet here
+  // would recurse (it's the caller).
+  if (activeFilename) {
+    lastMarkedFilename = activeFilename;
+    const merged = document.getElementById('dataMergedBtn');
+    if (merged) merged.disabled = false;
+  }
+}
+
+async function accessGate() {
+  const joinParam = parseJoinParam();
+  const relayUrl  = getRelayUrlParam();
+
+  // Off-network path: `?relay=` is set in the URL.
+  //
+  //  Paired (cert in IndexedDB)   → straight through; bootstrapHive
+  //                                  will open the relay WSS with a
+  //                                  signed HELLO and receive live
+  //                                  frames.
+  //  Unpaired (no cert) + `?join=`  → render the same "Ask to pair"
+  //                                  landing the in-room HTTP path
+  //                                  uses; the "Ask to pair" button
+  //                                  routes the request through the
+  //                                  relay text channel instead of
+  //                                  HTTP /api/access/request (which
+  //                                  isn't reachable from the
+  //                                  static-host origin).
+  //  Unpaired + no `?join=`         → landing with no relay context.
+  //                                  The pairing form will refuse to
+  //                                  submit without a token.
+  if (relayUrl) {
+    isControllerRole = false;
+    applyRoleVisibility();
+    // If a fresh `?join=` is present along with the relay URL, the
+    // operator is explicitly re-inviting this device — wipe any
+    // stale cert from a previous pairing and run the request flow
+    // again. Without this, a phone that was paired once before sees
+    // the full dashboard with empty charts because the relay HELLO
+    // succeeds but the cert is for a different / stale state.
+    if (joinParam && await loadExistingIdentity()) {
+      console.log('[access] fresh ?join= with stale cert — re-pairing');
+      await forgetViewerIdentity();
+      viewerIdentity = null;
+      viewerIdentityPkHex = null;
+      renderNotEnrolledLanding('This device is re-pairing because the operator issued a fresh invite link.');
+      return false;
+    }
+    if (await loadExistingIdentity()) {
+      return true;
+    }
+    renderNotEnrolledLanding();
+    return false;
+  }
+
+  // First-load enrolment via QR / link. Takes precedence over both
+  // the IndexedDB cache and the localhost shortcut so a private /
+  // incognito window opened on the controller's own laptop with
+  // ?join= correctly enrols as a viewer instead of being treated as
+  // the KeyHolder.
+  if (joinParam) {
+    const deviceName = (location.hostname || 'browser').slice(0, 32);
+    try {
+      await runEnrolment(joinParam, deviceName);
+      clearJoinParam();
+      isControllerRole = false;
+      applyRoleVisibility();
+      return true;
+    } catch (err) {
+      console.error('[access] enrolment failed:', err);
+      clearJoinParam();
+      renderNotEnrolledLanding(`Pairing failed: ${err.message || err}. Ask the operator to issue a new link.`);
+      return false;
+    }
+  }
+
+  // Returning enrolled device. Cross-check with the dashboard: even
+  // when IndexedDB has a structurally-valid cert, the dashboard's
+  // persistent member set may have been wiped or rotated between
+  // sessions, leaving us with a "ghost" cert that lets us into the
+  // UI but doesn't correspond to any known member. /api/access/whoami
+  // resolves the truth — 200 means we're still on file, 404 means
+  // we're stale and need to re-pair.
+  if (await loadExistingIdentity()) {
+    if (await dashboardKnowsMe()) {
+      isControllerRole = false;
+      applyRoleVisibility();
+      return true;
+    }
+    console.warn('[access] cert in IndexedDB but dashboard has no record — wiping and re-prompting');
+    await forgetViewerIdentity();
+    renderNotEnrolledLanding('This device was paired with an earlier dashboard run. Please pair again.');
+    return false;
+  }
+
+  // KeyHolder shortcut — the controller's own browser, with no token
+  // and no persisted viewer identity, bypasses the landing page
+  // (§2.3: KeyHolder is "TG member automatically by config"). v0.1
+  // detects "this is the controller" via the localhost loopback
+  // check (same gate the dashboard uses server-side for /api/access/*).
+  if (isLocalHost()) {
+    isControllerRole = true;
+    applyRoleVisibility();
+    return true;
+  }
+
+  // Not enrolled, no token in URL, not on localhost → landing page.
+  renderNotEnrolledLanding();
+  return false;
+}
+
+function renderDevicesIfVisible() {
+  if (currentView === 'devices') renderDevices();
+}
+
+function fmtAge(ms) {
+  if (ms < 1500)   return 'just now';
+  if (ms < 60_000) return `${Math.round(ms/1000)} s ago`;
+  if (ms < 3600_000) return `${Math.round(ms/60_000)} min ago`;
+  return `${Math.round(ms/3600_000)} h ago`;
+}
+
+function classifyOnline(s) {
+  const age = Date.now() - (s.lastSeen ?? 0);
+  if (!s.online || age > OFFLINE_MS) return 'offline';
+  if (age > STALE_MS) return 'stale';
+  return 'online';
+}
+
+// Map firmware FSM-state numbers (Phase 5L will define these) to the
+// CSS class that drives the virtual-LED colour + animation. Until
+// firmware sends real state values, fsmState is null and the LED
+// stays the inert grey placeholder.
+function ledClassFor(s) {
+  // Optimistic client-side overrides — these win over whatever the last
+  // status frame said. pendingOta covers the entire OTA cycle (upload,
+  // reboot, reconnect, first-fresh-status); pendingReset covers a brief
+  // window around the Reset Sensor button. Both render as a "working"
+  // animation rather than letting the dot flicker through transient
+  // online/offline/fsm-state combinations during recovery.
+  if (s.pendingOta)   return 'tg-ota';
+  if (s.pendingReset) return 'tg-resetting';
+  if (s.fsmState == null) return '';
+  // If the sensor's gone offline (no events for OFFLINE_MS), don't
+  // pretend we know its FSM state — fall back to the inert grey
+  // placeholder. classifyOnline() reads s.lastSeen against
+  // OFFLINE_MS / STALE_MS thresholds defined above.
+  if (classifyOnline(s) === 'offline') return '';
+  switch (s.fsmState) {
+    case 0:  return 'tg-boot';         // BOOT
+    case 1:  return 'tg-advertising';  // ADVERTISING
+    case 2:  return 'tg-ble';          // BLE_CONNECTED
+    case 3:  return 'tg-ble';          // WIFI_CONNECTING
+    case 4:  return 'tg-streaming';    // STREAMING
+    case 5:  return 'tg-catchup';      // STREAMING_CATCHUP
+    case 6:  return 'tg-cal';          // CALIBRATING
+    case 7:  return 'tg-low';          // LOW_BATTERY
+    case 8:  return 'tg-ota';          // OTA
+    case 9:  return 'tg-error';        // ERROR
+    case 10: return 'tg-streaming-sim'; // STREAMING_DEGRADED_SIM (SPEC-R2-WORKSHOP-SENSOR-HEALTH)
+    case 11: return 'tg-recording';     // RECORDING (post-Mark, SPEC-R2-WORKSHOP-CAPTURE)
+    default: return '';
+  }
+}
+
+// Render the health-source row (dot + label) per SPEC-R2-WORKSHOP-SENSOR-HEALTH §6.
+// Always visible once data_source is known; hidden until the first status frame.
+function healthRowFor(s) {
+  if (s.dataSource == null) return '';
+  if (s.dataSource === 0) {
+    return '<div class="health-row"><div class="health-dot health-real" title="ADXL355 ok"></div><span class="health-label">Real ADXL355</span></div>';
+  }
+  return '<div class="health-row"><div class="health-dot health-sim" title="Sensor not reading — synthetic data on the wire"></div><span class="health-label health-sim-text">Sim fallback — sensor not reading</span></div>';
+}
+
+// ── <r2-device-card> custom element ──────────────────────────────
+//
+// Each card is a long-lived DOM tree. `set sensor(...)` mutates
+// individual nodes in place rather than rebuilding the card, so:
+//  - CSS animations (LED pulse, OTA strobe) don't restart on every
+//    1 Hz tick.
+//  - Per-card sub-state (live-log scroll position, button text mid-
+//    operation) survives renders.
+//  - Reset-all + bulk-OTA visual feedback is consistent with single-
+//    sensor operations because the DOM under the operator's cursor
+//    is the same DOM.
+class R2DeviceCard extends HTMLElement {
+  constructor() {
+    super();
+    this._sensor = null;
+    this._built  = false;
+    this._refs   = {};
+    // Cached last-rendered values so we skip DOM writes when nothing
+    // changed. Keeps the once-per-second tick quiet — only the bits
+    // that actually move (lastSeen, sometimes battery) hit the DOM.
+    this._last   = {};
+  }
+
+  set sensor(s) {
+    this._sensor = s;
+    if (!this._built) { this._build(); this._built = true; }
+    this._update();
+  }
+  get sensor() { return this._sensor; }
+
+  _build() {
+    const s = this._sensor;
+    const key = s ? s.key : '';
+    this.innerHTML = `
+      <div class="device-card" data-key="${escapeAttr(key)}">
+        <div class="device-header">
+          <div class="virt-led" title="virtual LED — awaiting Phase 5L FSM state"></div>
+          <div class="device-name" style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></div>
+          <button class="rename-btn" title="Rename this sensor" onclick="renameSensor('${escapeAttr(key)}')">✏️</button>
+        </div>
+        <div class="health-row-host"></div>
+        <div class="device-row"><span class="label">addr</span><span class="value device-addr"></span></div>
+        <div class="device-row"><span class="label">firmware</span><span class="value device-fw"></span></div>
+        <div class="device-row"><span class="label">last seen</span><span class="value device-lastseen"></span></div>
+        <div class="device-row"><span class="label">battery</span><span class="value device-battery"></span></div>
+        <div class="battery-bar-host"></div>
+        <div class="device-actions">
+          <button class="btn-update">⬆ Update Firmware</button>
+          <button class="btn-reset">↻ Reset Sensor</button>
+          <button class="btn-identify" title="Light this sensor's LED solid white so you can find it in the rack">💡 Identify</button>
+          <button class="btn-logs">↓ Logs</button>
+        </div>
+        <div class="device-log-host"></div>
+      </div>
+    `;
+    this._refs = {
+      card:        this.querySelector('.device-card'),
+      led:         this.querySelector('.virt-led'),
+      name:        this.querySelector('.device-name'),
+      healthHost:  this.querySelector('.health-row-host'),
+      addr:        this.querySelector('.device-addr'),
+      fw:          this.querySelector('.device-fw'),
+      lastSeen:    this.querySelector('.device-lastseen'),
+      battery:     this.querySelector('.device-battery'),
+      battBarHost: this.querySelector('.battery-bar-host'),
+      btnUpdate:   this.querySelector('.btn-update'),
+      btnReset:    this.querySelector('.btn-reset'),
+      btnIdentify: this.querySelector('.btn-identify'),
+      btnLogs:     this.querySelector('.btn-logs'),
+      logHost:     this.querySelector('.device-log-host'),
+    };
+    // Per-card action buttons delegate to methods on this element
+    // (below). Each method is self-contained — bulk operations
+    // ("Reset All", "Update All") call the same method on every card
+    // in parallel via Promise.allSettled, so single-sensor and fleet
+    // operations share one code path and produce identical UI feedback.
+    this._refs.btnUpdate.addEventListener('click', () => this._sensor && this.pickAndUpdateFirmware());
+    this._refs.btnReset .addEventListener('click', () => this._sensor && this.reset());
+    this._refs.btnIdentify.addEventListener('click', () => this._sensor && this.toggleIdentify());
+    this._refs.btnLogs  .addEventListener('click', () => this._sensor && this.toggleLogs());
+    // Hide controller-only buttons (firmware + reset) on viewer
+    // builds. Logs panel stays — viewers can inspect device logs
+    // without changing anything. The same controller/viewer split
+    // governs the bulk buttons (top of Devices view) and the
+    // capture run-controls (Live view); see applyRoleVisibility.
+    if (!isControllerRole) {
+      this._refs.btnUpdate.hidden = true;
+      this._refs.btnReset .hidden = true;
+      this._refs.btnIdentify.hidden = true;
+    }
+  }
+
+  // ── action methods ─────────────────────────────────────────────
+
+  /// Reboot this sensor via the dashboard's reset endpoint. Returns
+  /// a Promise resolving to `{ok, message?}`. Updates button + LED
+  /// state in place. Safe to call concurrently from a fleet button.
+  async reset() {
+    const s = this._sensor;
+    if (!s) return { ok: false, message: 'no sensor' };
+    const r = this._refs;
+
+    s.pendingReset = true;
+    // Forward-fail the LED back to its real state after 10 s if the
+    // sensor never sends a fresh status frame (clears pendingReset
+    // on first frame; see handleEvent r2.sensor.status branch).
+    setTimeout(() => {
+      if (s.pendingReset) {
+        s.pendingReset = false;
+        renderDevicesIfVisible();
+        updateSensorList();
+      }
+    }, 10_000);
+    this._update();
+    updateSensorList();
+
+    r.btnReset.disabled = true;
+    r.btnReset.textContent = '↻ Resetting…';
+
+    let ok = false; let message = '';
+    try {
+      const out = await sendCmd('reset', [[1, s.key]]);
+      ok = true;
+      message = out.message || 'reset accepted';
+      r.btnReset.textContent = '✓ Reset';
+    } catch (err) {
+      r.btnReset.textContent = '✗ Failed';
+      message = String(err.message || err);
+      console.warn('[reset]', s.key, err);
+    }
+    setTimeout(() => {
+      r.btnReset.textContent = '↻ Reset Sensor';
+      r.btnReset.disabled = false;
+    }, 4000);
+    return { ok, message };
+  }
+
+  /// Toggle the sensor's identify light (solid white) so the
+  /// operator can physically locate the device in a rack of many
+  /// sensors. Optimistic UI: flip local state immediately, POST in
+  /// the background, auto-revert after 60 s so an operator who
+  /// forgets to switch it off doesn't drain the battery.
+  async toggleIdentify() {
+    const s = this._sensor;
+    if (!s) return { ok: false, message: 'no sensor' };
+    const r = this._refs;
+    const next = !s.identifyOn;
+    s.identifyOn = next;
+    r.btnIdentify.classList.toggle('active', next);
+    r.btnIdentify.textContent = next ? '💡 Identifying…' : '💡 Identify';
+    if (s._identifyTimer) { clearTimeout(s._identifyTimer); s._identifyTimer = null; }
+    if (next) {
+      s._identifyTimer = setTimeout(() => {
+        if (s.identifyOn) this.toggleIdentify();
+      }, 60_000);
+    }
+    try {
+      await sendCmd('identify', [[1, s.key], [2, next]]);
+    } catch (err) {
+      console.warn('[identify]', s.key, err);
+    }
+    return { ok: true };
+  }
+
+  /// Push a firmware Blob to this sensor's OTA endpoint. Returns
+  /// `{ok, message?}`. Sets `pendingOta` so the LED switches to the
+  /// strobing-white state for the duration.
+  async updateFirmware(blob) {
+    const s = this._sensor;
+    if (!s) return { ok: false, message: 'no sensor' };
+    const r = this._refs;
+
+    s.pendingOta = true;
+    if (s._otaFailsafe) clearTimeout(s._otaFailsafe);
+    s._otaFailsafe = setTimeout(() => {
+      if (s.pendingOta) {
+        s.pendingOta = false;
+        renderDevicesIfVisible();
+        updateSensorList();
+      }
+    }, 90_000);
+    this._update();
+    updateSensorList();
+
+    r.btnUpdate.disabled = true;
+    r.btnUpdate.textContent = `⬆ Uploading ${(blob.size / 1024).toFixed(0)} KB…`;
+
+    let ok = false; let message = '';
+    try {
+      const res = await fetch(`/api/ota/${encodeURIComponent(s.key)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: blob,
+      });
+      const out = await res.json().catch(() => ({}));
+      ok = res.ok && !!out.ok;
+      message = out.message || `HTTP ${res.status}`;
+      r.btnUpdate.textContent = ok ? '✓ Updated' : '✗ Update failed';
+      if (!ok) console.warn('[ota]', s.key, out);
+    } catch (err) {
+      r.btnUpdate.textContent = '✗ Network error';
+      message = String(err);
+      console.warn('[ota]', s.key, err);
+    }
+    setTimeout(() => {
+      r.btnUpdate.textContent = '⬆ Update Firmware';
+      r.btnUpdate.disabled = false;
+    }, 4000);
+    return { ok, message };
+  }
+
+  /// Open a file picker, then push the chosen .bin to this sensor.
+  /// Called by the per-card "Update Firmware" button.
+  pickAndUpdateFirmware() {
+    const s = this._sensor;
+    if (!s) return;
+    const picker = document.createElement('input');
+    picker.type = 'file';
+    picker.accept = '.bin';
+    picker.onchange = (ev) => {
+      const file = ev.target.files?.[0];
+      picker.remove();
+      if (file) this.updateFirmware(file);
+    };
+    document.body.appendChild(picker);
+    picker.click();
+    setTimeout(() => picker.remove(), 60_000);
+  }
+
+  /// Toggle the live log tail panel on this card. WS state lives on
+  /// the sensor object (so it survives card removal/re-add) and is
+  /// drained into `s._logsLines` for rendering.
+  toggleLogs() {
+    const s = this._sensor;
+    if (!s) return;
+    if (s.logsOpen) {
+      if (s._logsWs) {
+        try { s._logsWs.close(); } catch (_) {}
+        s._logsWs = null;
+      }
+      s.logsOpen = false;
+      this._update();
+      return;
+    }
+    s.logsOpen = true;
+    s._logsLines = s._logsLines ?? [];
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const url = `${proto}//${location.host}/ws/logs/${encodeURIComponent(s.key)}`;
+    let ws;
+    try {
+      ws = new WebSocket(url);
+    } catch (err) {
+      s._logsLines.push(`[ws/logs] open failed: ${err}\n`);
+      this._update();
+      return;
+    }
+    s._logsWs = ws;
+    ws.onopen = () => {
+      s._logsLines.push(`[ws/logs] connected to ${s.key}:21046\n`);
+      this._capLogs(s);
+      if (s.logsOpen) this._update();
+    };
+    ws.onmessage = (ev) => {
+      s._logsLines.push(String(ev.data));
+      this._capLogs(s);
+      if (s.logsOpen) this._update();
+    };
+    ws.onclose = () => {
+      if (s._logsWs === ws) s._logsWs = null;
+      s._logsLines.push('[ws/logs] disconnected\n');
+      if (s.logsOpen) this._update();
+    };
+    ws.onerror = () => {
+      s._logsLines.push('[ws/logs] socket error\n');
+      if (s.logsOpen) this._update();
+    };
+    this._update();
+  }
+
+  _capLogs(s) {
+    if (s._logsLines.length > LOG_BUFFER_MAX)
+      s._logsLines.splice(0, s._logsLines.length - LOG_BUFFER_MAX);
+  }
+
+  _update() {
+    const s = this._sensor;
+    if (!s) return;
+    const r = this._refs;
+    const last = this._last;
+
+    const key = s.key;
+    if (last.key !== key) {
+      r.card.dataset.key = key;
+      r.addr.textContent = key;
+      last.key = key;
+    }
+
+    const status = classifyOnline(s);
+    const cardClass = `device-card ${status}`;
+    if (last.cardClass !== cardClass) {
+      r.card.className = cardClass;
+      last.cardClass = cardClass;
+    }
+
+    const name = s.deviceName ?? key;
+    if (last.name !== name) {
+      r.name.textContent = name;
+      last.name = name;
+    }
+
+    const ledClass = `virt-led ${ledClassFor(s)}`;
+    if (last.ledClass !== ledClass) {
+      r.led.className = ledClass;
+      last.ledClass = ledClass;
+      syncVirtLedPhase(r.led);
+    }
+
+    // Firmware row + needs-update dot.
+    const fwShort = s.fwVer ?? '—';
+    const targetVer = availableFirmware?.version || null;
+    const fwOutdated = !!(targetVer && s.fwVer && s.fwVer !== targetVer
+      && !availableFirmware.assets.some((a) => a.version === s.fwVer));
+    s._needsUpdate = fwOutdated;
+    const fwSig = `${fwShort}|${fwOutdated ? targetVer : ''}`;
+    if (last.fwSig !== fwSig) {
+      r.fw.title = s.fwVer ?? '—';
+      r.fw.textContent = fwShort;
+      if (fwOutdated) {
+        const dot = document.createElement('span');
+        dot.className = 'fw-update-dot';
+        dot.title = `newer firmware available: ${targetVer}`;
+        r.fw.appendChild(dot);
+      }
+      last.fwSig = fwSig;
+    }
+
+    // Last seen — this is what changes every 1 Hz tick.
+    const lastSeenText = s.lastSeen ? fmtAge(Date.now() - s.lastSeen) : '—';
+    if (last.lastSeenText !== lastSeenText) {
+      r.lastSeen.textContent = lastSeenText;
+      last.lastSeenText = lastSeenText;
+    }
+
+    // Battery line + bar.
+    const battMv = s.battery?.voltage_mv ?? null;
+    const battPct = s.battery?.percent ?? null;
+    const battCharging = s.battery?.charging ?? false;
+    const battText = `${battMv != null ? (battMv + ' mV') : '—'}${battPct != null ? ` (${battPct}%)` : ''}${battCharging ? ' ⚡' : ''}`;
+    if (last.battText !== battText) {
+      r.battery.textContent = battText;
+      last.battText = battText;
+    }
+    const battSig = `${battPct}`;
+    if (last.battSig !== battSig) {
+      if (battPct != null) {
+        const battClass = battPct < 10 ? 'crit' : battPct < 25 ? 'low' : '';
+        r.battBarHost.innerHTML = `<div class="battery-bar"><div class="${battClass}" style="width:${Math.max(2, Math.min(100, battPct))}%;"></div></div>`;
+      } else {
+        r.battBarHost.innerHTML = '';
+      }
+      last.battSig = battSig;
+    }
+
+    // Health row (sensor health: real / sim / unknown).
+    const healthHtml = healthRowFor(s);
+    if (last.healthHtml !== healthHtml) {
+      r.healthHost.innerHTML = healthHtml;
+      last.healthHtml = healthHtml;
+    }
+
+    // Logs button state.
+    const logsOpen = !!s.logsOpen;
+    if (last.logsOpen !== logsOpen) {
+      r.btnLogs.textContent = logsOpen ? '↑ Logs' : '↓ Logs';
+      r.btnLogs.classList.toggle('open', logsOpen);
+      last.logsOpen = logsOpen;
+    }
+
+    // Identify button state. Sensor object carries the toggle so a
+    // card recreated on tab re-render (or after a sensor came back
+    // online) keeps showing the right visual. The dashboard has no
+    // server-side mirror — it's a fire-and-forget operator aid.
+    const idOn = !!s.identifyOn;
+    if (last.identifyOn !== idOn) {
+      r.btnIdentify.classList.toggle('active', idOn);
+      r.btnIdentify.textContent = idOn ? '💡 Identifying…' : '💡 Identify';
+      last.identifyOn = idOn;
+    }
+
+    // Log panel — content updates on each tick when open.
+    if (logsOpen) {
+      const lines = (s._logsLines ?? []).join('');
+      if (last.logLines !== lines) {
+        let panel = r.logHost.querySelector('.device-log-panel');
+        if (!panel) {
+          panel = document.createElement('div');
+          panel.className = 'device-log-panel';
+          panel.dataset.logKey = key;
+          r.logHost.appendChild(panel);
+        }
+        panel.textContent = lines;
+        panel.scrollTop = panel.scrollHeight;
+        last.logLines = lines;
+      }
+    } else if (last.logLines !== undefined) {
+      r.logHost.innerHTML = '';
+      last.logLines = undefined;
+    }
+  }
+}
+customElements.define('r2-device-card', R2DeviceCard);
+
+// ── <r2-data-card> custom element ────────────────────────────────
+//
+// Mirror of R2DeviceCard for the Data tab. Long-lived DOM tree; the
+// `sensor` setter mutates in place. Owns the per-sensor file list +
+// the per-card "delete all" button. Per-file download / delete are
+// wired to the dashboard's /api/data/{addr}/* routes.
+class R2DataCard extends HTMLElement {
+  constructor() {
+    super();
+    this._sensor = null;
+    this._built = false;
+    this._refs = {};
+    this._lastFilesSig = '';
+  }
+
+  set sensor(s) {
+    this._sensor = s;
+    if (!this._built) { this._build(); this._built = true; }
+    this._update();
+  }
+  get sensor() { return this._sensor; }
+
+  _build() {
+    const s = this._sensor;
+    const key = s ? s.key : '';
+    this.innerHTML = `
+      <div class="device-card" data-key="${escapeAttr(key)}">
+        <div class="device-header">
+          <div class="virt-led" title="virtual LED"></div>
+          <div class="device-name" style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></div>
+        </div>
+        <div class="device-row"><span class="label">addr</span><span class="value device-addr"></span></div>
+        <div class="device-row"><span class="label">SD</span><span class="value device-sd"></span></div>
+        <div class="data-files"></div>
+        <div class="data-card-actions">
+          <button class="btn-refresh">↻ Refresh</button>
+          <button class="btn-del-all">🗑 Delete all on this sensor</button>
+        </div>
+      </div>
+    `;
+    this._refs = {
+      card:     this.querySelector('.device-card'),
+      led:      this.querySelector('.virt-led'),
+      name:     this.querySelector('.device-name'),
+      addr:     this.querySelector('.device-addr'),
+      sd:       this.querySelector('.device-sd'),
+      files:    this.querySelector('.data-files'),
+      btnRefresh: this.querySelector('.btn-refresh'),
+      btnDelAll:  this.querySelector('.btn-del-all'),
+    };
+    this._refs.btnRefresh.addEventListener('click', () => this._sensor && this.refresh());
+    this._refs.btnDelAll .addEventListener('click', () => this._sensor && this.deleteAll());
+  }
+
+  _update() {
+    const s = this._sensor;
+    if (!s) return;
+    const r = this._refs;
+
+    r.card.dataset.key = s.key;
+    r.addr.textContent = s.key;
+    r.name.textContent = s.deviceName ?? s.key;
+    r.card.className = `device-card ${classifyOnline(s)}`;
+    r.led.className = `virt-led ${ledClassFor(s)}`;
+    syncVirtLedPhase(r.led);
+    // SD presence is inferred from `captureSdAvailable` set by file
+    // list responses. If list returned a 5xx with a "no SD" message
+    // we mark it false. Until then assume present.
+    const sdOk = s.captureSdAvailable !== false;
+    r.sd.textContent = sdOk ? 'present' : 'not detected';
+    r.sd.style.color = sdOk ? '#cbd5e1' : '#f87171';
+
+    // File list — rebuild only when the signature changed (same idea
+    // as R2DeviceCard's `_last` cache). Operators look for the most
+    // recent capture first (you just hit Stop → expect that file at
+    // the top), so sort by mtime descending; fall back to filename
+    // descending when mtime is missing (older firmware / no clock).
+    const files = (s.dataFiles ?? []).slice().sort((a, b) => {
+      const am = a.mtime_ms ?? 0, bm = b.mtime_ms ?? 0;
+      if (am !== bm) return bm - am;
+      return (b.name || '').localeCompare(a.name || '');
+    });
+    // Re-render when lastMarkedFilename changes too — that toggles
+    // the `.marked-export` highlight on whichever row matches the
+    // current bundle target.
+    const sig = JSON.stringify({ files, marked: lastMarkedFilename });
+    if (sig !== this._lastFilesSig) {
+      if (files.length === 0) {
+        r.files.innerHTML = '<div class="data-empty">No captures yet on this sensor.</div>';
+      } else {
+        const rows = files.map((f) => {
+          const sizeKb = (f.size / 1024).toFixed(1);
+          // Show file mtime in the operator's local timezone — the sensor
+          // pushes UTC epoch ms (see firmware Clock::push_to_system_clock).
+          const mt = f.mtime_ms
+            ? new Date(f.mtime_ms).toLocaleString('en-NZ', {
+                year: 'numeric', month: '2-digit', day: '2-digit',
+                hour: '2-digit', minute: '2-digit', second: '2-digit',
+                hour12: false,
+              })
+            : '—';
+          const nameEsc = escapeText(f.name);
+          const nameAttr = escapeAttr(f.name);
+          const addrAttr = escapeAttr(s.key);
+          // Per-file 🗑 is destructive — controller only. Viewers
+          // see only the 📥 download.
+          const delBtn = isControllerRole
+            ? `<button class="danger" onclick="deleteCaptureFile('${addrAttr}','${nameAttr}')">🗑</button>`
+            : '';
+          const markedCls = (lastMarkedFilename && f.name === lastMarkedFilename)
+            ? ' marked-export' : '';
+          return `
+            <div class="data-file-row${markedCls}">
+              <span class="name" title="${nameEsc}">${nameEsc}</span>
+              <span class="meta">${sizeKb} KB · ${mt}</span>
+              <button onclick="downloadCaptureFile('${addrAttr}','${nameAttr}', this)">📥</button>
+              ${delBtn}
+            </div>`;
+        }).join('');
+        r.files.innerHTML = rows;
+      }
+      this._lastFilesSig = sig;
+    }
+
+    r.btnDelAll.disabled = (files.length === 0);
+    // "Delete all on this sensor" is destructive — controller only.
+    r.btnDelAll.hidden = !isControllerRole;
+  }
+
+  async refresh() {
+    const s = this._sensor;
+    if (!s) return;
+    try {
+      const res = await fetch(`/api/data/${encodeURIComponent(s.key)}/list`);
+      if (!res.ok) {
+        s.captureSdAvailable = false;
+        s.dataFiles = [];
+      } else {
+        const body = await res.json();
+        s.captureSdAvailable = true;
+        s.dataFiles = Array.isArray(body.files) ? body.files.slice().sort((a, b) => a.name.localeCompare(b.name)) : [];
+      }
+    } catch (err) {
+      console.warn('[data] list', s.key, err);
+      s.captureSdAvailable = false;
+      s.dataFiles = [];
+    }
+    this._update();
+  }
+
+  /// Delete every capture file on this sensor.
+  /// `opts.skipConfirm` is set by the fleet-wide bulk button so the
+  /// operator isn't prompted once per device (annoying past ~3 peers,
+  /// genuinely painful at 20+). The per-card 🗑 keeps its own confirm.
+  async deleteAll(opts = {}) {
+    const s = this._sensor;
+    if (!s) return;
+    if (!opts.skipConfirm) {
+      if (!confirm(`Delete ALL capture files on ${s.deviceName ?? s.key}?`)) return;
+    }
+    try {
+      const res = await fetch(`/api/data/${encodeURIComponent(s.key)}/all`, { method: 'DELETE' });
+      if (!res.ok) console.warn('[data] del_all', s.key, await res.text());
+    } catch (err) {
+      console.warn('[data] del_all', s.key, err);
+    }
+    await this.refresh();
+  }
+}
+customElements.define('r2-data-card', R2DataCard);
+
+// Map key → <r2-data-card>. Lives parallel to deviceCardEls so the
+// two tabs stay independent (a card on the Devices tab is NOT the
+// same DOM as the matching card on the Data tab).
+const dataCardEls = new Map();
+
+// Map of IP-key → <r2-device-card> currently in the DOM. Lets
+// renderDevices() reuse the existing card element across ticks
+// rather than rebuilding the DOM tree.
+const deviceCardEls = new Map();
+
+function renderDevices() {
+  const area = document.getElementById('devicesArea');
+  const peers = [...sensors.values()];
+
+  // Stable sort by hostname/key so cards don't jump around.
+  peers.sort((a, b) => (a.deviceName ?? a.key).localeCompare(b.deviceName ?? b.key));
+
+  // Drop cards for sensors that are no longer in the map (rare, but
+  // a bootstrap "Reset" event can clear them).
+  const wantedKeys = new Set(peers.map((s) => s.key));
+  for (const [key, el] of deviceCardEls) {
+    if (!wantedKeys.has(key)) {
+      el.remove();
+      deviceCardEls.delete(key);
+    }
+  }
+
+  // Empty state: replace area content with the placeholder. Skip the
+  // custom-element path entirely when there are no peers so the
+  // operator sees the "no sensors known yet" message.
+  if (peers.length === 0) {
+    if (!area.querySelector('#devicesPlaceholder')) {
+      area.innerHTML = '<div class="card" id="devicesPlaceholder" style="color:#475569;text-align:center;padding:40px;">No sensors known yet — wait for an announce or click <em>Connect Sensors</em>.</div>';
+    }
+    updateDevicesSummary(peers);
+    return;
+  }
+  // Remove placeholder if present.
+  const placeholder = area.querySelector('#devicesPlaceholder');
+  if (placeholder) placeholder.remove();
+
+  // Reuse-or-create per peer, then re-order to match sort.
+  for (const s of peers) {
+    let el = deviceCardEls.get(s.key);
+    if (!el) {
+      el = document.createElement('r2-device-card');
+      deviceCardEls.set(s.key, el);
+      area.appendChild(el);
+    }
+    el.sensor = s;
+  }
+  // Re-order DOM children to match the sorted peer list. appendChild
+  // moves the node (no re-creation, so CSS state survives).
+  for (const s of peers) {
+    const el = deviceCardEls.get(s.key);
+    if (el) area.appendChild(el);
+  }
+
+  updateDevicesSummary(peers);
+}
+
+function updateDevicesSummary(peers) {
+  const counts = { online: 0, stale: 0, offline: 0, needsUpdate: 0 };
+  for (const s of peers) {
+    counts[classifyOnline(s)]++;
+    if (s._needsUpdate) counts.needsUpdate++;
+  }
+  document.getElementById('dsTotal').textContent       = peers.length;
+  document.getElementById('dsOnline').textContent      = counts.online;
+  document.getElementById('dsStale').textContent       = counts.stale;
+  document.getElementById('dsOffline').textContent     = counts.offline;
+  document.getElementById('dsNeedsUpdate').textContent = counts.needsUpdate;
+
+  // Surface the "Update Outdated from Latest" button only when the
+  // dashboard knows of a newer firmware AND at least one peer
+  // actually needs it. Pressing the existing manual file-picker
+  // button is always available regardless.
+  const pullBtn = document.getElementById('bulkPullLatestBtn');
+  if (pullBtn) {
+    const canPull = !!availableFirmware
+      && availableFirmware.source !== 'none'
+      && counts.needsUpdate > 0;
+    pullBtn.hidden = !canPull;
+    if (canPull) {
+      pullBtn.textContent = `✨ Pull ${availableFirmware.version} → ${counts.needsUpdate} sensor(s)`;
+    }
+  }
+}
+
+// OTA progress events from r2.dash.ota.progress on /r2 (dashboard's /api/ota/{addr} handler
+// broadcasts these). Reuses the Connection Log panel as a generic
+// "activity feed" so the operator sees phase transitions live without
+// needing to read browser console.
+function handleOtaEvent(msg) {
+  // Auto-open the Connection Log on first event so the operator sees it
+  // even if they triggered the OTA from the Devices view.
+  document.getElementById('bootstrap-panel').classList.add('visible');
+  // Resolve the affected sensor by IP. msg.target is "ip:port" pointing
+  // at the OTA listener (21043); we strip the port to match the WASM
+  // viewer's IP-keyed sensors map.
+  const sensorKey = msg.target ? msg.target.split(':')[0] : null;
+  const sensor = sensorKey ? sensors.get(sensorKey) : null;
+  // Re-render so any pendingOta change below is reflected immediately.
+  const rerender = () => {
+    if (sensor) {
+      renderDevicesIfVisible();
+      updateSensorList();
+    }
+  };
+  switch (msg.phase) {
+    case 'uploading':
+      addBootstrapLine(`⬆ Pushing firmware to ${msg.target} (${msg.size} bytes)…`, 'amber');
+      if (sensor) {
+        sensor.pendingOta = true;
+        // Failsafe: if the sensor never comes back after upload (rare),
+        // unstick the indicator after 90 s. Re-arm on each upload-start.
+        if (sensor._otaFailsafe) clearTimeout(sensor._otaFailsafe);
+        sensor._otaFailsafe = setTimeout(() => {
+          if (sensor.pendingOta) {
+            sensor.pendingOta = false;
+            rerender();
+          }
+        }, 90_000);
+        rerender();
+      }
+      break;
+    case 'applied':
+      addBootstrapLine(`✓ ${msg.target} accepted: ${msg.message || 'rebooting'}`, 'green');
+      // Leave pendingOta set — the sensor is about to reboot. Clearing
+      // happens when the first fresh status frame after this point
+      // arrives in the r2.sensor.status handler.
+      break;
+    case 'rejected':
+      addBootstrapLine(`✗ ${msg.target} rejected: ${msg.message || 'unknown'}`, 'red');
+      if (sensor) {
+        sensor.pendingOta = false;
+        if (sensor._otaFailsafe) { clearTimeout(sensor._otaFailsafe); sensor._otaFailsafe = null; }
+        rerender();
+      }
+      break;
+    case 'error':
+      addBootstrapLine(`✗ ${msg.target}: ${msg.message || 'error'}`, 'red');
+      if (sensor) {
+        sensor.pendingOta = false;
+        if (sensor._otaFailsafe) { clearTimeout(sensor._otaFailsafe); sensor._otaFailsafe = null; }
+        rerender();
+      }
+      break;
+  }
+}
+
+// All per-sensor actions live on the <r2-device-card> custom element
+// (see R2DeviceCard above). These top-level shims exist so legacy
+// callers (anything that still has the IP string but not the card
+// reference) keep working — they look the card up and delegate.
+function requestFirmwareUpdate(addr) {
+  const card = deviceCardEls.get(addr);
+  if (card) card.pickAndUpdateFirmware();
+}
+
+function escapeText(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function escapeAttr(s) { return escapeText(s).replace(/"/g, '&quot;'); }
+
+// SPEC-R2-WORKSHOP-SENSOR-REMOTE-RESET. Thin shim; logic lives in
+// R2DeviceCard.reset().
+async function requestReset(addr) {
+  const card = deviceCardEls.get(addr);
+  if (card) await card.reset();
+}
+
+// Fleet operations — fan out the corresponding card methods in
+// parallel. Single-sensor and bulk paths go through the same DOM
+// node and call the same code, so they're visually identical.
+
+async function requestResetAll() {
+  const cards = [...deviceCardEls.values()];
+  if (cards.length === 0) return;
+  if (!confirm(`Reset all ${cards.length} sensor(s)?`)) return;
+  await Promise.allSettled(cards.map((c) => c.reset()));
+}
+
+async function requestUpdateAll() {
+  const cards = [...deviceCardEls.values()];
+  if (cards.length === 0) return;
+
+  const picker = document.createElement('input');
+  picker.type = 'file';
+  picker.accept = '.bin';
+  picker.onchange = async (ev) => {
+    const file = ev.target.files?.[0];
+    picker.remove();
+    if (!file) return;
+
+    // Filename convention: r2-workshop-firmware-<fw_ver>.bin. If it
+    // parses, skip any peer already on that version. Otherwise push
+    // to every peer.
+    const match = file.name.match(/^r2-workshop-firmware-(.+)\.bin$/);
+    const targetFwVer = match ? match[1] : null;
+    const targets = targetFwVer
+      ? cards.filter((c) => c.sensor?.fwVer !== targetFwVer)
+      : cards;
+
+    if (targets.length === 0) {
+      alert(`All ${cards.length} sensor(s) already on ${targetFwVer}.`);
+      return;
+    }
+    const skipped = cards.length - targets.length;
+    const msg = targetFwVer
+      ? (skipped > 0
+          ? `Push ${targetFwVer} to ${targets.length} sensor(s)? (${skipped} already on this version)`
+          : `Push ${targetFwVer} to ${targets.length} sensor(s)?`)
+      : `Push this firmware to ${targets.length} sensor(s)? (filename doesn't carry a version stamp; pushing to every peer)`;
+    if (!confirm(msg)) return;
+
+    await Promise.allSettled(targets.map((c) => c.updateFirmware(file)));
+  };
+  document.body.appendChild(picker);
+  picker.click();
+  setTimeout(() => picker.remove(), 60_000);
+}
+
+async function requestUpdateAllFromLatest() {
+  if (!availableFirmware || availableFirmware.source === 'none') {
+    alert('No firmware source available — operator must build locally or publish a GitHub release.');
+    return;
+  }
+  const outdatedCards = [...deviceCardEls.values()].filter((c) => c.sensor?._needsUpdate);
+  if (outdatedCards.length === 0) {
+    alert('All connected sensors are already on the latest firmware.');
+    return;
+  }
+  const targetVer = availableFirmware.version;
+  const srcLabel  = availableFirmware.source === 'github' ? 'GitHub Release' : 'local build';
+  if (!confirm(`Pull ${targetVer} from the ${srcLabel} and push to ${outdatedCards.length} sensor(s)?`)) return;
+
+  // Fetch the .bin once via the dashboard, re-use the blob across cards.
+  const carrier = 'devkitc';
+  let blob;
+  try {
+    const res = await fetch(`/api/firmware/${carrier}/binary`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    blob = await res.blob();
+  } catch (err) {
+    alert(`Failed to fetch firmware: ${err}`);
+    return;
+  }
+
+  await Promise.allSettled(outdatedCards.map((c) => c.updateFirmware(blob)));
+}
+
+// Rolling buffer cap for the per-card log tail. Logic itself lives
+// on R2DeviceCard.toggleLogs(); this shim is for any legacy caller
+// that still passes an IP string rather than a card reference.
+const LOG_BUFFER_MAX = 500;
+
+function toggleLogs(addr) {
+  const card = deviceCardEls.get(addr);
+  if (card) card.toggleLogs();
+}
+
+// Keep online/stale/offline classification fresh even when no events
+// arrive for a while — re-render once a second when Devices is visible.
+// Re-render every second so online/stale/offline classification refreshes
+// even without events arriving. Sidebar dot and Devices-view LED both
+// depend on `classifyOnline(s)` against `lastSeen`, so both need a tick.
+setInterval(() => {
+  updateSensorList();
+  // Capture state lives in the Run Control panel on the Live tab,
+  // so its label needs to refresh regardless of which view is active.
+  updateCaptureUiFromFleet();
+  if (currentView === 'devices') renderDevices();
+  if (currentView === 'data')    renderDataView();
+}, 1000);
+
+// Refresh the "latest firmware" snapshot on load and every minute.
+// The dashboard caches the GitHub API call for 5 min so this is cheap.
+async function refreshFirmwareAvailability() {
+  try {
+    const res = await fetch('/api/firmware/available');
+    if (!res.ok) return;
+    availableFirmware = await res.json();
+    if (currentView === 'devices') renderDevices();
+    updateSensorList();
+  } catch (err) {
+    console.warn('[firmware] availability fetch failed:', err);
+  }
+}
+refreshFirmwareAvailability();
+setInterval(refreshFirmwareAvailability, 60_000);
+
+// Module scripts isolate names; expose the inline-onclick handlers on
+// `window` so the existing onclick="..." attributes in the HTML still
+// resolve. (Cleaner long-term: addEventListener bindings, but this
+// keeps the diff vs the legacy dashboard minimal.)
+Object.assign(window, {
+  setView,
+  startBootstrap,
+  requestFirmwareUpdate,
+  requestReset,
+  requestResetAll,
+  requestUpdateAll,
+  requestUpdateAllFromLatest,
+  toggleLogs,
+  // Data tab (SPEC-R2-WORKSHOP-CAPTURE).
+  captureStart,
+  captureMark,
+  captureStop,
+  downloadCaptureFile,
+  renameSensor,
+  deleteCaptureFile,
+  downloadMergedLatest,
+  requestDeleteAllFleet,
+  // Link tab (SPEC-R2-WORKSHOP-ACCESS).
+  loadLinkMembers,
+  openOnboardModal,
+  closeOnboardModal,
+  toggleOnboardWifiPskReveal,
+  copyInputToClipboard,
+  revokeMember,
+  landingTryPaste,
+  exportOffNetworkAccess,
+  // Request-and-approve flow.
+  requestAccess,
+  cancelRequest,
+  resetLandingForm,
+  approvePending,
+  denyPending,
+});
+</script>
+</body>
+</html>
