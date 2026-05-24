@@ -24,8 +24,43 @@ fn main() {
     stage_partitions_csv(&manifest_dir);
     load_wifi_config(&manifest_dir);
     stamp_build_metadata();
+    stamp_sensor_class(&manifest_dir);
 
     embuild::espidf::sysenv::output();
+}
+
+/// Read `trust_keys/sensor_class.txt` from the repo root and emit it
+/// as the `R2_SENSOR_CLASS` env var so firmware/src/main.rs can pick
+/// it up with `env!()`. Trims surrounding whitespace so a trailing
+/// newline left by an editor doesn't corrupt the class string.
+///
+/// Mirrors the TG-key file pattern: per-deployment config that lives
+/// committed under `trust_keys/`, with a build-time read so the chip
+/// gets a flash-baked constant rather than runtime config.
+fn stamp_sensor_class(manifest_dir: &str) {
+    let repo_root = PathBuf::from(manifest_dir)
+        .parent().and_then(Path::parent).and_then(Path::parent)
+        .map(Path::to_path_buf)
+        .expect("repo root resolvable from firmware crate");
+    let class_path = repo_root.join("trust_keys/sensor_class.txt");
+    println!("cargo:rerun-if-changed={}", class_path.display());
+
+    let raw = fs::read_to_string(&class_path).unwrap_or_else(|e| {
+        panic!(
+            "trust_keys/sensor_class.txt unreadable at {}: {} \
+             — run `cargo run -p r2-workshop-tg --release -- init` from the repo root to generate it",
+            class_path.display(),
+            e,
+        )
+    });
+    let class = raw.trim();
+    if class.is_empty() {
+        panic!(
+            "trust_keys/sensor_class.txt at {} is empty — write the BLE-beacon class string this deployment owns",
+            class_path.display(),
+        );
+    }
+    println!("cargo:rustc-env=R2_SENSOR_CLASS={class}");
 }
 
 /// Emit `cargo:rerun-if-changed` directives for the git files whose

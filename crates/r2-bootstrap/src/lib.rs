@@ -1093,7 +1093,7 @@ fn create_hotspot() -> Result<(String, String, Option<String>)> {
     })?;
 
     // Reuse existing hotspot only if it's on the CORRECT adapter — a
-    // misplaced one (e.g. NetworkManager auto-connected R2-rocker on the
+    // misplaced one (e.g. NetworkManager auto-connected R2-workshop on the
     // internet adapter) is the exact failure we're guarding against, so
     // don't silently inherit it.
     if let Some((ssid, psk, ip)) = find_active_hotspot_on(&free_iface) {
@@ -1113,7 +1113,7 @@ fn create_hotspot() -> Result<(String, String, Option<String>)> {
     teardown_misplaced_hotspots(&free_iface);
 
     // Disconnect the spare adapter — if it's in client mode (which is
-    // how the "vicious circle" begins, the spare auto-joining R2-rocker
+    // how the "vicious circle" begins, the spare auto-joining R2-workshop
     // hosted on the wrong adapter), nmcli won't repurpose it cleanly.
     let _ = Command::new("nmcli").args(["dev", "disconnect", &free_iface]).output();
 

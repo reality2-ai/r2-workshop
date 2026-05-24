@@ -65,8 +65,15 @@ struct InitArgs {
     /// `rocker-rig-<YYYY-MM-DD>` if omitted.
     #[arg(long)]
     name: Option<String>,
+    /// R2-BEACON class string this deployment owns (written to
+    /// `trust_keys/sensor_class.txt`; firmware and dashboard both
+    /// read it at build time). Defaults to a deployment-name-derived
+    /// reverse-DNS string if omitted.
+    #[arg(long)]
+    class: Option<String>,
     /// Overwrite existing files. Without this, refuses if any of
-    /// tg_priv.bin / tg_pub.bin / tg_cert.bin already exists.
+    /// tg_priv.bin / tg_pub.bin / tg_cert.bin / sensor_class.txt
+    /// already exists.
     #[arg(long)]
     force: bool,
 }
@@ -131,12 +138,39 @@ fn init(args: InitArgs) -> Result<()> {
         format!("rocker-rig-{:04}-{:02}-{:02}", y, m, d)
     });
 
+    // Derive a default class string from the TG name if the operator
+    // didn't pass --class. Reverse-DNS form, lowercase, alphanumeric +
+    // dots only. Examples:
+    //   "rocker-rig-uoa-2026" → "lab.rocker-rig-uoa-2026.sensor"
+    //   "my-shop"             → "lab.my-shop.sensor"
+    // The "lab." prefix is generic enough not to claim a TLD; the
+    // operator is free to override with a real reverse-DNS string
+    // (e.g. "edu.example.cs.workshop.sensor") via --class.
+    let class_string = args.class.unwrap_or_else(|| {
+        let stem: String = name
+            .to_lowercase()
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+            .collect();
+        format!("lab.{}.sensor", if stem.is_empty() { "deployment" } else { &stem })
+    });
+    let class_path = PathBuf::from("trust_keys/sensor_class.txt");
+
     eprintln!("r2-workshop-tg init — fresh Trust Group for this deployment");
     eprintln!("  name:    {}", name);
+    eprintln!("  class:   {}", class_string);
     eprintln!("  priv:    {}", priv_path.display());
     eprintln!("  pub:     {}", pub_path.display());
     eprintln!("  cert:    {}", cert_path.display());
+    eprintln!("  classfile: {}", class_path.display());
     eprintln!();
+
+    if class_path.exists() && !args.force {
+        bail!(
+            "refusing to overwrite existing {} — pass --force to override",
+            class_path.display()
+        );
+    }
 
     if let Some(parent) = priv_path.parent() {
         fs::create_dir_all(parent)
@@ -151,14 +185,25 @@ fn init(args: InitArgs) -> Result<()> {
         force: args.force,
     })?;
 
+    // Write the class file with a single trailing newline so vim /
+    // editors don't fight us. The build.rs on each side `.trim()`s
+    // before passing to the firmware/dashboard, so the on-air class
+    // string is exactly what's printed above.
+    fs::write(&class_path, format!("{class_string}\n"))
+        .with_context(|| format!("writing {}", class_path.display()))?;
+    println!("Wrote class file:  {}", class_path.display());
+
     eprintln!();
     eprintln!("Done. The next firmware build (e.g. `tools/build-firmware.sh devkitc`)");
-    eprintln!("will embed the new tg_pub.bin via include_bytes!. The dashboard will");
-    eprintln!("pick up the new tg_priv.bin on its next start.");
+    eprintln!("will embed the new tg_pub.bin via include_bytes! and the new class");
+    eprintln!("string from sensor_class.txt. The dashboard will pick up the new");
+    eprintln!("tg_priv.bin on its next start and the new class string on its next");
+    eprintln!("rebuild.");
     eprintln!();
-    eprintln!("If this deployment had earlier sensors flashed with a different TG,");
-    eprintln!("re-flash them with firmware built from the new keys — their old certs");
-    eprintln!("won't verify under the new TG_PUB_KEY.");
+    eprintln!("If this deployment had earlier sensors flashed with a different TG");
+    eprintln!("or class string, re-flash them with firmware built from the new");
+    eprintln!("keys + class — their old certs won't verify under the new TG_PUB_KEY,");
+    eprintln!("and they'll keep advertising the previous class hash.");
     Ok(())
 }
 

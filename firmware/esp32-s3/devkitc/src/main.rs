@@ -32,10 +32,14 @@ use log::{error, info, warn};
 use r2_esp::{beacon, data_tcp, l2cap, log_tcp, ota_tcp, reset_tcp, wifi_prov, wifi_sta};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-/// Canonical R2-BEACON class string (locked at SPEC-R2-WORKSHOP-DASHBOARD §6.3
-/// + SPEC-R2-WORKSHOP-SENSOR §3.3). FNV-1a-32 hash `0xE6C6AFCD` is what
-/// the dashboard's bootstrap loop matches on.
-const SENSOR_CLASS: &str = "nz.ac.auckland.workshop.sensor";
+/// R2-BEACON class string — read from `trust_keys/sensor_class.txt` at
+/// build time (see `build.rs::stamp_sensor_class`). The default value
+/// for this repo is `nz.ac.auckland.workshop.sensor` (FNV-1a-32 hash
+/// `0xE6C6AFCD`); a deployment forking this repo should run
+/// `cargo run -p r2-workshop-tg --release -- init` to mint its own
+/// class string (and TG keys) so its sensors and dashboard match
+/// without sharing on-air identity with other labs.
+const SENSOR_CLASS: &str = env!("R2_SENSOR_CLASS");
 
 const GATEWAY_IP:   &str = env!("R2_GATEWAY_IP");
 const GATEWAY_PORT: u16  = 21042;

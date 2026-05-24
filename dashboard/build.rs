@@ -1,10 +1,33 @@
 /// Stamp git short SHA + build timestamp as compile-time env vars so the
 /// dashboard can report its own version (UI footer, /api/version, log
 /// banner) and decide whether a sensor's announced fw_ver is "current"
-/// for OTA purposes.
+/// for OTA purposes. Also read the per-deployment sensor class file so
+/// the dashboard's BLE-scan filter matches the firmware's R2-BEACON
+/// advertisement.
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=../.git/HEAD");
+    println!("cargo:rerun-if-changed=../trust_keys/sensor_class.txt");
+
+    // Per-deployment sensor class — same file the firmware reads at
+    // build time. Both sides see the same string so the firmware's
+    // advertise hash matches the dashboard's scan filter.
+    let class_path = std::path::Path::new("../trust_keys/sensor_class.txt");
+    let raw = std::fs::read_to_string(class_path).unwrap_or_else(|e| {
+        panic!(
+            "trust_keys/sensor_class.txt unreadable at {}: {} \
+             — run `cargo run -p r2-workshop-tg --release -- init` from the repo root to generate it",
+            class_path.display(),
+            e,
+        )
+    });
+    let class = raw.trim();
+    if class.is_empty() {
+        panic!(
+            "trust_keys/sensor_class.txt is empty — write the BLE-beacon class string this deployment owns"
+        );
+    }
+    println!("cargo:rustc-env=R2_SENSOR_CLASS={class}");
 
     let sha = std::process::Command::new("git")
         .args(["rev-parse", "--short=8", "HEAD"])

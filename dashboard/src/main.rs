@@ -1047,10 +1047,12 @@ async fn do_bootstrap(state: &Arc<AppState>) {
         // instead of waiting another full retry cycle to be picked up.
         // Pair this with the shorter RETRY_INTERVAL_SECS in r2-bootstrap.
         scan_secs: 20,
-        // Reverse-DNS class identifier (R2-BEACON §4); FNV-1a-32 hashed
-        // on the wire to 0xE6C6AFCD. Sensor firmware (Phase 6) MUST
-        // advertise the same string. See SPEC-R2-WORKSHOP-DASHBOARD §6.3.
-        target_class: "nz.ac.auckland.workshop.sensor".to_string(),
+        // Reverse-DNS class identifier (R2-BEACON §4); read from
+        // `trust_keys/sensor_class.txt` at build time (see build.rs).
+        // The firmware reads the same file via its own build.rs, so
+        // dashboard and sensor always agree on the on-air identity.
+        // See SPEC-R2-WORKSHOP-DASHBOARD §6.3.
+        target_class: env!("R2_SENSOR_CLASS").to_string(),
         // Always cycle the hotspot on a fresh bootstrap press. Sensors
         // currently joined to the existing hotspot will lose WiFi for
         // a few seconds and fall back to BLE advertising, which is the

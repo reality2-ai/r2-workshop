@@ -60,24 +60,28 @@ fi
 TG_PUB="${REPO_ROOT}/trust_keys/tg_pub.bin"
 TG_CERT="${REPO_ROOT}/trust_keys/tg_cert.bin"
 KEYGEN_HINT=$(cat <<'EOF'
-This deployment has no Trust Group keys, or is still on the upstream
-demo keys. Each r2-workshop deployment needs its own keypair — sensors
-verify their certs against the public key baked into the firmware at
-build time, so cloning the repo and re-using the committed key would
-mean every lab shares a TG identity (whoever holds the matching
-private key is the only one who can sign certs).
+This deployment has no Trust Group keys / sensor class file, or is
+still on the upstream demo values. Each r2-workshop deployment needs:
 
-Generate a fresh TG keypair for this deployment (one-time per lab):
+  * its own TG keypair (sensors verify certs against the public key
+    baked into the firmware at build time);
+  * its own BLE-beacon class string (so sensors from different labs
+    don't BLE-bootstrap onto each other's dashboards).
+
+Generate both for this deployment in one shot (one-time per lab):
 
     cd "$REPO_ROOT" && cargo run -p r2-workshop-tg --release -- init
 
 That writes:
   trust_keys/tg_pub.bin            (committed; embedded into firmware)
   trust_keys/tg_cert.bin           (committed; self-signed KeyHolder cert)
+  trust_keys/sensor_class.txt      (committed; read by firmware + dashboard at build time)
   ~/.config/r2-workshop/tg_signer/tg_priv.bin   (off-tree; read by dashboard)
 
-After it completes, re-run this script. See SECRETS-POLICY.md for the
-full key-handling policy.
+Pass --class "your.reverse.dns.sensor" to set the BLE class string
+explicitly; otherwise the tool derives one from the TG name. After it
+completes, re-run this script. See SECRETS-POLICY.md for the full
+key-handling policy.
 EOF
 )
 
@@ -97,6 +101,51 @@ if [[ -s "${DEMO_HASH_FILE}" ]]; then
         echo "" >&2
         echo "$KEYGEN_HINT" >&2
         exit 1
+    fi
+fi
+
+# Per-deployment R2-BEACON class string. Unlike the TG check above,
+# this one is *soft* — the class string only affects BLE discovery,
+# not signing authority, so two labs sharing the upstream class can
+# still safely run because the TG check independently prevents them
+# from sharing identities. We warn, and if interactive ask whether
+# to proceed; CI / non-interactive callers can set
+# WORKSHOP_USE_DEFAULT_CLASS=1 to opt in explicitly.
+CLASS_FILE="${REPO_ROOT}/trust_keys/sensor_class.txt"
+CLASS_DEMO_HASH_FILE="${REPO_ROOT}/trust_keys/.sensor_class_demo_sha256"
+if [[ ! -s "${CLASS_FILE}" ]]; then
+    echo "ERROR: no sensor class file at trust_keys/sensor_class.txt." >&2
+    echo "" >&2
+    echo "$KEYGEN_HINT" >&2
+    exit 1
+fi
+if [[ -s "${CLASS_DEMO_HASH_FILE}" ]]; then
+    CLASS_DEMO_HASH=$(cat "${CLASS_DEMO_HASH_FILE}")
+    CLASS_ACTUAL_HASH=$(sha256sum "${CLASS_FILE}" | awk '{print $1}')
+    if [[ "${CLASS_ACTUAL_HASH}" == "${CLASS_DEMO_HASH}" ]]; then
+        CLASS_STRING=$(tr -d '\n' < "${CLASS_FILE}")
+        echo "WARNING: trust_keys/sensor_class.txt matches the upstream demo class SHA." >&2
+        echo "         Class: ${CLASS_STRING}" >&2
+        echo "         Sensors built from this firmware will be BLE-discoverable by any" >&2
+        echo "         dashboard using the same upstream class (and vice-versa). Fine for" >&2
+        echo "         first bring-up. Before sharing spectrum with another r2-workshop" >&2
+        echo "         deployment, mint your own class string:" >&2
+        echo "             cargo run -p r2-workshop-tg --release -- init --force --class \"your.reverse.dns.sensor\"" >&2
+        echo "" >&2
+        if [[ -t 0 ]]; then
+            read -r -p "Build anyway with the upstream class? [y/N] " confirm
+            case "${confirm,,}" in
+                y|yes) echo "Proceeding with upstream class." >&2 ;;
+                *) echo "Aborted." >&2; exit 1 ;;
+            esac
+        else
+            if [[ "${WORKSHOP_USE_DEFAULT_CLASS:-}" == "1" ]]; then
+                echo "Non-interactive build with WORKSHOP_USE_DEFAULT_CLASS=1 — proceeding." >&2
+            else
+                echo "Non-interactive build refusing default class. Set WORKSHOP_USE_DEFAULT_CLASS=1 to override." >&2
+                exit 1
+            fi
+        fi
     fi
 fi
 
