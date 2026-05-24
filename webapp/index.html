@@ -4019,12 +4019,16 @@ function ledClassFor(s) {
 
 // Render the health-source row (dot + label) per SPEC-R2-WORKSHOP-SENSOR-HEALTH §6.
 // Always visible once data_source is known; hidden until the first status frame.
+// Sensor-agnostic phrasing so the same card works for whatever sensor
+// the firmware variant actually drives (ADXL355 today, IMUs / strain /
+// temperature later) — the hover tooltip is the only place the specific
+// chip name appears.
 function healthRowFor(s) {
   if (s.dataSource == null) return '';
   if (s.dataSource === 0) {
-    return '<div class="health-row"><div class="health-dot health-real" title="ADXL355 ok"></div><span class="health-label">Real ADXL355</span></div>';
+    return '<div class="health-row"><div class="health-dot health-real" title="Sensor reading — real data on the wire"></div><span class="health-label">Live Data</span></div>';
   }
-  return '<div class="health-row"><div class="health-dot health-sim" title="Sensor not reading — synthetic data on the wire"></div><span class="health-label health-sim-text">Sim fallback — sensor not reading</span></div>';
+  return '<div class="health-row"><div class="health-dot health-sim" title="Sensor not reading — synthetic data on the wire"></div><span class="health-label health-sim-text">Simulated Data</span></div>';
 }
 
 // ── <r2-device-card> custom element ──────────────────────────────
