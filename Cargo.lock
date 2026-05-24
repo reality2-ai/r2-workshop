@@ -1593,18 +1593,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "r2-workshop-tg"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "ciborium",
- "clap",
- "ed25519-dalek",
- "rand 0.8.6",
- "sha2",
-]
-
-[[package]]
 name = "r2-route"
 version = "0.1.0"
 dependencies = [
@@ -1648,6 +1636,18 @@ version = "0.1.0"
 dependencies = [
  "r2-fnv",
  "serde_json",
+]
+
+[[package]]
+name = "r2-workshop-tg"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ciborium",
+ "clap",
+ "ed25519-dalek",
+ "rand 0.8.6",
+ "sha2",
 ]
 
 [[package]]

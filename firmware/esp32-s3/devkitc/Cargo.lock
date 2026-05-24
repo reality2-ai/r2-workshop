@@ -1318,6 +1318,10 @@ name = "r2-fnv"
 version = "0.1.0"
 
 [[package]]
+name = "r2-wire"
+version = "0.1.0"
+
+[[package]]
 name = "r2-workshop-firmware"
 version = "0.2.0"
 dependencies = [
@@ -1333,10 +1337,6 @@ dependencies = [
  "smart-leds",
  "ws2812-esp32-rmt-driver",
 ]
-
-[[package]]
-name = "r2-wire"
-version = "0.1.0"
 
 [[package]]
 name = "redox_syscall"
