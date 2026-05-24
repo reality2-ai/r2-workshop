@@ -41,7 +41,7 @@ const PRESENCE_PORT: u16 = 21044;
 /// TCP R2-WIRE event port.
 const EVENT_PORT: u16 = 21042;
 /// Fixed hotspot SSID — stable name prevents stale profile accumulation on sensors.
-const HOTSPOT_SSID: &str = "R2-rocker";
+const HOTSPOT_SSID: &str = "R2-workshop";
 /// Fixed hotspot PSK — hardcoded to avoid `nmcli -s` secrets read (needs polkit/sudo).
 const HOTSPOT_PSK: &str = "r2rocker2026";
 
@@ -565,6 +565,10 @@ async fn ble_scan(
     adapter.set_discovery_filter(filter).await?;
     let mut disco = adapter.discover_devices().await?;
     let mut found: HashMap<Address, DiscoveredSensor> = HashMap::new();
+    // (class_hash, addr) pairs we've already reported as "foreign R2 device"
+    // this scan. Without this, the same beacon's repeated advertisements
+    // would each fire a Log event and flood the Connections panel.
+    let mut foreign_seen: HashSet<(u32, Address)> = HashSet::new();
     let deadline = Instant::now() + Duration::from_secs(scan_secs);
 
     while Instant::now() < deadline {
@@ -602,6 +606,18 @@ async fn ble_scan(
                                             DiscoveredSensor { addr, addr_type, rbid },
                                         );
                                     }
+                                } else if foreign_seen.insert((class_hash, addr)) {
+                                    // R2-BEACON advertisement, but a class hash we
+                                    // don't recognise — another lab's deployment,
+                                    // a different sensor variant on this band, or
+                                    // pre-rename firmware from this same project.
+                                    // Surface it once per (class, addr) per scan so
+                                    // the operator can see what's on the air without
+                                    // the engine ever trying to bootstrap it.
+                                    let _ = progress_tx.send(BootstrapEvent::Log(format!(
+                                        "Foreign R2 device seen: class_hash=0x{:08X} addr={} — not approved, skipping",
+                                        class_hash, addr
+                                    ))).await;
                                 }
                             }
                         }

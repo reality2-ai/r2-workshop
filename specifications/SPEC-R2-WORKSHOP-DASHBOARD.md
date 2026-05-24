@@ -468,7 +468,7 @@ discovery:
    internet-carrying adapter — see §14 / `find_free_wifi_interface`).
 3. If active and matches the desired SSID, reuse it.
 4. If not, create one via `nmcli dev wifi hotspot ifname …` with
-   the fixed SSID `R2-rocker` and `HOTSPOT_PSK`.
+   the fixed SSID `R2-workshop` and `HOTSPOT_PSK`.
 5. Wait for the hotspot to be ready (carrier up, IP assigned).
 
 The hotspot's gateway IP (typically 10.42.0.1 with NetworkManager) is
