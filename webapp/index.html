@@ -1013,6 +1013,20 @@
         <button onclick="copyInputToClipboard('onboardDashUrl', this)">Copy</button>
       </div>
     </div>
+
+    <div id="onboardRelayBlock" hidden>
+      <p class="invite-step-label">Or pair from anywhere (cellular / off-network)</p>
+      <div class="invite-qr-wrap">
+        <img id="onboardRelayQrImg" alt="Anywhere-pair QR" />
+      </div>
+      <div class="invite-url-group">
+        <label>Or open this URL on the device:</label>
+        <div class="invite-url-row">
+          <input id="onboardRelayUrl" readonly />
+          <button onclick="copyInputToClipboard('onboardRelayUrl', this)">Copy</button>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -3101,6 +3115,17 @@ async function openOnboardModal() {
     // type the URL or scan it directly.
     document.getElementById('onboardDashQrImg').src = info.dashboard_qr_data_url;
     document.getElementById('onboardDashUrl').value = info.dashboard_url;
+    // Off-network ("Anywhere") QR — present iff the dashboard was
+    // started with `--relay-url`. Lets a visitor pair from cellular
+    // without ever joining the lab hotspot; the URL is github.io-
+    // hosted and points at the configured relay.
+    if (info.relay_url && info.relay_qr_data_url) {
+      document.getElementById('onboardRelayQrImg').src = info.relay_qr_data_url;
+      document.getElementById('onboardRelayUrl').value = info.relay_url;
+      document.getElementById('onboardRelayBlock').hidden = false;
+    } else {
+      document.getElementById('onboardRelayBlock').hidden = true;
+    }
     document.getElementById('onboardOverlay').hidden = false;
   } catch (err) {
     alert(`Couldn't load onboarding QRs: ${err}`);

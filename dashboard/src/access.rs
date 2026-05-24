@@ -116,9 +116,11 @@ pub struct InviteEnvelope {
 }
 
 /// Response shape for `/api/access/onboard` — operator helper that
-/// shows the visitor two QR codes (WiFi-join + plain dashboard URL)
-/// per SPEC-R2-WORKSHOP-ACCESS v0.3 §8. No token, no expiry — it's
-/// just a static pair of QRs the operator can flash at the visitor.
+/// shows the visitor up to three QR codes (WiFi-join + plain dashboard
+/// URL + off-network "Anywhere" relay URL) per SPEC-R2-WORKSHOP-ACCESS
+/// v0.3 §8. No token semantics; the URLs are static helpers that an
+/// operator can flash at the visitor any number of times without
+/// server-side state change.
 #[derive(Serialize)]
 pub struct OnboardInfo {
     pub dashboard_url: String,
@@ -126,6 +128,12 @@ pub struct OnboardInfo {
     pub wifi_qr_data_url: Option<String>,
     pub wifi_ssid: Option<String>,
     pub wifi_psk: Option<String>,
+    /// Off-network ("Anywhere") landing URL — github.io-hosted webapp
+    /// + `?join=<tg_hash>.<entropy>&relay=<wss>` so the visitor can
+    /// pair from cellular without needing the lab WiFi. Present iff
+    /// the dashboard was started with `--relay-url`.
+    pub relay_url: Option<String>,
+    pub relay_qr_data_url: Option<String>,
 }
 
 /// Request body for `/api/access/claim`.
@@ -365,12 +373,40 @@ impl Access {
             }
             None => (None, None, None),
         };
+
+        // Off-network ("Anywhere") URL: github.io-hosted webapp +
+        // `?join=<tg_hash>.<entropy_hex>&relay=<wss>`. The webapp's
+        // parseJoinParam() needs the tg_hash to dial the right relay
+        // bucket; the entropy half is purely a uniqueness token now
+        // (v0.3 dropped the invite/claim semantic where it was a
+        // single-use secret) and the webapp ignores it after the
+        // HELLO. Always-fresh on each call so a screenshot of an
+        // old QR doesn't keep working forever.
+        let (relay_url_out, relay_qr_data_url) = match self.relay_url.as_ref() {
+            Some(relay) => {
+                let mut entropy = [0u8; 16];
+                rand::RngCore::fill_bytes(&mut OsRng, &mut entropy);
+                let entropy_hex = hex::encode(entropy);
+                let token_param = format!("{}.{}", self.tg_hash, entropy_hex);
+                let url = format!(
+                    "https://reality2-ai.github.io/r2-workshop/?join={}&relay={}",
+                    token_param,
+                    urlencode(relay),
+                );
+                let qr = render_qr_png(&url).ok();
+                (Some(url), qr)
+            }
+            None => (None, None),
+        };
+
         Ok(OnboardInfo {
             dashboard_url,
             dashboard_qr_data_url,
             wifi_qr_data_url,
             wifi_ssid,
             wifi_psk,
+            relay_url: relay_url_out,
+            relay_qr_data_url,
         })
     }
 
