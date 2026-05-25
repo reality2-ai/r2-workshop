@@ -50,7 +50,12 @@ pub fn spawn_relay_session(
     tokio::spawn(async move {
         let mut backoff_ms = RECONNECT_MIN_MS;
         loop {
-            match run_one_session(&relay_url, &signing_key, &tg_pub, &raw_frame_tx, &binary_tx, &state).await {
+            let result = run_one_session(&relay_url, &signing_key, &tg_pub, &raw_frame_tx, &binary_tx, &state).await;
+            // Intentional route-renewal bounce: reset backoff so the next
+            // session opens promptly (we WANT to reconnect immediately).
+            // A real error keeps the exponential backoff in play.
+            let is_bounce = matches!(&result, Err(e) if e.contains("route-renewal bounce"));
+            match result {
                 Ok(()) => {
                     eprintln!("[relay] session ended cleanly — reconnecting in {} ms", backoff_ms);
                 }
@@ -59,7 +64,11 @@ pub fn spawn_relay_session(
                 }
             }
             tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
-            backoff_ms = (backoff_ms * 2).min(RECONNECT_MAX_MS);
+            if is_bounce {
+                backoff_ms = RECONNECT_MIN_MS;
+            } else {
+                backoff_ms = (backoff_ms * 2).min(RECONNECT_MAX_MS);
+            }
         }
     });
 }
@@ -206,6 +215,29 @@ async fn run_one_session(
     ping_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     ping_tick.tick().await; // skip the immediate fire
 
+    // Periodic route-renewal: bounce this session every BOUNCE_INTERVAL_S.
+    // Outbound binary frames keep the WS socket warm but apparently don't
+    // sustain the relay's bucket-routing slot for *inbound* fan-out — bench-
+    // confirmed against r2-workshop 2026-05-25 where the controller's
+    // session went silent on JOIN_REQUEST receipt despite healthy outbound
+    // traffic. The proper fix per R2-TRANSIENT-NETWORKING §"How routes work
+    // in practice" (cites R2-ROUTE §4A) is a TG-heartbeat event — but we
+    // don't yet know the exact event hash that r2-hive's route engine
+    // accepts as TG-membership renewal, so we cheat: drop the session
+    // every BOUNCE_INTERVAL_S and let the outer reconnect-loop spin a
+    // fresh HELLO. Each bounce re-registers our hive_id in the relay's
+    // tg_map (compat::handshake::register_tg_peer), so any subsequent
+    // visitor JOIN_REQUEST is fanned out to us via broadcast_to_tg.
+    //
+    // Precursor to the entanglement work (audit-track E / Phase 12): when
+    // we move from one TG to lab+viewing entangled TGs, the bridge sentant
+    // will need exactly this kind of route maintenance — the heartbeat
+    // refactor lands then.
+    const BOUNCE_INTERVAL_S: u64 = 60;
+    let mut bounce_tick = tokio::time::interval(Duration::from_secs(BOUNCE_INTERVAL_S));
+    bounce_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    bounce_tick.tick().await; // skip the immediate fire
+
     loop {
         tokio::select! {
             // Outbound: frame arrived from a sensor → forward to relay
@@ -332,6 +364,16 @@ async fn run_one_session(
                 if let Err(e) = sink.send(WsMessage::Text(payload.into())).await {
                     return Err(format!("send ping: {e}"));
                 }
+            }
+
+            // Periodic route-renewal — see BOUNCE_INTERVAL_S comment above.
+            // Return Err to drop this session; the outer reconnect-loop in
+            // spawn_relay re-runs run_one_session with a fresh HELLO and a
+            // fresh hive_id, re-registering us in the relay's tg_map so
+            // inbound JOIN_REQUEST broadcasts reach us again.
+            _ = bounce_tick.tick() => {
+                eprintln!("[relay] route-renewal bounce ({BOUNCE_INTERVAL_S}s) — reconnecting");
+                return Err("route-renewal bounce".to_string());
             }
         }
     }
