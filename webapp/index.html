@@ -2560,6 +2560,35 @@ function renderDataViewIfVisible() {
 function renderDataView() {
   const area = document.getElementById('dataArea');
   if (!area) return;
+
+  // Remote viewer (paired over the relay, loaded from github.io / reality2.ai
+  // rather than the controller's LAN HTTP origin): the per-sensor data-list
+  // endpoints (/api/data/{addr}/list, /api/data/merged, …) live only on the
+  // controller's :21042 HTTP server and aren't reachable from the static-host
+  // origin. Show a clear placeholder rather than an empty file list.
+  //
+  // v0.3 plan: tunnel `r2.dash.cmd.data.list` etc. as R2 events so the Data
+  // tab works remotely too.
+  const isRemoteViewer = location.protocol === 'https:'
+    && /(\.github\.io|reality2\.ai)$/.test(location.hostname);
+  if (isRemoteViewer) {
+    area.innerHTML = `
+      <div class="card" id="dataPlaceholder" style="color:#475569;text-align:center;padding:40px;max-width:560px;margin:0 auto;">
+        <div style="font-size:18px;color:#94a3b8;margin-bottom:8px;">📁 Data export is controller-only</div>
+        <div style="font-size:14px;line-height:1.5;">
+          Capture files live on each sensor's microSD ring. On a remote viewer
+          they aren't reachable yet — open the controller's own webapp
+          (the device on the lab WiFi) to browse, download, or merge captures.
+        </div>
+        <div style="font-size:12px;color:#64748b;margin-top:16px;">
+          Live sensor data still streams over the relay (see the Live tab);
+          this only affects file export.
+        </div>
+      </div>
+    `;
+    return;
+  }
+
   const peers = [...sensors.values()];
 
   const wantedKeys = new Set(peers.map((s) => s.key));
