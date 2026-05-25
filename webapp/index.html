@@ -967,6 +967,29 @@
   body.light .sensor-card .vy,
   body.light .sensor-card .vz,
   body.light .sensor-card .vmag { color: #1e293b; }
+
+  /* Run-control bar (Start / Mark / Stop) on the Live tab — same
+     dark card chrome as everything else, override to pale. */
+  body.light .run-control-bar { background: #ffffff !important; border-color: #e2e8f0 !important; color: #1e293b !important; }
+  body.light .run-control-bar input { background: #fff; color: #1e293b; border-color: #cbd5e1; }
+  body.light .run-control-bar .btn { background: #fff; color: #1e293b; border: 1px solid #cbd5e1; }
+  body.light .run-control-bar .btn:hover:not(:disabled) { background: #e2e8f0; }
+  body.light .run-control-bar .state-indicator { background: #f1f5f9; color: #1e293b; }
+
+  /* Devices tab — per-sensor fleet cards */
+  body.light .device-card { background: #ffffff !important; border-color: #e2e8f0 !important; color: #1e293b !important; }
+  body.light .device-card .device-row .label { color: #475569 !important; }
+  body.light .device-card .device-row .value { color: #1e293b !important; }
+  body.light .device-card .device-header { color: #1e293b !important; }
+
+  /* Data tab — per-sensor capture-file cards (custom element <r2-data-card>) */
+  body.light r2-data-card,
+  body.light r2-data-card * { color: #1e293b; }
+  body.light r2-data-card { background: #ffffff !important; border-color: #e2e8f0 !important; }
+  body.light r2-data-card .file-row,
+  body.light r2-data-card .file-list,
+  body.light r2-data-card .file-name,
+  body.light r2-data-card .file-meta { background: transparent !important; color: #1e293b !important; }
   .theme-toggle { background: transparent; border: 1px solid currentColor; color: inherit;
     border-radius: 6px; padding: 4px 8px; cursor: pointer; margin-right: 8px; font-size: 14px; }
   .theme-toggle:hover { background: rgba(127,127,127,0.15); }
