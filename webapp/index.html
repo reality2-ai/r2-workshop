@@ -2929,6 +2929,7 @@ function toggleTheme() {
   document.body.classList.toggle('light', want);
   try { localStorage.setItem('r2.theme', want ? 'light' : 'dark'); } catch (_) {}
 }
+window.toggleTheme = toggleTheme;  // expose to inline onclick (this script is a module)
 (() => {
   try {
     if (localStorage.getItem('r2.theme') === 'light') {
