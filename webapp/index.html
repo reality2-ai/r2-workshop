@@ -974,6 +974,15 @@
   body.light .run-control-bar input { background: #fff; color: #1e293b; border-color: #cbd5e1; }
   body.light .run-control-bar .btn { background: #fff; color: #1e293b; border: 1px solid #cbd5e1; }
   body.light .run-control-bar .btn:hover:not(:disabled) { background: #e2e8f0; }
+  /* Traffic-light colouring for the run-control verbs — green = go,
+     amber = waypoint, red = halt. White-on-colour so the verb stays
+     legible. Disabled buttons fall back to the neutral white above. */
+  body.light .run-control-bar .btn-start:not(:disabled) { background: #16a34a; color: #fff; border-color: #15803d; }
+  body.light .run-control-bar .btn-start:not(:disabled):hover { background: #15803d; }
+  body.light .run-control-bar .btn-mark:not(:disabled)  { background: #f59e0b; color: #fff; border-color: #b45309; }
+  body.light .run-control-bar .btn-mark:not(:disabled):hover  { background: #b45309; }
+  body.light .run-control-bar .btn-stop:not(:disabled)  { background: #dc2626; color: #fff; border-color: #b91c1c; }
+  body.light .run-control-bar .btn-stop:not(:disabled):hover  { background: #b91c1c; }
   body.light .run-control-bar .state-indicator { background: #f1f5f9; color: #1e293b; }
 
   /* Devices tab — per-sensor fleet cards */
