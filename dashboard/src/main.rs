@@ -851,6 +851,7 @@ async fn main() {
         .route("/api/data/{addr}/file/{name}", get(data_get_handler).delete(data_delete_handler))
         .route("/api/data/{addr}/all",         axum::routing::delete(data_delete_all_handler))
         .route("/api/data/merged",             get(data_merged_handler))
+        .route("/api/data/zip",                get(data_zip_handler))
         // Operator-assigned device aliases. Persisted to
         // ~/.config/r2-workshop/device_aliases.json. Read by every
         // dashboard browser session on load + applied on top of the
@@ -3791,6 +3792,211 @@ async fn data_merged_handler(
         format!("attachment; filename=\"merged-{}\"", name).parse().unwrap(),
     );
     (axum::http::StatusCode::OK, headers, output).into_response()
+}
+
+/// `GET /api/data/zip` — end-of-day bundle: every file on every
+/// connected sensor's SD ring, flat in a zip with the same
+/// `<stem>__<dev>.csv` filenames + device-stamped CSV headers the
+/// single-file path produces. Use-case: at the end of an experiment
+/// run, the operator grabs one zip, copies it to a USB drive, and
+/// walks away. Each file inside still self-identifies (filename +
+/// CSV column titles) so pandas / Excel work later without a
+/// `_README` lookup.
+///
+/// Implementation: dial data_tcp once per sensor for LIST, then once
+/// per (sensor, file) for GET. Files concatenated into an in-memory
+/// zip via the `zip` crate's stored-or-deflated entries. CSVs
+/// compress well, so the zip is typically 1/4-1/3 the raw size.
+async fn data_zip_handler(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    use zip::write::{SimpleFileOptions, ZipWriter};
+    use zip::CompressionMethod;
+    use std::io::{Cursor, Write};
+
+    // Snapshot the connected-sensor IPs + their device-aliases up
+    // front, then release the locks before we hit the network. Avoids
+    // holding `state.peers` across .await boundaries.
+    let sensors: Vec<(String, Option<String>)> = {
+        let peers = state.peers.read().await;
+        let aliases = state.device_aliases.lock().await;
+        peers.iter()
+            .map(|(sa, p)| {
+                let ip = sa.ip().to_string();
+                let alias = p.device_pk.as_ref().and_then(|pk| aliases.get(pk).cloned());
+                (ip, alias)
+            })
+            .collect()
+    };
+
+    if sensors.is_empty() {
+        return (
+            axum::http::StatusCode::NOT_FOUND,
+            "No sensors connected — nothing to bundle.".to_string(),
+        ).into_response();
+    }
+
+    let mut buf: Vec<u8> = Vec::new();
+    let zip_cursor = Cursor::new(&mut buf);
+    let mut zw = ZipWriter::new(zip_cursor);
+    let opts = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+
+    let mut files_added: usize = 0;
+    let mut errors: Vec<String> = Vec::new();
+
+    for (ip, alias) in sensors {
+        // Same device_safe derivation as data_get_handler — alias if
+        // set, else IP-with-underscores, then collapse anything that
+        // isn't [A-Za-z0-9_-] to '_' so the result is filename- and
+        // CSV-column-safe.
+        let raw_name = alias.clone().unwrap_or_else(|| ip.replace('.', "_"));
+        let device_safe: String = raw_name.chars()
+            .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+            .collect();
+
+        // LIST on the data_tcp port — the sensor's IP plus the fixed
+        // 21047 (matches the existing data_list_handler convention).
+        let addr_listen = format!("{ip}:21047");
+        let listing = match list_files_on_sensor(&addr_listen).await {
+            Ok(v) => v,
+            Err(e) => {
+                errors.push(format!("{}: list failed: {}", device_safe, e));
+                continue;
+            }
+        };
+
+        for fname in listing {
+            let body = match fetch_file_on_sensor(&addr_listen, &fname).await {
+                Ok(b) => b,
+                Err(e) => {
+                    errors.push(format!("{}/{}: get failed: {}", device_safe, fname, e));
+                    continue;
+                }
+            };
+
+            // Same CSV header + filename convention as data_get_handler.
+            let stem = fname.strip_suffix(".csv").unwrap_or(&fname);
+            let out_name = format!("{}__{}.csv", stem, device_safe);
+            let header_line = format!("seq,ts_ms,{0}_x,{0}_y,{0}_z\n", device_safe);
+
+            if let Err(e) = zw.start_file(&out_name, opts) {
+                errors.push(format!("zip start_file {}: {}", out_name, e));
+                continue;
+            }
+            if let Err(e) = zw.write_all(header_line.as_bytes()) {
+                errors.push(format!("zip header {}: {}", out_name, e));
+                continue;
+            }
+            if let Err(e) = zw.write_all(&body) {
+                errors.push(format!("zip body {}: {}", out_name, e));
+                continue;
+            }
+            files_added += 1;
+        }
+    }
+
+    // Optional manifest with anything that went wrong. Keeps the zip
+    // self-describing — if a sensor was offline or a file got skipped,
+    // the operator sees it in the bundle instead of having to dig
+    // through the dashboard log later.
+    if !errors.is_empty() {
+        let _ = zw.start_file("_errors.txt", opts);
+        let _ = zw.write_all(errors.join("\n").as_bytes());
+    }
+
+    if let Err(e) = zw.finish() {
+        return (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!("zip finish: {e}"),
+        ).into_response();
+    }
+
+    if files_added == 0 {
+        return (
+            axum::http::StatusCode::NOT_FOUND,
+            "No capture files on any connected sensor.".to_string(),
+        ).into_response();
+    }
+
+    // Date-stamped filename so multiple end-of-day grabs sit side by
+    // side on the operator's USB drive without overwriting. UTC keeps
+    // the date stable across timezone boundaries (operator might be
+    // syncing the drive from a different machine later).
+    let today = std::process::Command::new("date")
+        .args(["-u", "+%Y-%m-%d"])
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_owned())
+        .unwrap_or_else(|| "captures".to_string());
+    let download_name = format!("r2-workshop-captures-{}.zip", today);
+
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(axum::http::header::CONTENT_TYPE, "application/zip".parse().unwrap());
+    headers.insert(
+        axum::http::header::CONTENT_DISPOSITION,
+        format!("attachment; filename=\"{}\"", download_name).parse().unwrap(),
+    );
+    (axum::http::StatusCode::OK, headers, buf).into_response()
+}
+
+/// Small data_tcp LIST helper for `data_zip_handler`. Returns the file
+/// names only — we don't need sizes/mtimes for the zip, just the
+/// names to GET. Mirrors the parsing in `data_list_handler` minus the
+/// JSON wrapping.
+async fn list_files_on_sensor(addr: &str) -> std::io::Result<Vec<String>> {
+    let mut s = dial_data_tcp(addr).await?;
+    s.write_all(&[0x01u8]).await?;
+    let mut status = [0u8; 1];
+    s.read_exact(&mut status).await?;
+    if status[0] != ST_OK {
+        let msg = read_err_msg(&mut s).await.unwrap_or_default();
+        return Err(std::io::Error::new(std::io::ErrorKind::Other,
+            format!("LIST status_byte={}: {}", status[0], msg)));
+    }
+    let mut count_buf = [0u8; 4];
+    s.read_exact(&mut count_buf).await?;
+    let count = u32::from_be_bytes(count_buf) as usize;
+    let mut out = Vec::with_capacity(count);
+    for _ in 0..count {
+        let mut nl = [0u8; 2];
+        s.read_exact(&mut nl).await?;
+        let nlen = u16::from_be_bytes(nl) as usize;
+        let mut name_buf = vec![0u8; nlen];
+        s.read_exact(&mut name_buf).await?;
+        let mut size_buf = [0u8; 8];
+        s.read_exact(&mut size_buf).await?;
+        let mut mtime_buf = [0u8; 8];
+        s.read_exact(&mut mtime_buf).await?;
+        out.push(String::from_utf8_lossy(&name_buf).into_owned());
+    }
+    Ok(out)
+}
+
+/// Small data_tcp GET helper for `data_zip_handler`. Mirrors
+/// `data_get_handler` minus the HTTP framing and the CSV-header
+/// splicing (the zip handler stamps that header itself so it can use
+/// the same device-safe name as the filename).
+async fn fetch_file_on_sensor(addr: &str, name: &str) -> std::io::Result<Vec<u8>> {
+    let mut s = dial_data_tcp(addr).await?;
+    let mut req = Vec::with_capacity(3 + name.len());
+    req.push(0x02);
+    req.extend_from_slice(&(name.len() as u16).to_be_bytes());
+    req.extend_from_slice(name.as_bytes());
+    s.write_all(&req).await?;
+    let mut status = [0u8; 1];
+    s.read_exact(&mut status).await?;
+    if status[0] != ST_OK {
+        let msg = read_err_msg(&mut s).await.unwrap_or_default();
+        return Err(std::io::Error::new(std::io::ErrorKind::Other,
+            format!("GET status_byte={}: {}", status[0], msg)));
+    }
+    let mut size_buf = [0u8; 8];
+    s.read_exact(&mut size_buf).await?;
+    let size = u64::from_be_bytes(size_buf) as usize;
+    let mut body = vec![0u8; size];
+    s.read_exact(&mut body).await?;
+    Ok(body)
 }
 
 /// Path used by `load_device_aliases` / `save_device_aliases`. We

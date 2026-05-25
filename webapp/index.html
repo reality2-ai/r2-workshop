@@ -1034,6 +1034,7 @@
 <div class="devices-main" id="dataMain" hidden>
   <div class="devices-bulk-actions">
     <button class="btn-bulk-update" id="dataMergedBtn" onclick="downloadMergedLatest()">💾 Download merged CSV (last marked)</button>
+    <button class="btn-bulk-update" id="dataZipBtn" onclick="downloadAllAsZip()" title="Bundle every file from every connected sensor into one zip. Filenames + CSV column titles carry the device name so files stay distinguishable on disk.">📦 Download all (zip)</button>
     <label class="data-bin-row" title="Average samples into time buckets so timestamps line up across sensors. Raw = no averaging, every sample point of every sensor appears in its own row.">
       Sample at:
       <select id="dataMergedBin">
@@ -2602,6 +2603,15 @@ function renderDataView() {
   const isRemoteViewer = location.protocol === 'https:'
     && /(\.github\.io|reality2\.ai)$/.test(location.hostname);
   if (isRemoteViewer) {
+    // Hide the bulk-action buttons too — `/api/data/merged` and
+    // `/api/data/zip` aren't reachable from the static-host origin
+    // either, so showing them would just produce 404s on click.
+    for (const id of ['dataMergedBtn', 'dataZipBtn']) {
+      const b = document.getElementById(id);
+      if (b) b.hidden = true;
+    }
+    const binRow = document.querySelector('.data-bin-row');
+    if (binRow) binRow.style.display = 'none';
     area.innerHTML = `
       <div class="card" id="dataPlaceholder" style="color:#475569;text-align:center;padding:40px;max-width:560px;margin:0 auto;">
         <div style="font-size:18px;color:#94a3b8;margin-bottom:8px;">📁 Data export is controller-only</div>
@@ -2877,6 +2887,37 @@ async function downloadMergedLatest() {
   const a = document.createElement('a');
   a.href = url;
   a.download = downloadName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+/// End-of-day "grab everything" zip. Server builds it by iterating
+/// every connected sensor's SD ring, GETting each file, splicing
+/// the same `<stem>__<dev>.csv` filename + device-stamped CSV
+/// header the single-file download produces, then deflate-zipping
+/// the lot. Filename includes the UTC date so the operator can copy
+/// multiple end-of-day grabs onto a USB drive side by side.
+async function downloadAllAsZip() {
+  const btn = document.getElementById('dataZipBtn');
+  if (btn) {
+    if (btn.disabled) return;
+    const orig = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '⏳ Bundling…';
+    // Generous timeout — a few MB × a few sensors fetched serially can
+    // take 10-20 s on the workshop hotspot.
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = orig;
+    }, 30000);
+  }
+  // Browser-friendly path: navigate to the endpoint so the browser
+  // handles the streaming + filename-from-Content-Disposition + the
+  // operator's preferred Save dialog. Same pattern as the per-file
+  // anchor-click above.
+  const a = document.createElement('a');
+  a.href = '/api/data/zip';
   document.body.appendChild(a);
   a.click();
   a.remove();

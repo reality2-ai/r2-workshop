@@ -46,3 +46,9 @@ rand = "0.8"
 # already covers the viewer side.
 tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 futures-util = "0.3"
+# `/api/data/zip` — end-of-day "grab everything" bundle. Each
+# per-sensor file lands inside the archive with the same
+# `<stem>__<dev>.csv` filename + device-stamped CSV headers the
+# single-file download produces. deflate so the typical 5-50 MB
+# of CSV compresses to a few MB for the USB drive.
+zip = { version = "2.2", default-features = false, features = ["deflate"] }
