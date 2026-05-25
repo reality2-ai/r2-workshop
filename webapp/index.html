@@ -900,6 +900,35 @@
     box-shadow: 0 0 4px #ec4899;
     vertical-align: middle;
   }
+
+  /* Quick-and-dirty light theme. Toggle via `body.light` class.
+     Overrides the most-visible elements only; doesn't touch
+     accents (badges, status dots, LEDs) so coloured indicators
+     keep their meaning in either mode. Polish for later. */
+  body.light { background: #f5f7fa; color: #1e293b; }
+  body.light .header { background: #fff; border-bottom: 1px solid #e2e8f0; }
+  body.light .header h1 { color: #1e293b; }
+  body.light .card,
+  body.light .sensor-card,
+  body.light .invite-modal { background: #ffffff !important; border-color: #e2e8f0 !important; color: #1e293b; }
+  body.light .main, body.light .devices-main { background: transparent; }
+  body.light .view-toggle button,
+  body.light .btn-connect,
+  body.light .btn-bulk-update { background: #fff; color: #1e293b; border-color: #cbd5e1; }
+  body.light .view-toggle button.active { background: #4a9eff; color: #fff; }
+  body.light .sensor-event-log,
+  body.light .invite-url-row input,
+  body.light .invite-help { color: #475569; }
+  body.light input, body.light select, body.light textarea {
+    background: #fff; color: #1e293b; border-color: #cbd5e1;
+  }
+  body.light .connection-status,
+  body.light .sensor-label,
+  body.light .sensor-stats { color: #1e293b; }
+  body.light h2, body.light h3 { color: #1e293b; }
+  .theme-toggle { background: transparent; border: 1px solid currentColor; color: inherit;
+    border-radius: 6px; padding: 4px 8px; cursor: pointer; margin-right: 8px; font-size: 14px; }
+  .theme-toggle:hover { background: rgba(127,127,127,0.15); }
 </style>
 </head>
 <body>
@@ -913,6 +942,7 @@
       <button id="viewData"                  onclick="setView('data')">Data</button>
       <button id="viewLink"                  onclick="setView('link')">Link</button>
     </div>
+    <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Light / dark">🌓</button>
     <button class="btn-connect" id="btn-connect" onclick="startBootstrap()">&#x1F50D; Connect Sensors</button>
     <div class="connection-status">
       <div class="status-dot" id="wsDot"></div>
@@ -2891,6 +2921,21 @@ async function downloadMergedLatest() {
   a.click();
   a.remove();
 }
+
+/// Quick-and-dirty light/dark theme toggle. Persists in localStorage
+/// so the operator's preference survives reloads.
+function toggleTheme() {
+  const want = !document.body.classList.contains('light');
+  document.body.classList.toggle('light', want);
+  try { localStorage.setItem('r2.theme', want ? 'light' : 'dark'); } catch (_) {}
+}
+(() => {
+  try {
+    if (localStorage.getItem('r2.theme') === 'light') {
+      document.body.classList.add('light');
+    }
+  } catch (_) {}
+})();
 
 /// End-of-day "grab everything" zip. Server builds it by iterating
 /// every connected sensor's SD ring, GETting each file, splicing
