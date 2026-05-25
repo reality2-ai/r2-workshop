@@ -1700,9 +1700,20 @@ async function connectRelay(relayUrl) {
     // (notekeeper-aligned) so no prefix gymnastics — bucket
     // routing is unambiguous.
     const tgHashFull = joinParam.tg_hash;
-    const kp = wasmGenerateDeviceKeypair();
-    relayEphemeralSk = new Uint8Array(kp.secret_key);
-    relayEphemeralPk = new Uint8Array(kp.public_key);
+    // Reuse the ephemeral keypair across reconnects within the same
+    // pairing attempt. Without this, every WS drop+reconnect minted a
+    // fresh ephemeral, the dashboard accumulated stale pending rows
+    // for the older device_pks, and when the operator approved
+    // whichever pending row their UI showed, the JOIN_RESPONSE went
+    // back targeted at a device_pk we no longer remembered the
+    // private half of — so the visitor's relayHandleJoinResponse
+    // silently filtered it out via the targetPkHex mismatch guard.
+    // Bench-confirmed 2026-05-25 by visible mismatched-key logs.
+    if (!relayEphemeralSk || !relayEphemeralPk) {
+      const kp = wasmGenerateDeviceKeypair();
+      relayEphemeralSk = new Uint8Array(kp.secret_key);
+      relayEphemeralPk = new Uint8Array(kp.public_key);
+    }
     const device_id_hex = bytesToHex(relayEphemeralPk);
     const ts = Math.floor(Date.now() / 1000);
     const msg = `${tgHashFull}:${device_id_hex}:${ts}`;
@@ -1836,7 +1847,11 @@ function relaySendAccessRequest(joinParam) {
 /// If the target_pk matches our ephemeral pk, decrypt with
 /// wasmCompleteJoin, persist the cert to IndexedDB, reload.
 async function relayHandleJoinResponse(frame) {
-  if (!relayEphemeralSk || !relayEphemeralPk) return;
+  console.log(`[relay] JOIN_RESPONSE in (${frame.length} bytes)`);
+  if (!relayEphemeralSk || !relayEphemeralPk) {
+    console.warn('[relay] JOIN_RESPONSE arrived but no ephemeral keypair in memory — dropping');
+    return;
+  }
   if (frame.length < 2 + 32 + 32 + 1) {
     console.warn('[relay] JOIN_RESPONSE too short:', frame.length);
     return;
@@ -1844,17 +1859,24 @@ async function relayHandleJoinResponse(frame) {
   const targetPk  = frame.subarray(2,    2 + 32);
   const tgPk      = frame.subarray(34,   34 + 32);
   const encrypted = frame.subarray(66);
+  const targetPkHex   = bytesToHex(targetPk);
+  const ephemeralHex  = bytesToHex(relayEphemeralPk);
   // Filter to our device_pk so we ignore responses for other
   // peers in the same bucket.
-  if (bytesToHex(targetPk) !== bytesToHex(relayEphemeralPk)) {
+  if (targetPkHex !== ephemeralHex) {
+    console.warn(
+      `[relay] JOIN_RESPONSE target_pk mismatch — target=${targetPkHex.slice(0,16)}… ours=${ephemeralHex.slice(0,16)}… (stale ephemeral after reconnect?)`
+    );
     return;
   }
+  console.log(`[relay] JOIN_RESPONSE matches our ephemeral, decoding cert (${encrypted.length} encrypted bytes)`);
   try {
     const nowSecs = BigInt(Math.floor(Date.now() / 1000));
     const member = wasmCompleteJoin(relayEphemeralSk, tgPk, encrypted, nowSecs);
     await idbPut(IDB_KEY, new Uint8Array(member.to_bytes()));
     viewerIdentity = member;
     viewerIdentityPkHex = bytesToHex(relayEphemeralPk);
+    console.log('[relay] cert persisted to IndexedDB, reloading to pick up paired state');
     // Strip ?join= from the URL before reload so the next accessGate
     // sees a paired + relay-only load, not a "fresh ?join= with
     // stale cert" → re-pair loop.
