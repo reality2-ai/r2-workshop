@@ -240,41 +240,32 @@ async fn run_one_session(
 
     loop {
         tokio::select! {
-            // Outbound: frame arrived from a sensor → forward to relay.
-            // Rate-limit ONLY acceleration frames (the 100 Hz stream that
-            // would saturate the relay). Battery / sensor.status (which
-            // carries fw_ver + SD state) / announce / event.log / cmd
-            // responses all pass through untouched — they're low-rate
-            // and viewers need every one to render battery, firmware,
-            // and the Data-tab SD-card state.
+            // Outbound: forward EVERY frame to the relay verbatim.
+            //
+            // Architectural rule per the user 2026-05-25: all events
+            // should reach all hives in the TG; only those that can
+            // make sense of them will. The relay is a dumb forwarder,
+            // the TG is one logical group across the relay boundary,
+            // and selectively dropping events at the transport layer
+            // breaks the "every hive sees every TG event" invariant
+            // that R2-WIRE / R2-TRUST rely on.
+            //
+            // The earlier 10-Hz-per-sensor rate limit on acceleration
+            // (RELAY_FRAME_MIN_INTERVAL_MS) was a Pi5 work-around
+            // misapplied to the relay path. The local /r2 WS still has
+            // server-side decimation (task #68) which is the right
+            // place for it; the off-network viewer + the relay itself
+            // can comfortably handle full-rate sensor streams.
+            //
+            // The `last_forward_at` / `frames_skipped` state is now
+            // dead; left wired so the per-50-frame log stays
+            // recognisable. Will fall out at the next cleanup pass.
             res = raw_rx.recv() => {
                 match res {
                     Ok(rf) => {
                         frames_seen += 1;
-                        // Peek at event_hash at bytes 4..8 of the compact
-                        // frame (R2-WIRE §3). Treat short / malformed
-                        // frames as "not acceleration" so we never drop
-                        // them — the relay will reject them downstream if
-                        // they're genuinely bad.
-                        let event_hash: u32 = if rf.frame.len() >= 8 {
-                            u32::from_be_bytes([rf.frame[4], rf.frame[5], rf.frame[6], rf.frame[7]])
-                        } else {
-                            0
-                        };
-                        const ACCEL: u32 = crate::ACCELERATION;
-                        let is_accel = event_hash == ACCEL;
-                        let now = std::time::Instant::now();
-                        let skip = is_accel && match last_forward_at.get(&rf.src) {
-                            Some(prev) => now.duration_since(*prev).as_millis() < RELAY_FRAME_MIN_INTERVAL_MS,
-                            None => false,
-                        };
-                        if skip {
-                            frames_skipped += 1;
-                            continue;
-                        }
-                        if is_accel {
-                            last_forward_at.insert(rf.src.clone(), now);
-                        }
+                        let _ = &last_forward_at;
+                        let _ = frames_skipped;
                         // Wrap the same envelope shape /r2 uses
                         // so viewers can decode it with the existing
                         // path. See encode_raw_frame_envelope in
