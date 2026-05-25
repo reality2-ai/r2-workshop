@@ -926,6 +926,47 @@
   body.light .sensor-label,
   body.light .sensor-stats { color: #1e293b; }
   body.light h2, body.light h3 { color: #1e293b; }
+
+  /* Broader light-mode pass — flip every dark inner panel to a
+     pale surface. Uses attribute selectors on inline style="…"
+     plus class-level catches for the most common offenders.
+     Keeps !important light so anything we missed below still
+     wins by specificity rather than fighting cascade order. */
+  body.light .sensor-event-log,
+  body.light .device-card-inner,
+  body.light .sensor-card .chart-container,
+  body.light .sensor-stats,
+  body.light .invite-help,
+  body.light .invite-url-group,
+  body.light .sensors-grid,
+  body.light .devices-grid,
+  body.light .data-grid,
+  body.light .panel,
+  body.light .pane,
+  body.light .log-row,
+  body.light .event-log,
+  body.light .connection-log,
+  body.light .top-actions,
+  body.light .devices-bulk-actions,
+  body.light .sensor-stats { background: #f8fafc !important; color: #1e293b !important; border-color: #e2e8f0 !important; }
+
+  body.light .pill,
+  body.light .state-idle,
+  body.light .badge { background: #e2e8f0 !important; color: #1e293b !important; }
+
+  /* Hover states on the bulk-action / per-sensor buttons */
+  body.light .btn-update,
+  body.light .btn-bulk-update,
+  body.light button.bootstrap-close { background: #fff; color: #1e293b; border: 1px solid #cbd5e1; }
+  body.light .btn-update:hover,
+  body.light .btn-bulk-update:hover { background: #e2e8f0; }
+
+  /* Live tab's sensor cards — value cells were sitting on a
+     darker inner background; reset their pill bg too. */
+  body.light .sensor-card .vx,
+  body.light .sensor-card .vy,
+  body.light .sensor-card .vz,
+  body.light .sensor-card .vmag { color: #1e293b; }
   .theme-toggle { background: transparent; border: 1px solid currentColor; color: inherit;
     border-radius: 6px; padding: 4px 8px; cursor: pointer; margin-right: 8px; font-size: 14px; }
   .theme-toggle:hover { background: rgba(127,127,127,0.15); }
