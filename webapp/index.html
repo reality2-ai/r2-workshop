@@ -1722,18 +1722,21 @@ async function connectRelay(relayUrl) {
     });
   }
 
+  console.log(`[relay] opening WSS → ${relayUrl}`);
   relayWs = new WebSocket(relayUrl);
   relayWs.binaryType = 'arraybuffer';
   relayWs.onopen = () => {
+    console.log(`[relay] WS open, sending HELLO (${helloJson.length} bytes)`);
     relayWs.send(helloJson);
     document.getElementById('wsStatus').textContent = 'Connecting…';
   };
   relayWs.onclose = (ev) => {
+    console.warn(`[relay] WS closed code=${ev.code} reason=${ev.reason || '(none)'} wasClean=${ev.wasClean}`);
     document.getElementById('wsDot').className = 'status-dot';
     document.getElementById('wsStatus').textContent = `Disconnected (${ev.code})`;
     setTimeout(() => connectRelay(relayUrl), 3000);
   };
-  relayWs.onerror = (e) => console.warn('[relay] error', e);
+  relayWs.onerror = (e) => console.warn('[relay] WS error', e);
   relayWs.onmessage = (e) => {
     if (typeof e.data === 'string') {
       handleRelayText(e.data);
@@ -1761,17 +1764,27 @@ async function connectRelay(relayUrl) {
 
 function handleRelayText(text) {
   let msg;
-  try { msg = JSON.parse(text); } catch (_) { return; }
+  try { msg = JSON.parse(text); } catch (_) {
+    console.warn('[relay] non-JSON text frame:', text.slice(0, 120));
+    return;
+  }
   if (msg.type === 'welcome') {
+    console.log(`[relay] WELCOME (peers=${msg.peers}, buffer_oldest=${msg.buffer_oldest})`);
     document.getElementById('wsDot').className = 'status-dot connected';
     document.getElementById('wsStatus').textContent = 'Connected (relay)';
     // If we're pre-pairing, send the JOIN_REQUEST binary frame now.
     if (!viewerIdentity && relayJoinParam) {
+      console.log('[relay] sending JOIN_REQUEST (unpaired)');
       relaySendAccessRequest(relayJoinParam);
+    } else if (viewerIdentity) {
+      console.log('[relay] WELCOME but already paired — waiting for inbound frames');
+    } else {
+      console.warn('[relay] WELCOME but no relayJoinParam — nothing to send');
     }
     return;
   }
   if (msg.type === 'pong') return;
+  console.log(`[relay] unexpected text frame type=${msg.type}`);
   // Access protocol is now binary-only (notekeeper-aligned) — see
   // relayHandleJoinResponse on the binary onmessage branch.
 }
@@ -1792,7 +1805,10 @@ function isJoinFrame(buf) {
 }
 
 function relaySendAccessRequest(joinParam) {
-  if (!relayWs || relayWs.readyState !== WebSocket.OPEN) return;
+  if (!relayWs || relayWs.readyState !== WebSocket.OPEN) {
+    console.warn(`[relay] cannot send JOIN_REQUEST, WS state=${relayWs && relayWs.readyState}`);
+    return;
+  }
   // joinParam.entropy_hex is 32 hex chars = the 16-byte join code
   // that r2-workshop's invite envelope ships; r2-trust expects 16
   // bytes here. r2-workshop's request-and-approve gate doesn't
@@ -1812,6 +1828,7 @@ function relaySendAccessRequest(joinParam) {
   req.set(joinCode,        2 + 32);
   req.set(nameBytes,       2 + 32 + 16);
   relayWs.send(req);
+  console.log(`[relay] JOIN_REQUEST sent (${req.length} bytes, name="${nameStr}", tg_hash=${joinParam.tg_hash})`);
 }
 
 /// Parse a notekeeper-format JOIN_RESPONSE binary frame:
