@@ -1164,6 +1164,13 @@ function getOrCreateSensor(addr) {
   `;
   area.appendChild(card);
   setTimeout(() => sensors.forEach(s => s.chart.resize()), 50);
+  // Re-order the Live grid after every insert so all tabs agree on
+  // sensor order (alphabetical by deviceName, same key as the Devices
+  // and Data tab sorts at the renderers below). Without this, the
+  // Live grid stuck at insertion order while Devices/Data were
+  // alphabetical, so a sensor pair could appear as "right / left" on
+  // Live and "left / right" on Devices.
+  reorderLiveCards();
 
   const ctx = document.getElementById('chart-' + safeKey).getContext('2d');
   const chart = new Chart(ctx, {
@@ -1240,6 +1247,29 @@ function setDeviceName(sensor, name) {
   const nameEl = document.querySelector('#slabel-' + sk + ' .slabel-name');
   if (nameEl) nameEl.textContent = name;
   updateSensorList();
+  // Rename can change the alphabetical position — keep Live tab in
+  // step with Devices / Data sort.
+  reorderLiveCards();
+}
+
+/// Re-order the Live tab's sensor cards in the DOM to match the
+/// alphabetical-by-deviceName order that the Devices and Data tab
+/// renderers use. Cheap O(N log N) sort + appendChild each card
+/// (which is also a move when the node is already in the parent).
+function reorderLiveCards() {
+  const area = document.getElementById('sensorsArea');
+  if (!area) return;
+  const cards = Array.from(area.querySelectorAll('.sensor-card'));
+  cards.sort((a, b) => {
+    const ka = a.id.replace(/^sensor-/, '').replace(/-/g, '.');
+    const kb = b.id.replace(/^sensor-/, '').replace(/-/g, '.');
+    const sa = sensors.get(ka);
+    const sb = sensors.get(kb);
+    const na = (sa && sa.deviceName) || ka;
+    const nb = (sb && sb.deviceName) || kb;
+    return na.localeCompare(nb);
+  });
+  for (const card of cards) area.appendChild(card);
 }
 
 // Map .tg-* state class → (period_ms, opacityFn(phase∈[0,1)) → [0,1]).
@@ -2889,6 +2919,7 @@ async function loadDeviceAliases() {
 
 // Apply the current alias map to every known sensor's deviceName.
 // Called on initial load + after any alias change event arrives.
+// Reorders the Live grid at the end via setDeviceName's reorder hook.
 function applyAliasesToAllSensors() {
   for (const s of sensors.values()) {
     const alias = s.devicePk ? _deviceAliases[s.devicePk] : null;
