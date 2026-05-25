@@ -545,7 +545,7 @@ impl Access {
         // 3. Name validation per spec §4.2 step 5.
         if !is_valid_device_name(&req.device_name) {
             return ClaimOutcome::BadRequest(
-                "device_name must be 1..=64 chars in [A-Za-z0-9 ._-]",
+                "device_name must be 1..=64 chars in [A-Za-z0-9 ._()-]",
             );
         }
 
@@ -711,7 +711,7 @@ impl Access {
         };
         if !is_valid_device_name(name) {
             return RequestOutcome::BadRequest(
-                "name must be 1..=64 chars in [A-Za-z0-9 ._-]",
+                "name must be 1..=64 chars in [A-Za-z0-9 ._()-]",
             );
         }
         let now_ms = now_ms() as i64;
@@ -999,12 +999,14 @@ fn hex_to_arr32(s: &str) -> Option<[u8; 32]> {
     Some(out)
 }
 
-/// Spec §4.2 step 5 — `[A-Za-z0-9 ._-]{1,64}`, no leading/trailing space.
+/// Spec §4.2 step 5 — relaxed from `[A-Za-z0-9 ._()-]` to also accept
+/// `()` so the webapp can append ` (relay)` to operator-typed names
+/// to mark off-network paired peers. No leading/trailing space.
 fn is_valid_device_name(name: &str) -> bool {
     if name.is_empty() || name.len() > 64 { return false; }
     if name.starts_with(' ') || name.ends_with(' ') { return false; }
     name.chars().all(|c| {
-        c.is_ascii_alphanumeric() || matches!(c, ' ' | '.' | '_' | '-')
+        c.is_ascii_alphanumeric() || matches!(c, ' ' | '.' | '_' | '-' | '(' | ')')
     })
 }
 

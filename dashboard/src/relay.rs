@@ -18,6 +18,7 @@
 
 use ed25519_dalek::{Signer, SigningKey};
 use futures_util::{SinkExt, StreamExt};
+use rand::rngs::OsRng;
 use sha2::{Digest, Sha256};
 use std::time::Duration;
 use tokio::sync::broadcast;
@@ -65,7 +66,13 @@ pub fn spawn_relay_session(
 
 async fn run_one_session(
     relay_url: &str,
-    signing_key: &SigningKey,
+    // The TG signing key is no longer used in this function — we now
+    // mint a fresh ephemeral keypair for the HELLO leg below. The
+    // cert-signing path lives in handle_join_request via AppState.
+    // Kept in the signature for spawn_relay call-site stability; can
+    // be dropped in a follow-up cleanup once the ephemeral-HELLO
+    // pattern has bedded in.
+    _signing_key: &SigningKey,
     tg_pub: &[u8; 32],
     raw_frame_tx: &broadcast::Sender<crate::RawFrame>,
     binary_tx: &broadcast::Sender<Vec<u8>>,
@@ -87,14 +94,28 @@ async fn run_one_session(
         let d = h.finalize();
         hex::encode(&d[..8])
     };
-    let device_id_hex = hex::encode(tg_pub);
+    // device_id is a *per-session* ephemeral key — NOT the TG public
+    // key. Matches notekeeper's R2Member::sign_relay_hello convention
+    // where every peer has its own per-device key as device_id. An
+    // earlier version of this code reused `tg_pub` directly here; the
+    // updated relay (deployed 2026-05-25) fans frames out by
+    // (trust_group, device_id) tuple, and treating the TG owner key
+    // as a peer device_id silently dropped the controller from the
+    // fan-out set even though HELLO succeeded.
+    //
+    // The TG SigningKey is still used (later) to sign the
+    // JOIN_RESPONSE cert in handle_join_request — that's an
+    // application-layer concern independent of relay identity.
+    let session_signing = SigningKey::generate(&mut OsRng);
+    let session_pub = session_signing.verifying_key();
+    let device_id_hex = hex::encode(session_pub.to_bytes());
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
 
     let msg = format!("{}:{}:{}", tg_hash, device_id_hex, timestamp);
-    let signature = signing_key.sign(msg.as_bytes());
+    let signature = session_signing.sign(msg.as_bytes());
     let signature_hex = hex::encode(signature.to_bytes());
 
     let hello = serde_json::json!({
