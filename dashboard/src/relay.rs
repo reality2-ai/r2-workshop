@@ -367,13 +367,15 @@ async fn run_one_session(
             }
 
             // Periodic route-renewal — see BOUNCE_INTERVAL_S comment above.
-            // Return Err to drop this session; the outer reconnect-loop in
-            // spawn_relay re-runs run_one_session with a fresh HELLO and a
-            // fresh hive_id, re-registering us in the relay's tg_map so
-            // inbound JOIN_REQUEST broadcasts reach us again.
+            // DISABLED 2026-05-25 after bench: bouncing every 60s accumulated
+            // ghost peer entries on the relay side (peers count grew without
+            // cleanup) and didn't fix inbound fan-out — the underlying
+            // route-engine route-decay is more nuanced than a fresh HELLO
+            // can reset. Keep the timer wiring in place but make it a no-op
+            // until we know the right heartbeat shape per R2-ROUTE §4A.
             _ = bounce_tick.tick() => {
-                eprintln!("[relay] route-renewal bounce ({BOUNCE_INTERVAL_S}s) — reconnecting");
-                return Err("route-renewal bounce".to_string());
+                // intentional no-op; track-E entanglement work will add
+                // the proper heartbeat.
             }
         }
     }
