@@ -3833,11 +3833,16 @@ function applyRoleVisibility() {
     'captureStopBtn',        // Run-control Stop
     'dataDeleteAllBtn',      // Data — Delete all across devices
     'linkOnboardBtn',        // Link — Onboard a visitor (controller-only)
-    // NOTE: viewLink is intentionally NOT in this list. Viewers see
-    // the Link tab so they can access the "Save for off-network use"
-    // button on their own "this device" card. The member-list area
-    // renders read-only / forbidden for them; the onboard button
-    // above is still controller-only.
+    'viewLink',              // Link tab itself — controller-only as of
+                             // 2026-05-25. Earlier design kept it visible
+                             // to viewers so they could hit "Save for
+                             // off-network use" on their own card; the
+                             // operator UX call now is that off-network
+                             // viewers shouldn't see any TG-membership
+                             // management surface at all (calm-tech
+                             // framing: viewers see data, not plumbing).
+                             // If "Save for off-network use" is needed
+                             // again, surface it from Devices instead.
   ];
   for (const id of controllerOnlyIds) {
     const el = document.getElementById(id);

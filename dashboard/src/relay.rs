@@ -240,14 +240,31 @@ async fn run_one_session(
 
     loop {
         tokio::select! {
-            // Outbound: frame arrived from a sensor → forward to relay
-            // (rate-limited per src_addr, see RELAY_FRAME_MIN_INTERVAL_MS).
+            // Outbound: frame arrived from a sensor → forward to relay.
+            // Rate-limit ONLY acceleration frames (the 100 Hz stream that
+            // would saturate the relay). Battery / sensor.status (which
+            // carries fw_ver + SD state) / announce / event.log / cmd
+            // responses all pass through untouched — they're low-rate
+            // and viewers need every one to render battery, firmware,
+            // and the Data-tab SD-card state.
             res = raw_rx.recv() => {
                 match res {
                     Ok(rf) => {
                         frames_seen += 1;
+                        // Peek at event_hash at bytes 4..8 of the compact
+                        // frame (R2-WIRE §3). Treat short / malformed
+                        // frames as "not acceleration" so we never drop
+                        // them — the relay will reject them downstream if
+                        // they're genuinely bad.
+                        let event_hash: u32 = if rf.frame.len() >= 8 {
+                            u32::from_be_bytes([rf.frame[4], rf.frame[5], rf.frame[6], rf.frame[7]])
+                        } else {
+                            0
+                        };
+                        const ACCEL: u32 = crate::ACCELERATION;
+                        let is_accel = event_hash == ACCEL;
                         let now = std::time::Instant::now();
-                        let skip = match last_forward_at.get(&rf.src) {
+                        let skip = is_accel && match last_forward_at.get(&rf.src) {
                             Some(prev) => now.duration_since(*prev).as_millis() < RELAY_FRAME_MIN_INTERVAL_MS,
                             None => false,
                         };
@@ -255,7 +272,9 @@ async fn run_one_session(
                             frames_skipped += 1;
                             continue;
                         }
-                        last_forward_at.insert(rf.src.clone(), now);
+                        if is_accel {
+                            last_forward_at.insert(rf.src.clone(), now);
+                        }
                         // Wrap the same envelope shape /r2 uses
                         // so viewers can decode it with the existing
                         // path. See encode_raw_frame_envelope in

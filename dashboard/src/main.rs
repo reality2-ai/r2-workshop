@@ -40,7 +40,7 @@ use tokio::sync::{broadcast, Mutex, RwLock};
 // namespace defined in our wire spec, so multiple R2 applications can
 // coexist on a hub without hash collisions.
 
-const ACCELERATION:        u32 = r2_fnv::fnv1a_32(b"r2.sensor.acceleration");
+pub(crate) const ACCELERATION: u32 = r2_fnv::fnv1a_32(b"r2.sensor.acceleration");
 const ACCELERATION_BATCH:  u32 = r2_fnv::fnv1a_32(b"r2.sensor.acceleration.batch");
 const BATTERY:             u32 = r2_fnv::fnv1a_32(b"r2.sensor.battery");
 const SENSOR_STATUS:       u32 = r2_fnv::fnv1a_32(b"r2.sensor.status");
