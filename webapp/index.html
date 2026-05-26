@@ -7,22 +7,85 @@
 <title>R2 Workshop — WASM viewer</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <style>
+  /* ── Theme palette ───────────────────────────────────────────────
+     Semantic CSS variables that flip together when `body.light` is
+     active. Every theme-dependent colour in this stylesheet should
+     reference one of these vars rather than a raw hex literal — that
+     way light/dark stay in lockstep and a future component or theme
+     (e.g. high-contrast) only needs to override this single block.
+
+     Accent colours that *carry meaning* — status dots (red/green),
+     traffic-light run-control buttons (green/amber/red), per-axis
+     chart colours, LED colours — stay as raw hex throughout. They
+     mean the same thing in either theme.
+
+     `body.light` overrides only what differs; vars not redeclared
+     inherit from `:root`.                                          */
+  :root {
+    --bg-page:          #0a0e17;       /* body */
+    --bg-card:          #111827;       /* .card */
+    --bg-card-deep:     #0c1017;       /* nested panels: log cards, invite modal, link-member card, run-control bar */
+    --bg-card-soft:     #1e293b;       /* lighter dark surface: pills, input bg, alt cards */
+    --bg-input:         #1e293b;
+    --bg-pill:          #1e293b;
+    --bg-button:        #334155;       /* neutral button */
+    --bg-button-hover:  #475569;
+    --text-primary:     #e0e0e0;       /* body text */
+    --text-bright:      #ffffff;       /* h1, .sensor-label name */
+    --text-secondary:   #94a3b8;       /* secondary info */
+    --text-muted:       #64748b;       /* tertiary, labels */
+    --text-faint:       #475569;       /* nearly-disabled */
+    --text-mono:        #cbd5e1;       /* monospace input contents */
+    --text-link:        #e2e8f0;
+    --border:           #1e293b;
+    --border-strong:    #334155;
+    --header-grad-from: #1a1f35;
+    --header-grad-to:   #0d1220;
+    --header-border:    #2a3050;
+    --shadow-modal:     rgba(0, 0, 0, 0.5);
+    --shadow-card:      rgba(0, 0, 0, 0.3);
+  }
+  body.light {
+    --bg-page:          #f5f7fa;
+    --bg-card:          #ffffff;
+    --bg-card-deep:     #ffffff;
+    --bg-card-soft:     #f8fafc;
+    --bg-input:         #ffffff;
+    --bg-pill:          #e2e8f0;
+    --bg-button:        #ffffff;
+    --bg-button-hover:  #e2e8f0;
+    --text-primary:     #1e293b;
+    --text-bright:      #0f172a;
+    --text-secondary:   #475569;
+    --text-muted:       #64748b;
+    --text-faint:       #94a3b8;
+    --text-mono:        #1e293b;
+    --text-link:        #1e293b;
+    --border:           #e2e8f0;
+    --border-strong:    #cbd5e1;
+    --header-grad-from: #ffffff;
+    --header-grad-to:   #f8fafc;
+    --header-border:    #e2e8f0;
+    --shadow-modal:     rgba(15, 23, 42, 0.08);
+    --shadow-card:      rgba(15, 23, 42, 0.05);
+  }
+
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background: #0a0e17;
-    color: #e0e0e0;
+    background: var(--bg-page);
+    color: var(--text-primary);
     min-height: 100vh;
   }
   .header {
-    background: linear-gradient(135deg, #1a1f35 0%, #0d1220 100%);
-    border-bottom: 1px solid #2a3050;
+    background: linear-gradient(135deg, var(--header-grad-from) 0%, var(--header-grad-to) 100%);
+    border-bottom: 1px solid var(--header-border);
     padding: 16px 24px;
     display: flex;
     align-items: center;
     justify-content: space-between;
   }
-  .header h1 { font-size: 20px; font-weight: 600; color: #fff; }
+  .header h1 { font-size: 20px; font-weight: 600; color: var(--text-bright); }
   .header h1 span { color: #4a9eff; }
   .header-controls {
     display: flex;
@@ -67,8 +130,8 @@
   }
   .bootstrap-panel.visible { display: block; }
   .bootstrap-log-card {
-    background: #0c1017;
-    border: 1px solid #1e293b;
+    background: var(--bg-card-deep);
+    border: 1px solid var(--bg-card-soft);
     border-radius: 12px;
     padding: 16px 20px;
     position: relative;
@@ -84,19 +147,19 @@
     font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 1px;
-    color: #64748b;
+    color: var(--text-muted);
     margin: 0;
   }
   .bootstrap-close {
     background: none;
     border: none;
-    color: #64748b;
+    color: var(--text-muted);
     font-size: 18px;
     cursor: pointer;
     padding: 2px 6px;
     border-radius: 4px;
   }
-  .bootstrap-close:hover { color: #e0e0e0; background: #1e293b; }
+  .bootstrap-close:hover { color: var(--text-primary); background: var(--bg-card-soft); }
 
   /* ── Link tab + invite modal (SPEC-R2-WORKSHOP-ACCESS) ─────────────── */
   .invite-overlay {
@@ -106,7 +169,7 @@
   }
   .invite-overlay[hidden] { display: none; }
   .invite-modal {
-    background: #0c1017; border: 1px solid #1e293b; border-radius: 12px;
+    background: var(--bg-card-deep); border: 1px solid var(--bg-card-soft); border-radius: 12px;
     padding: 24px; min-width: 380px; max-width: 480px;
     box-shadow: 0 10px 40px rgba(0,0,0,0.5);
   }
@@ -114,22 +177,22 @@
     display: flex; align-items: center; justify-content: space-between;
     margin-bottom: 12px;
   }
-  .invite-header h2 { margin: 0; font-size: 18px; color: #e0e0e0; }
-  .invite-help { color: #94a3b8; font-size: 13px; margin: 0 0 16px 0; }
+  .invite-header h2 { margin: 0; font-size: 18px; color: var(--text-primary); }
+  .invite-help { color: var(--text-secondary); font-size: 13px; margin: 0 0 16px 0; }
   .invite-qr-wrap {
-    background: #fff; padding: 12px; border-radius: 8px;
+    background: var(--text-bright); padding: 12px; border-radius: 8px;
     display: flex; justify-content: center; margin-bottom: 16px;
   }
   .invite-qr-wrap img { width: 256px; height: 256px; image-rendering: pixelated; }
   .invite-url-group { margin-bottom: 12px; }
   .invite-url-group label {
     display: block; font-size: 11px; text-transform: uppercase;
-    letter-spacing: 1px; color: #64748b; margin-bottom: 6px;
+    letter-spacing: 1px; color: var(--text-muted); margin-bottom: 6px;
   }
   .invite-url-row { display: flex; gap: 8px; }
   .invite-url-row input {
-    flex: 1; background: #1e293b; border: 1px solid #334155;
-    color: #cbd5e1; padding: 6px 10px; border-radius: 6px;
+    flex: 1; background: var(--bg-card-soft); border: 1px solid var(--border-strong);
+    color: var(--text-mono); padding: 6px 10px; border-radius: 6px;
     font-family: 'SF Mono', Consolas, monospace; font-size: 11px;
   }
   .invite-url-row button {
@@ -138,22 +201,22 @@
   }
   .invite-url-row button:hover { background: #2563eb; }
   .invite-countdown {
-    text-align: center; color: #94a3b8; font-size: 13px; margin-top: 16px;
+    text-align: center; color: var(--text-secondary); font-size: 13px; margin-top: 16px;
   }
   .invite-countdown.expired { color: #ef4444; }
   .invite-mode-toggle {
     display: flex;
     margin: 12px auto 4px;
     width: fit-content;
-    background: #1e293b;
-    border: 1px solid #334155;
+    background: var(--bg-card-soft);
+    border: 1px solid var(--border-strong);
     border-radius: 8px;
     padding: 3px;
     gap: 2px;
   }
   .invite-mode-toggle button {
     background: transparent;
-    color: #94a3b8;
+    color: var(--text-secondary);
     border: none;
     padding: 7px 16px;
     font-size: 13px;
@@ -163,33 +226,33 @@
   }
   .invite-mode-toggle button.active {
     background: #3b82f6;
-    color: #fff;
+    color: var(--text-bright);
     font-weight: 600;
   }
   .invite-mode-hint {
-    color: #64748b;
+    color: var(--text-muted);
     font-size: 12px;
     text-align: center;
     margin: 0 0 10px;
   }
   .invite-step-label {
-    color: #cbd5e1; font-size: 13px; margin: 12px 0 6px 0;
+    color: var(--text-mono); font-size: 13px; margin: 12px 0 6px 0;
     text-transform: uppercase; letter-spacing: 1px;
   }
-  .invite-step-side { color: #64748b; text-transform: none; letter-spacing: 0; font-size: 12px; }
+  .invite-step-side { color: var(--text-muted); text-transform: none; letter-spacing: 0; font-size: 12px; }
 
   .link-member-card {
-    background: #0c1017; border: 1px solid #1e293b; border-radius: 12px;
+    background: var(--bg-card-deep); border: 1px solid var(--bg-card-soft); border-radius: 12px;
     padding: 14px 18px; margin-bottom: 8px;
     display: grid; grid-template-columns: 1fr auto; gap: 8px 16px;
     align-items: center;
   }
   .link-member-card.revoked { opacity: 0.5; }
-  .link-member-card .name { font-weight: 600; color: #e0e0e0; }
-  .link-member-card .meta { color: #64748b; font-size: 12px; margin-top: 2px; }
+  .link-member-card .name { font-weight: 600; color: var(--text-primary); }
+  .link-member-card .meta { color: var(--text-muted); font-size: 12px; margin-top: 2px; }
   .link-member-card .meta .pill {
     display: inline-block; padding: 2px 8px; border-radius: 10px;
-    background: #1e293b; color: #94a3b8; font-size: 11px; margin-right: 6px;
+    background: var(--bg-card-soft); color: var(--text-secondary); font-size: 11px; margin-right: 6px;
   }
   .link-member-card .meta .pill.controller { background: #1e3a8a; color: #bfdbfe; }
   .link-member-card .meta .pill.sensor     { background: #14532d; color: #bbf7d0; }
@@ -200,21 +263,21 @@
   }
   .link-member-card button.revoke:hover { background: #b91c1c; color: white; }
   .link-member-card button.revoke:disabled { opacity: 0.5; cursor: not-allowed; }
-  .link-member-card .self-label { color: #64748b; font-size: 12px; font-style: italic; }
+  .link-member-card .self-label { color: var(--text-muted); font-size: 12px; font-style: italic; }
   .bootstrap-log-entries {
     max-height: 200px;
     overflow-y: auto;
     font-family: 'SF Mono', Consolas, monospace;
     font-size: 12px;
     line-height: 1.7;
-    background: #080b10;
+    background: var(--bg-card-deep);
     border-radius: 6px;
     padding: 10px 14px;
   }
   .bootstrap-log-entries::-webkit-scrollbar { width: 6px; }
   .bootstrap-log-entries::-webkit-scrollbar-track { background: transparent; }
-  .bootstrap-log-entries::-webkit-scrollbar-thumb { background: #2a3050; border-radius: 3px; }
-  .bs-line { color: #94a3b8; }
+  .bootstrap-log-entries::-webkit-scrollbar-thumb { background: var(--header-border); border-radius: 3px; }
+  .bs-line { color: var(--text-secondary); }
   .bs-line.amber { color: #fbbf24; }
   .bs-line.green { color: #34d399; }
   .bs-line.red { color: #f87171; }
@@ -241,8 +304,8 @@
      visually so the operator's eye lands in the same place across
      tabs. Single horizontal row on wide screens; wraps on narrow. */
   .run-control-bar {
-    background: #0c1017;
-    border: 1px solid #1e293b;
+    background: var(--bg-card-deep);
+    border: 1px solid var(--bg-card-soft);
     border-radius: 12px;
     padding: 10px 14px;
     display: flex;
@@ -286,8 +349,8 @@
   }
 
   .card {
-    background: #111827;
-    border: 1px solid #1e293b;
+    background: var(--bg-card);
+    border: 1px solid var(--bg-card-soft);
     border-radius: 12px;
     padding: 20px;
   }
@@ -295,7 +358,7 @@
     font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 1px;
-    color: #64748b;
+    color: var(--text-muted);
     margin-bottom: 14px;
   }
 
@@ -304,7 +367,7 @@
   .sensor-label {
     font-size: 16px;
     font-weight: 700;
-    color: #fff;
+    color: var(--text-bright);
     margin-bottom: 4px;
     display: flex;
     align-items: center;
@@ -323,7 +386,7 @@
      the LED + name. */
   .rename-btn {
     background: transparent;
-    color: #64748b;
+    color: var(--text-muted);
     border: none;
     padding: 0 4px;
     cursor: pointer;
@@ -331,16 +394,16 @@
     line-height: 1;
     border-radius: 4px;
   }
-  .rename-btn:hover { background: rgba(148, 163, 184, 0.12); color: #e2e8f0; }
+  .rename-btn:hover { background: rgba(148, 163, 184, 0.12); color: var(--text-link); }
 
   /* Downsample picker next to the merged-CSV button — small, in-row. */
   .data-bin-row {
     display: inline-flex; align-items: center; gap: 6px;
-    color: #94a3b8; font-size: 12px;
+    color: var(--text-secondary); font-size: 12px;
   }
   .data-bin-row select {
-    background: #1e293b; color: #e2e8f0;
-    border: 1px solid #334155; border-radius: 4px;
+    background: var(--bg-card-soft); color: var(--text-link);
+    border: 1px solid var(--border-strong); border-radius: 4px;
     padding: 4px 6px; font-size: 12px;
     font-family: inherit;
   }
@@ -397,17 +460,17 @@
     font-family: 'SF Mono', Consolas, monospace;
     font-size: 0.75rem;
     line-height: 1.5;
-    background: #111827;
+    background: var(--bg-card);
     border-radius: 6px;
     padding: 6px 10px;
     margin-top: 8px;
   }
   .sensor-event-log::-webkit-scrollbar { width: 5px; }
   .sensor-event-log::-webkit-scrollbar-track { background: transparent; }
-  .sensor-event-log::-webkit-scrollbar-thumb { background: #2a3050; border-radius: 3px; }
-  .sensor-event-line { color: #64748b; }
+  .sensor-event-log::-webkit-scrollbar-thumb { background: var(--header-border); border-radius: 3px; }
+  .sensor-event-line { color: var(--text-muted); }
   .sensor-event-line .sel-time { color: #4a9eff; }
-  .sensor-event-line .sel-text { color: #94a3b8; }
+  .sensor-event-line .sel-text { color: var(--text-secondary); }
   .sensors-area.dual .chart-container { height: 260px; }
 
   /* Controls */
@@ -421,7 +484,7 @@
     text-transform: uppercase;
     letter-spacing: 2px;
   }
-  .state-idle { background: #1e293b; color: #64748b; }
+  .state-idle { background: var(--bg-card-soft); color: var(--text-muted); }
   .state-calibrating { background: #2d1f00; color: #fbbf24; }
   .state-recording  { background: #002d1a; color: #34d399; }
   .state-rocking    { background: #002d1a; color: #34d399; }
@@ -451,7 +514,7 @@
   .cal-status {
     margin-top: 10px;
     font-size: 11px;
-    color: #64748b;
+    color: var(--text-muted);
     font-family: 'SF Mono', monospace;
     min-height: 16px;
   }
@@ -465,7 +528,7 @@
     font-size: 11px;
     line-height: 1.6;
   }
-  .log-entry { color: #64748b; }
+  .log-entry { color: var(--text-muted); }
   .log-entry .time { color: #4a9eff; }
   .log-entry .src  { color: #a78bfa; }
   .log-entry .event { color: #34d399; }
@@ -525,8 +588,8 @@
   /* ── Phase 8a: Devices view ─────────────────────────────────────────── */
   .view-toggle {
     display: inline-flex;
-    background: #1e293b;
-    border: 1px solid #334155;
+    background: var(--bg-card-soft);
+    border: 1px solid var(--border-strong);
     border-radius: 8px;
     overflow: hidden;
     margin-right: 12px;
@@ -534,14 +597,14 @@
   .view-toggle button {
     background: transparent;
     border: 0;
-    color: #94a3b8;
+    color: var(--text-secondary);
     padding: 7px 14px;
     font-size: 13px;
     cursor: pointer;
   }
   .view-toggle button.active {
     background: #4a9eff;
-    color: #fff;
+    color: var(--text-bright);
     font-weight: 600;
   }
 
@@ -561,8 +624,8 @@
   }
 
   .device-card {
-    background: #1e293b;
-    border: 1px solid #334155;
+    background: var(--bg-card-soft);
+    border: 1px solid var(--border-strong);
     border-radius: 10px;
     padding: 14px 16px;
     display: flex;
@@ -583,17 +646,17 @@
     flex-shrink: 0;
   }
   .device-card.stale .online-dot { background: #facc15; box-shadow: 0 0 6px #facc15; }
-  .device-card.offline .online-dot { background: #475569; box-shadow: none; }
+  .device-card.offline .online-dot { background: var(--text-faint); box-shadow: none; }
 
   .device-card .device-row {
     display: flex;
     justify-content: space-between;
     font-size: 13px;
-    color: #94a3b8;
+    color: var(--text-secondary);
     font-family: 'SF Mono', Menlo, monospace;
   }
-  .device-card .device-row .label { color: #64748b; }
-  .device-card .device-row .value { color: #e2e8f0; }
+  .device-card .device-row .label { color: var(--text-muted); }
+  .device-card .device-row .value { color: var(--text-link); }
 
   .battery-bar {
     height: 6px; background: #0f172a; border-radius: 3px; overflow: hidden;
@@ -610,8 +673,8 @@
   /* Virtual LED — solid until Phase 5L sends FSM state, then animated */
   .virt-led {
     width: 14px; height: 14px; border-radius: 50%;
-    border: 1px solid #475569;
-    background: #334155;
+    border: 1px solid var(--text-faint);
+    background: var(--border-strong);
     flex-shrink: 0;
   }
   /* Per-state colour + glow. Opacity is driven by `tickVirtualLeds()`
@@ -632,19 +695,19 @@
   .virt-led.tg-error      { background: #ef4444; box-shadow: 0 0 8px #ef4444; }
   .virt-led.tg-streaming-sim { background: #a855f7; box-shadow: 0 0 8px #a855f7; }
   .virt-led.tg-recording { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
-  .virt-led.tg-resetting  { background: #94a3b8; box-shadow: 0 0 6px #94a3b8; }
+  .virt-led.tg-resetting  { background: var(--text-secondary); box-shadow: 0 0 6px var(--text-secondary); }
 
   /* Health-source dot — second indicator next to the FSM-state dot. */
   .health-dot {
     width: 10px; height: 10px; border-radius: 50%;
     flex-shrink: 0;
-    border: 1px solid #475569;
+    border: 1px solid var(--text-faint);
   }
   .health-dot.health-real { background: #22c55e; box-shadow: 0 0 4px #22c55e; }
   .health-dot.health-sim  { background: #a855f7; box-shadow: 0 0 6px #a855f7; animation: led-pulse 2.0s ease-in-out infinite; }
   .health-label {
     font-size: 0.78em;
-    color: #94a3b8;
+    color: var(--text-secondary);
     margin-left: 4px;
   }
   .health-label.health-sim-text { color: #c4b5fd; }
@@ -667,7 +730,7 @@
   }
   .btn-update {
     flex: 1;
-    background: #475569;
+    background: var(--text-faint);
     color: #f1f5f9;
     border: 0;
     border-radius: 6px;
@@ -675,7 +738,7 @@
     font-size: 12px;
     cursor: pointer;
   }
-  .btn-update:hover { background: #64748b; }
+  .btn-update:hover { background: var(--text-muted); }
   .btn-update:disabled { opacity: 0.5; cursor: not-allowed; }
 
   /* Secondary destructive action — reset sensor (amber outline). */
@@ -700,8 +763,8 @@
   .btn-identify {
     flex: 0 0 auto;
     background: transparent;
-    color: #94a3b8;
-    border: 1px solid #334155;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-strong);
     border-radius: 6px;
     padding: 7px 10px;
     font-size: 12px;
@@ -719,8 +782,8 @@
   .btn-logs {
     flex: 0 0 auto;
     background: transparent;
-    color: #94a3b8;
-    border: 1px solid #334155;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-strong);
     border-radius: 6px;
     padding: 7px 10px;
     font-size: 12px;
@@ -731,8 +794,8 @@
 
   .device-log-panel {
     margin-top: 10px;
-    background: #080b10;
-    border: 1px solid #1e293b;
+    background: var(--bg-card-deep);
+    border: 1px solid var(--bg-card-soft);
     border-radius: 6px;
     padding: 8px 10px;
     max-height: 180px;
@@ -740,26 +803,26 @@
     font-family: 'SF Mono', Consolas, monospace;
     font-size: 11px;
     line-height: 1.55;
-    color: #94a3b8;
+    color: var(--text-secondary);
     white-space: pre-wrap;
     word-break: break-word;
   }
   .device-log-panel::-webkit-scrollbar { width: 5px; }
   .device-log-panel::-webkit-scrollbar-track { background: transparent; }
-  .device-log-panel::-webkit-scrollbar-thumb { background: #2a3050; border-radius: 3px; }
+  .device-log-panel::-webkit-scrollbar-thumb { background: var(--header-border); border-radius: 3px; }
 
   .devices-summary {
     display: flex;
     gap: 18px;
-    color: #94a3b8;
+    color: var(--text-secondary);
     font-size: 13px;
     margin-bottom: 10px;
     padding: 10px 14px;
-    background: #1e293b;
-    border: 1px solid #334155;
+    background: var(--bg-card-soft);
+    border: 1px solid var(--border-strong);
     border-radius: 8px;
   }
-  .devices-summary strong { color: #e2e8f0; }
+  .devices-summary strong { color: var(--text-link); }
   .devices-repo-link {
     margin-left: auto;
     color: #4a9eff;
@@ -775,12 +838,12 @@
     gap: 8px;
     margin-bottom: 10px;
   }
-  .run-name-row label { color: #94a3b8; font-size: 12px; flex: 0 0 auto; }
+  .run-name-row label { color: var(--text-secondary); font-size: 12px; flex: 0 0 auto; }
   .run-name-row input[type="text"] {
     flex: 1 1 auto;
-    background: #0a0e17;
-    color: #e2e8f0;
-    border: 1px solid #334155;
+    background: var(--bg-page);
+    color: var(--text-link);
+    border: 1px solid var(--border-strong);
     border-radius: 6px;
     padding: 6px 10px;
     font-family: 'SF Mono', Consolas, monospace;
@@ -790,8 +853,8 @@
   /* Per-card capture file list */
   .data-files {
     margin-top: 8px;
-    background: #0a0e17;
-    border: 1px solid #1e293b;
+    background: var(--bg-page);
+    border: 1px solid var(--bg-card-soft);
     border-radius: 6px;
     max-height: 220px;
     overflow-y: auto;
@@ -815,13 +878,13 @@
     border-left: 2px solid #22c55e;
     padding-left: 8px;
   }
-  .data-file-row.marked-export .name { color: #e2e8f0; font-weight: 500; }
-  .data-file-row .name { flex: 1; color: #cbd5e1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .data-file-row .meta { color: #475569; font-size: 11px; }
+  .data-file-row.marked-export .name { color: var(--text-link); font-weight: 500; }
+  .data-file-row .name { flex: 1; color: var(--text-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .data-file-row .meta { color: var(--text-faint); font-size: 11px; }
   .data-file-row button {
     background: transparent;
-    color: #94a3b8;
-    border: 1px solid #334155;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-strong);
     border-radius: 4px;
     padding: 2px 8px;
     cursor: pointer;
@@ -829,7 +892,7 @@
   }
   .data-file-row button.danger { color: #f87171; border-color: #7f1d1d; }
   .data-file-row button:hover { background: rgba(148, 163, 184, 0.10); }
-  .data-empty { color: #475569; padding: 18px; text-align: center; font-size: 12px; }
+  .data-empty { color: var(--text-faint); padding: 18px; text-align: center; font-size: 12px; }
   .data-card-actions {
     display: flex;
     gap: 8px;
@@ -855,8 +918,8 @@
     /* Same card chrome as Live's `.run-control-bar` so the
        "toolbar slot" reads consistently across Devices / Data /
        Link / Live tabs. */
-    background: #0c1017;
-    border: 1px solid #1e293b;
+    background: var(--bg-card-deep);
+    border: 1px solid var(--bg-card-soft);
     border-radius: 12px;
     padding: 10px 14px;
     display: flex;
@@ -873,11 +936,11 @@
     cursor: pointer;
   }
   .btn-bulk-update {
-    background: #475569;
+    background: var(--text-faint);
     color: #f1f5f9;
     border: 0;
   }
-  .btn-bulk-update:hover { background: #64748b; }
+  .btn-bulk-update:hover { background: var(--text-muted); }
   .btn-bulk-reset {
     background: transparent;
     color: #f59e0b;
@@ -901,104 +964,6 @@
     vertical-align: middle;
   }
 
-  /* Quick-and-dirty light theme. Toggle via `body.light` class.
-     Overrides the most-visible elements only; doesn't touch
-     accents (badges, status dots, LEDs) so coloured indicators
-     keep their meaning in either mode. Polish for later. */
-  body.light { background: #f5f7fa; color: #1e293b; }
-  body.light .header { background: #fff; border-bottom: 1px solid #e2e8f0; }
-  body.light .header h1 { color: #1e293b; }
-  body.light .card,
-  body.light .sensor-card,
-  body.light .invite-modal { background: #ffffff !important; border-color: #e2e8f0 !important; color: #1e293b; }
-  body.light .main, body.light .devices-main { background: transparent; }
-  body.light .view-toggle button,
-  body.light .btn-connect,
-  body.light .btn-bulk-update { background: #fff; color: #1e293b; border-color: #cbd5e1; }
-  body.light .view-toggle button.active { background: #4a9eff; color: #fff; }
-  body.light .sensor-event-log,
-  body.light .invite-url-row input,
-  body.light .invite-help { color: #475569; }
-  body.light input, body.light select, body.light textarea {
-    background: #fff; color: #1e293b; border-color: #cbd5e1;
-  }
-  body.light .connection-status,
-  body.light .sensor-label,
-  body.light .sensor-stats { color: #1e293b; }
-  body.light h2, body.light h3 { color: #1e293b; }
-
-  /* Broader light-mode pass — flip every dark inner panel to a
-     pale surface. Uses attribute selectors on inline style="…"
-     plus class-level catches for the most common offenders.
-     Keeps !important light so anything we missed below still
-     wins by specificity rather than fighting cascade order. */
-  body.light .sensor-event-log,
-  body.light .device-card-inner,
-  body.light .sensor-card .chart-container,
-  body.light .sensor-stats,
-  body.light .invite-help,
-  body.light .invite-url-group,
-  body.light .sensors-grid,
-  body.light .devices-grid,
-  body.light .data-grid,
-  body.light .panel,
-  body.light .pane,
-  body.light .log-row,
-  body.light .event-log,
-  body.light .connection-log,
-  body.light .top-actions,
-  body.light .devices-bulk-actions,
-  body.light .sensor-stats { background: #f8fafc !important; color: #1e293b !important; border-color: #e2e8f0 !important; }
-
-  body.light .pill,
-  body.light .state-idle,
-  body.light .badge { background: #e2e8f0 !important; color: #1e293b !important; }
-
-  /* Hover states on the bulk-action / per-sensor buttons */
-  body.light .btn-update,
-  body.light .btn-bulk-update,
-  body.light button.bootstrap-close { background: #fff; color: #1e293b; border: 1px solid #cbd5e1; }
-  body.light .btn-update:hover,
-  body.light .btn-bulk-update:hover { background: #e2e8f0; }
-
-  /* Live tab's sensor cards — value cells were sitting on a
-     darker inner background; reset their pill bg too. */
-  body.light .sensor-card .vx,
-  body.light .sensor-card .vy,
-  body.light .sensor-card .vz,
-  body.light .sensor-card .vmag { color: #1e293b; }
-
-  /* Run-control bar (Start / Mark / Stop) on the Live tab — same
-     dark card chrome as everything else, override to pale. */
-  body.light .run-control-bar { background: #ffffff !important; border-color: #e2e8f0 !important; color: #1e293b !important; }
-  body.light .run-control-bar input { background: #fff; color: #1e293b; border-color: #cbd5e1; }
-  body.light .run-control-bar .btn { background: #fff; color: #1e293b; border: 1px solid #cbd5e1; }
-  body.light .run-control-bar .btn:hover:not(:disabled) { background: #e2e8f0; }
-  /* Traffic-light colouring for the run-control verbs — green = go,
-     amber = waypoint, red = halt. White-on-colour so the verb stays
-     legible. Disabled buttons fall back to the neutral white above. */
-  body.light .run-control-bar .btn-start:not(:disabled) { background: #16a34a; color: #fff; border-color: #15803d; }
-  body.light .run-control-bar .btn-start:not(:disabled):hover { background: #15803d; }
-  body.light .run-control-bar .btn-mark:not(:disabled)  { background: #f59e0b; color: #fff; border-color: #b45309; }
-  body.light .run-control-bar .btn-mark:not(:disabled):hover  { background: #b45309; }
-  body.light .run-control-bar .btn-stop:not(:disabled)  { background: #dc2626; color: #fff; border-color: #b91c1c; }
-  body.light .run-control-bar .btn-stop:not(:disabled):hover  { background: #b91c1c; }
-  body.light .run-control-bar .state-indicator { background: #f1f5f9; color: #1e293b; }
-
-  /* Devices tab — per-sensor fleet cards */
-  body.light .device-card { background: #ffffff !important; border-color: #e2e8f0 !important; color: #1e293b !important; }
-  body.light .device-card .device-row .label { color: #475569 !important; }
-  body.light .device-card .device-row .value { color: #1e293b !important; }
-  body.light .device-card .device-header { color: #1e293b !important; }
-
-  /* Data tab — per-sensor capture-file cards (custom element <r2-data-card>) */
-  body.light r2-data-card,
-  body.light r2-data-card * { color: #1e293b; }
-  body.light r2-data-card { background: #ffffff !important; border-color: #e2e8f0 !important; }
-  body.light r2-data-card .file-row,
-  body.light r2-data-card .file-list,
-  body.light r2-data-card .file-name,
-  body.light r2-data-card .file-meta { background: transparent !important; color: #1e293b !important; }
   .theme-toggle { background: transparent; border: 1px solid currentColor; color: inherit;
     border-radius: 6px; padding: 4px 8px; cursor: pointer; margin-right: 8px; font-size: 14px; }
   .theme-toggle:hover { background: rgba(127,127,127,0.15); }
