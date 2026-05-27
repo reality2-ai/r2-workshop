@@ -408,6 +408,176 @@
     font-family: inherit;
   }
 
+  /* Inline event-mark label input, sized for "subject-shifted-12"
+     etc. without crowding the rest of the run-control buttons. */
+  .event-mark-name {
+    background: var(--bg-card-soft, #0f172a);
+    color: var(--text-primary, #e2e8f0);
+    border: 1px solid var(--border-strong, #1e3a8a);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-family: inherit;
+    font-size: 13px;
+    width: 140px;
+  }
+  .event-mark-name:focus {
+    outline: 2px solid var(--accent-primary, #38bdf8);
+    outline-offset: 1px;
+  }
+
+  /* In-flight event-mark strip under the run-control bar. Subtle,
+     horizontally scrollable if many marks land in one session. */
+  .marks-strip {
+    display: flex; gap: 8px; flex-wrap: wrap;
+    padding: 6px 12px;
+    margin: 4px 0 0;
+    background: rgba(251, 191, 36, 0.06);
+    border: 1px solid rgba(251, 191, 36, 0.2);
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--text-secondary, #94a3b8);
+  }
+  .marks-strip .mark-chip {
+    background: rgba(251, 191, 36, 0.12);
+    color: #fbbf24;
+    border-radius: 10px;
+    padding: 2px 8px;
+    font-size: 11px;
+  }
+  .marks-strip .mark-chip-ts { font-family: monospace; }
+
+  /* By-sensor toggle next to the bulk-action buttons. Same compact
+     "label + control" shape as .data-bin-row for visual consistency. */
+  .data-view-toggle {
+    display: inline-flex; align-items: center; gap: 6px;
+    color: var(--text-secondary); font-size: 12px;
+    cursor: pointer;
+  }
+  .data-view-toggle input[type="checkbox"] {
+    accent-color: var(--accent-primary, #38bdf8);
+  }
+
+  /* Sessions-first Data tab — one card per session-stem, each
+     expanding to a per-file drill-down. */
+  r2-session-card {
+    display: block;
+    background: var(--bg-card, #1e293b);
+    border: 1px solid var(--border-default, #334155);
+    border-radius: 8px;
+    margin-bottom: 12px;
+    padding: 12px 16px;
+  }
+  r2-session-card .session-header {
+    display: flex; flex-direction: column; gap: 6px;
+    cursor: pointer;
+  }
+  r2-session-card .session-title {
+    font-weight: 600; color: var(--text-primary, #e2e8f0);
+    font-size: 15px;
+    word-break: break-word;
+  }
+  r2-session-card .session-subline {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  r2-session-card .session-meta {
+    color: var(--text-secondary, #94a3b8); font-size: 12px;
+  }
+  r2-session-card .session-pills {
+    display: flex; gap: 6px; flex-wrap: wrap;
+  }
+  r2-session-card .session-pill {
+    background: var(--bg-card-soft, #0f172a);
+    color: var(--text-link, #7dd3fc);
+    border: 1px solid var(--border-strong, #1e3a8a);
+    border-radius: 12px;
+    padding: 2px 10px;
+    font-size: 11px;
+  }
+  r2-session-card .session-marks-badge {
+    background: rgba(251, 191, 36, 0.12);
+    color: #fbbf24;
+    border: 1px solid rgba(251, 191, 36, 0.3);
+    border-radius: 12px;
+    padding: 2px 10px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  r2-session-card .session-syncing-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: rgba(56, 189, 248, 0.12);
+    color: var(--text-link, #38bdf8);
+    border: 1px solid rgba(56, 189, 248, 0.3);
+    border-radius: 12px;
+    padding: 2px 10px;
+    font-size: 11px;
+  }
+  r2-session-card .session-syncing-pill::before {
+    content: '';
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--text-link, #38bdf8);
+    animation: r2-pulse 1s ease-in-out infinite;
+  }
+  @keyframes r2-pulse {
+    0%, 100% { opacity: 0.3; }
+    50%      { opacity: 1;   }
+  }
+  r2-session-card .session-merged-row {
+    display: flex; align-items: center; gap: 12px;
+    margin-top: 10px;
+    flex-wrap: wrap;
+  }
+  r2-session-card .session-bin-picker {
+    display: inline-flex; align-items: center; gap: 6px;
+    color: var(--text-secondary, #94a3b8);
+    font-size: 12px;
+  }
+  r2-session-card .session-bin-picker select {
+    background: var(--bg-card-soft, #0f172a);
+    color: var(--text-link, #7dd3fc);
+    border: 1px solid var(--border-strong, #1e3a8a);
+    border-radius: 4px;
+    padding: 3px 6px;
+    font-size: 12px;
+    font-family: inherit;
+  }
+  r2-session-card .session-merged-btn {
+    background: var(--bg-card-soft, #0f172a);
+    color: var(--text-link, #7dd3fc);
+    border: 1px solid var(--border-strong, #1e3a8a);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  r2-session-card .session-merged-btn:hover {
+    background: rgba(56, 189, 248, 0.08);
+  }
+  r2-session-card .session-body {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-default, #334155);
+    display: none;
+  }
+  r2-session-card[open] .session-body { display: block; }
+  r2-session-card .session-file {
+    display: flex; align-items: center; gap: 12px;
+    padding: 6px 0;
+    color: var(--text-primary, #e2e8f0);
+    font-size: 13px;
+  }
+  r2-session-card .session-file-name { flex: 1; }
+  r2-session-card .session-file-size { color: var(--text-secondary, #94a3b8); font-size: 11px; }
+  r2-session-card .session-mark-row {
+    display: flex; gap: 12px;
+    padding: 4px 0 4px 12px;
+    color: var(--text-secondary, #94a3b8);
+    font-size: 12px;
+    border-left: 2px solid rgba(251, 191, 36, 0.4);
+  }
+  r2-session-card .session-mark-ts { font-family: monospace; }
+
   /* Per-card status LED — bigger than the sidebar's 10px dot so the
      operator can read it from across the room. Animation classes
      come from .virt-led.tg-* further down. */
@@ -975,9 +1145,13 @@
   <h1><span>R2</span> Workshop — Dashboard</h1>
   <div class="header-controls">
     <div class="view-toggle" id="viewToggle">
+      <!-- Tab order matches operator workflow: Live + Data are the
+           primary tabs (during/after an experiment); Sensors + Link
+           are admin tabs touched only when something needs setup or
+           troubleshooting. -->
       <button id="viewLive"    class="active" onclick="setView('live')">Live</button>
-      <button id="viewDevices"               onclick="setView('devices')">Devices</button>
       <button id="viewData"                  onclick="setView('data')">Data</button>
+      <button id="viewDevices"               onclick="setView('devices')">Sensors</button>
       <button id="viewLink"                  onclick="setView('link')">Link</button>
     </div>
     <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Light / dark">🌓</button>
@@ -1101,18 +1275,16 @@
 <!-- ── Data view (SPEC-R2-WORKSHOP-CAPTURE) ──────────────────────────── -->
 <div class="devices-main" id="dataMain" hidden>
   <div class="devices-bulk-actions">
-    <button class="btn-bulk-update" id="dataMergedBtn" onclick="downloadMergedLatest()">💾 Download merged CSV (last marked)</button>
-    <button class="btn-bulk-update" id="dataZipBtn" onclick="downloadAllAsZip()" title="Bundle every file from every connected sensor into one zip. Filenames + CSV column titles carry the device name so files stay distinguishable on disk.">📦 Download all (zip)</button>
-    <label class="data-bin-row" title="Average samples into time buckets so timestamps line up across sensors. Raw = no averaging, every sample point of every sensor appears in its own row.">
-      Sample at:
-      <select id="dataMergedBin">
-        <option value="0">Raw</option>
-        <option value="10">10 ms</option>
-        <option value="100" selected>100 ms</option>
-        <option value="1000">1 s</option>
-      </select>
+    <button class="btn-bulk-update" id="dataZipBtn" onclick="downloadAllAsZip()" title="Bundle every synced file on the controller into one zip. Pulls from the controller's local store so it works while sensors are offline.">📦 Download all (zip)</button>
+    <!-- SPEC-R2-WORKSHOP-CAPTURE §7.4: sessions-first view is the
+         default; the legacy per-sensor cards are still reachable
+         via the toggle for operators who need the old shape. -->
+    <label class="data-view-toggle" title="Group files by run instead of by sensor. Sessions view is the default; per-sensor view shows the legacy r2-data-card per peer.">
+      <input type="checkbox" id="dataPerSensorToggle" onchange="renderDataViewIfVisible()" />
+      By sensor
     </label>
-    <button class="btn-bulk-reset"  id="dataDeleteAllBtn" onclick="requestDeleteAllFleet()">🗑 Delete all data across devices</button>
+    <button class="btn-bulk-reset"  id="dataClearStoreBtn" onclick="requestClearLocalStore()" title="Wipe BOTH the laptop's synced files AND every connected sensor's SD card. Resets the run-name counter to run-01.">🧹 Clear store</button>
+    <button class="btn-bulk-reset"  id="dataDeleteAllBtn" onclick="requestDeleteAllFleet()" title="Wipe every connected sensor's SD card. Does NOT touch the laptop's store." hidden>🗑 Delete all data across sensors</button>
   </div>
   <div class="devices-area" id="dataArea">
     <div class="card" id="dataPlaceholder" style="color:#475569; text-align:center; padding:40px;">
@@ -1128,14 +1300,38 @@
     <div class="state-indicator state-idle" id="captureStateLabel">IDLE</div>
     <div class="run-name-row">
       <label for="runName">Run name:</label>
-      <input type="text" id="runName" placeholder="run-01" maxlength="32" />
+      <!-- Auto-incrementing run name. Default "run-01" advances on
+           each Record press (run-02, run-03 …); a custom prefix like
+           "experiment" gets "-01" appended on the first press and
+           keeps incrementing thereafter. Same convention as the
+           event-mark field below. -->
+      <input type="text" id="runName" value="run-01" maxlength="32" />
     </div>
     <div class="btn-group">
-      <button class="btn btn-start" id="captureStartBtn" onclick="captureStart()">&#x25B6; Start</button>
-      <button class="btn btn-mark"  id="captureMarkBtn"  onclick="captureMark()" disabled>&#x2691; Mark</button>
+      <!-- Operator-facing labels mapped onto the state machine
+           (Idle → Calibrating → Recording) so "Mark" can now mean
+           an in-session annotation. Wire-event names underneath are
+           unchanged (`capture.start`, `capture.mark`,
+           `capture.event_mark`, `capture.stop`). -->
+      <button class="btn btn-start" id="captureStartBtn" onclick="captureStart()">&#x25B6; Calibrate</button>
+      <button class="btn btn-mark"  id="captureMarkBtn"  onclick="captureMark()" disabled>&#x25CF; Record</button>
+      <!-- Inline input for the event-mark label. Auto-increments
+           the trailing -NN on each press; resets to "mark-01" on
+           Stop. Type a different prefix and the first press will
+           append "-01"; subsequent presses keep incrementing. -->
+      <input type="text" id="eventMarkName" class="event-mark-name"
+             value="mark-01" maxlength="64"
+             title="Label sent with the next 🎬 Mark press; auto-increments. Type your own prefix (e.g. 'note') — it'll get -01 appended on first press." />
+      <button class="btn btn-event-mark" id="captureEventMarkBtn" onclick="captureEventMark()" disabled title="Annotate this moment in the recording (shortcut: m)">&#x1F3AC; Mark</button>
       <button class="btn btn-stop"  id="captureStopBtn"  onclick="captureStop()" disabled>&#x25A0; Stop</button>
     </div>
   </div>
+
+  <!-- In-flight event-mark strip — visible only during a Recording
+       session that has at least one mark. Shows the most-recent
+       marks (newest right-most) so the operator can confirm at a
+       glance which annotations have landed. Cleared on Stop. -->
+  <div id="captureMarksStrip" class="marks-strip" hidden></div>
 
   <!-- Sensor charts (populated dynamically) -->
   <div class="sensors-area" id="sensorsArea">
@@ -1241,7 +1437,57 @@ function getOrCreateSensor(addr) {
   // Live and "left / right" on Devices.
   reorderLiveCards();
 
+  // SPEC-R2-WORKSHOP-CAPTURE §7.5: vertical mark-lines on the live
+  // chart. Registered once globally; per-chart marks live on
+  // `chart.$r2Marks` (array of `{pointIndex, label}`). The point
+  // index counts from the LEFT edge of the visible window and gets
+  // decremented as the chart scrolls; marks below 0 drop off the
+  // chart naturally. See `handleCaptureEventMarked` for the push +
+  // the chart-update path for the shift logic.
+  if (!window._r2MarkPluginRegistered) {
+    Chart.register({
+      id: 'r2-marks',
+      afterDatasetsDraw(chart) {
+        const marks = chart.$r2Marks;
+        if (!marks || marks.length === 0) return;
+        const xScale = chart.scales.x;
+        const area = chart.chartArea;
+        if (!xScale || !area) return;
+        const ctx = chart.ctx;
+        ctx.save();
+        ctx.strokeStyle = '#fbbf24';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 3]);
+        ctx.font = '11px monospace';
+        ctx.fillStyle = '#fbbf24';
+        ctx.textBaseline = 'top';
+        for (const m of marks) {
+          // Clamp to visible window — marks slightly past the right
+          // edge (e.g. a mark fired between sample frames) draw at
+          // the rightmost edge, which is the right call visually.
+          const idx = Math.max(0, Math.min(m.pointIndex, chart.data.labels.length - 1));
+          if (chart.data.labels.length === 0) continue;
+          const x = xScale.getPixelForValue(idx);
+          ctx.beginPath();
+          ctx.moveTo(x, area.top);
+          ctx.lineTo(x, area.bottom);
+          ctx.stroke();
+          // Rotated label hugging the line, top-anchored so it
+          // doesn't fight the legend.
+          ctx.save();
+          ctx.translate(x + 3, area.top + 4);
+          ctx.rotate(Math.PI / 2);
+          ctx.fillText('🎬 ' + m.label, 0, 0);
+          ctx.restore();
+        }
+        ctx.restore();
+      },
+    });
+    window._r2MarkPluginRegistered = true;
+  }
+
   const ctx = document.getElementById('chart-' + safeKey).getContext('2d');
+  const c = chartColorsForTheme();
   const chart = new Chart(ctx, {
     type: 'line',
     data: {
@@ -1257,12 +1503,14 @@ function getOrCreateSensor(addr) {
       maintainAspectRatio: false,
       animation: false,
       scales: {
-        x: { display: true, grid: { color: '#1e293b' }, ticks: { color: '#475569', maxTicksLimit: 8 } },
-        y: { display: true, grid: { color: '#1e293b' }, ticks: { color: '#475569' }, title: { display: true, text: 'Acceleration (g)', color: '#64748b' }, suggestedMin: -2, suggestedMax: 2 },
+        x: { display: true, grid: { color: c.grid }, ticks: { color: c.tick, maxTicksLimit: 8 } },
+        y: { display: true, grid: { color: c.grid }, ticks: { color: c.tick }, title: { display: true, text: 'Acceleration (g)', color: c.axisTitle }, suggestedMin: -2, suggestedMax: 2 },
       },
-      plugins: { legend: { labels: { color: '#94a3b8', usePointStyle: true } } },
+      plugins: { legend: { labels: { color: c.legend, usePointStyle: true } } },
     },
   });
+  // Per-chart marks array consumed by the global r2-marks plugin.
+  chart.$r2Marks = [];
 
   const sensor = {
     key,
@@ -1619,6 +1867,13 @@ const KNOWN_EVENT_NAMES = [
   'r2.dash.access.event',
   'r2.dash.bootstrap.progress',
   'r2.dash.device.alias.changed',
+  // SPEC-R2-WORKSHOP-CAPTURE §7.4 + §7.5 — auto-sync + event marks.
+  // Carry the session index (synced) and the operator-paced
+  // annotations (event_marked) so the Data tab + Live-tab markers
+  // light up in real time.
+  'r2.dash.capture.synced',
+  'r2.dash.capture.sync_started',
+  'r2.dash.capture.event_marked',
   // Operator-plane response (§2.1 row 32). Required for the JS-side
   // handleCmdResponse correlator to fire — without it the dashboard's
   // reply resolves to event name 'unknown' and pending sendCmd
@@ -2168,6 +2423,7 @@ function cborEncodeMap(entries) {
 const CMD_HASHES = {
   'capture.start':         0x6d1a1639,
   'capture.mark':          0xcde3e84e,
+  'capture.event_mark':    0xabeb019b,
   'capture.stop':          0x3a7d7a93,
   'reset':                 0x2034348e,
   'identify':              0xe6b434ff,
@@ -2300,6 +2556,10 @@ function remapPayload(eventName, raw) {
     'r2.dash.ota.progress':            [['0','target'],['1','phase'],['2','size'],['3','message']],
     'r2.dash.reset.progress':          [['0','target'],['1','phase'],['3','message']],
     'r2.dash.capture.progress':        [['0','phase'],['1','peers'],['2','name'],['3','prefix'],['4','ts_ms']],
+    // SPEC-R2-WORKSHOP-CAPTURE §7.4 / §7.5 — auto-sync + event marks.
+    'r2.dash.capture.synced':          [['1','device_pk'],['2','sensor_filename'],['3','size'],['4','ts_ms'],['5','kind']],
+    'r2.dash.capture.sync_started':    [['1','device_pk'],['2','sensor_filename'],['5','kind']],
+    'r2.dash.capture.event_marked':    [['1','ts_ms'],['2','label'],['3','mark_id'],['4','session_stem']],
     // key 0 mapped to `event` (not `subtype`) so the existing
     // handleAccessWsEvent (which reads msg.event as the access-flow
     // discriminator) works against this remapped payload unchanged.
@@ -2392,6 +2652,32 @@ function handleEvent(msg) {
       else delete _deviceAliases[p.device_pk];
       applyAliasesToAllSensors();
     }
+    return;
+  }
+  // SPEC-R2-WORKSHOP-CAPTURE §7.4: a capture file just landed in the
+  // controller-local store. The session index is built in-memory
+  // from these events (no /api round-trip) so it works the same on
+  // LAN viewers and remote viewers — every hive sees every synced
+  // event per the broadcast-all principle. The controller replays
+  // the full index on /r2 (re)connect so late-joining viewers
+  // catch up.
+  if (msg.event === 'r2.dash.capture.synced') {
+    ingestSyncedEvent(msg.payload || {});
+    return;
+  }
+  if (msg.event === 'r2.dash.capture.sync_started') {
+    ingestSyncStartedEvent(msg.payload || {});
+    return;
+  }
+  // SPEC-R2-WORKSHOP-CAPTURE §7.5: in-session event mark — the
+  // controller authored a marker. Toast (if it wasn't our own click)
+  // + add to the live-chart annotation list. This event reaches every
+  // viewer, so we ALSO see our own click reflected here, but the
+  // local-click toast already showed; the time-equal check below
+  // suppresses the duplicate.
+  if (msg.event === 'r2.dash.capture.event_marked') {
+    const p = msg.payload || {};
+    handleCaptureEventMarked(p);
     return;
   }
 
@@ -2542,6 +2828,13 @@ function handleAcceleration(msg, sensor) {
     sensor.chart.data.datasets[0].data.shift();
     sensor.chart.data.datasets[1].data.shift();
     sensor.chart.data.datasets[2].data.shift();
+    // Slide any in-window marks left so their visual position
+    // stays put as new samples push from the right. Marks that
+    // walk past index 0 fall off the chart on the next render.
+    if (sensor.chart.$r2Marks && sensor.chart.$r2Marks.length > 0) {
+      for (const m of sensor.chart.$r2Marks) m.pointIndex -= 1;
+      sensor.chart.$r2Marks = sensor.chart.$r2Marks.filter((m) => m.pointIndex >= 0);
+    }
   }
   sensor.chart.update('none'); // skip animation on streaming updates — 10Hz * 2 sensors = too slow otherwise
 }
@@ -2662,24 +2955,22 @@ function renderDataView() {
 
   // Remote viewer (paired over the relay, loaded from github.io / reality2.ai
   // rather than the controller's LAN HTTP origin): the per-sensor data-list
-  // endpoints (/api/data/{addr}/list, /api/data/merged, …) live only on the
-  // controller's :21042 HTTP server and aren't reachable from the static-host
-  // origin. Show a clear placeholder rather than an empty file list.
-  //
-  // v0.3 plan: tunnel `r2.dash.cmd.data.list` etc. as R2 events so the Data
-  // tab works remotely too.
+  // endpoints (/api/data/{addr}/list, /api/data/merged, /api/data/local/…)
+  // all live on the controller's :21042 HTTP origin and aren't reachable
+  // from the static-host origin. Show a clear placeholder rather than an
+  // empty file list. v0.3 (CAPTURE §7.6) tunnels file fetches over /r2 so
+  // this branch goes away.
   const isRemoteViewer = location.protocol === 'https:'
     && /(\.github\.io|reality2\.ai)$/.test(location.hostname);
   if (isRemoteViewer) {
-    // Hide the bulk-action buttons too — `/api/data/merged` and
-    // `/api/data/zip` aren't reachable from the static-host origin
-    // either, so showing them would just produce 404s on click.
     for (const id of ['dataMergedBtn', 'dataZipBtn']) {
       const b = document.getElementById(id);
       if (b) b.hidden = true;
     }
     const binRow = document.querySelector('.data-bin-row');
     if (binRow) binRow.style.display = 'none';
+    const viewToggle = document.getElementById('dataPerSensorToggle')?.parentElement;
+    if (viewToggle) viewToggle.style.display = 'none';
     area.innerHTML = `
       <div class="card" id="dataPlaceholder" style="color:#475569;text-align:center;padding:40px;max-width:560px;margin:0 auto;">
         <div style="font-size:18px;color:#94a3b8;margin-bottom:8px;">📁 Data export is controller-only</div>
@@ -2697,17 +2988,98 @@ function renderDataView() {
     return;
   }
 
-  const peers = [...sensors.values()];
+  // Per-sensor toggle: render the legacy <r2-data-card> per peer when on.
+  // Bulk-action visibility tracks the toggle:
+  //   * Sessions view → Clear store (combined wipe), hide per-sensor delete.
+  //   * By-sensor view → per-sensor delete-all, hide Clear store.
+  const bySensor = document.getElementById('dataPerSensorToggle')?.checked;
+  const clearBtn = document.getElementById('dataClearStoreBtn');
+  const delAllBtn = document.getElementById('dataDeleteAllBtn');
+  if (clearBtn)  clearBtn.hidden  = !!bySensor;
+  if (delAllBtn) delAllBtn.hidden = !bySensor;
+  if (bySensor) {
+    renderDataViewBySensor(area);
+    return;
+  }
 
+  // Default: sessions-first view (SPEC-R2-WORKSHOP-CAPTURE §7.4). Drop any
+  // legacy per-sensor cards we'd cached so they don't bleed through.
+  for (const [key, el] of dataCardEls) { el.remove(); dataCardEls.delete(key); }
+  renderSessionsView(area);
+  updateCaptureUiFromFleet();
+}
+
+/// SPEC-R2-WORKSHOP-CAPTURE §7.4 — sessions-first Data tab. Each
+/// session-stem becomes one <r2-session-card>; the card expands on
+/// click to show per-file rows + (if any) event marks chronologically.
+///
+/// Source of truth is `_syncedIndex` — accumulated from
+/// `r2.dash.capture.synced` events on /r2. Controller replays the
+/// full index on (re)connect so a freshly-loaded viewer always sees
+/// what's already on the laptop. Pure event-driven; no /api fetch.
+const _sessionCardEls = new Map();  // session_stem → <r2-session-card>
+function renderSessionsView(area) {
+  const sessions = sessionsFromSyncedIndex();
+
+  // Empty-state placeholder: drop any cards we had, show the prompt.
+  if (sessions.length === 0) {
+    for (const [stem, el] of _sessionCardEls) { el.remove(); }
+    _sessionCardEls.clear();
+    if (!area.querySelector('#dataPlaceholder')) {
+      area.innerHTML = `
+        <div class="card" id="dataPlaceholder" style="color:#475569;text-align:center;padding:40px;">
+          <div style="font-size:15px;color:#94a3b8;margin-bottom:6px;">No synced sessions yet.</div>
+          <div style="font-size:12px;color:#64748b;">
+            Start → Record a run → Stop. Files sync to the controller within ~1 s of Stop.
+          </div>
+        </div>
+      `;
+    }
+    return;
+  }
+  const ph = area.querySelector('#dataPlaceholder');
+  if (ph) ph.remove();
+
+  // Diff: add new session-cards, refresh existing ones in place, remove
+  // dropped ones. Card stays put in the DOM unless its position in the
+  // sort changes, which keeps focus + scroll stable when synced events
+  // arrive in bursts.
+  const wantedStems = new Set(sessions.map((s) => s.session_stem));
+  for (const [stem, el] of _sessionCardEls) {
+    if (!wantedStems.has(stem)) { el.remove(); _sessionCardEls.delete(stem); }
+  }
+  for (let i = 0; i < sessions.length; i++) {
+    const s = sessions[i];
+    let el = _sessionCardEls.get(s.session_stem);
+    if (!el) {
+      el = document.createElement('r2-session-card');
+      _sessionCardEls.set(s.session_stem, el);
+    }
+    el.session = s;
+    // Ensure DOM order matches sort order without re-creating the node.
+    if (area.children[i] !== el) {
+      area.insertBefore(el, area.children[i] || null);
+    }
+  }
+  return;
+
+}
+
+function renderDataViewBySensor(area) {
+  // Inverse of the sessions-view cleanup at the top of renderDataView:
+  // when the operator flips into by-sensor mode, drop any
+  // <r2-session-card>s left from the previous sessions render so the
+  // two views don't stack on top of each other.
+  for (const [stem, el] of _sessionCardEls) { el.remove(); }
+  _sessionCardEls.clear();
+
+  const peers = [...sensors.values()];
   const wantedKeys = new Set(peers.map((s) => s.key));
   for (const [key, el] of dataCardEls) {
     if (!wantedKeys.has(key)) { el.remove(); dataCardEls.delete(key); }
   }
-
   if (peers.length === 0) {
-    if (!area.querySelector('#dataPlaceholder')) {
-      area.innerHTML = '<div class="card" id="dataPlaceholder" style="color:#475569;text-align:center;padding:40px;">No sensors known yet.</div>';
-    }
+    area.innerHTML = '<div class="card" id="dataPlaceholder" style="color:#475569;text-align:center;padding:40px;">No sensors known yet.</div>';
     updateCaptureUiFromFleet();
     return;
   }
@@ -2721,7 +3093,6 @@ function renderDataView() {
       el = document.createElement('r2-data-card');
       dataCardEls.set(s.key, el);
       area.appendChild(el);
-      // First time a card appears, kick a list fetch.
       scheduleDataRefresh(s.key, 100);
     }
     el.sensor = s;
@@ -2731,6 +3102,20 @@ function renderDataView() {
     if (el) area.appendChild(el);
   }
   updateCaptureUiFromFleet();
+}
+
+/// Coalesce sessions-view refreshes — every r2.dash.capture.synced
+/// event can land within 1 s of its sibling (main + marks for the
+/// same session); a debounce avoids re-rendering N times for N files.
+const _sessionsRefreshTimer = { t: null };
+function scheduleLocalSessionsRefresh(delayMs = 400) {
+  if (_sessionsRefreshTimer.t) clearTimeout(_sessionsRefreshTimer.t);
+  _sessionsRefreshTimer.t = setTimeout(() => {
+    _sessionsRefreshTimer.t = null;
+    if (currentView === 'data' && !document.getElementById('dataPerSensorToggle')?.checked) {
+      renderDataView();
+    }
+  }, delayMs);
 }
 
 /// Update the top-bar capture-state label + Start/Mark/Stop button
@@ -2776,6 +3161,12 @@ function updateCaptureUiFromFleet() {
   if (btnStart) btnStart.disabled = (peers.length === 0) || (aggregate !== 'idle');
   if (btnMark)  btnMark .disabled = (aggregate !== 'calibrating');
   if (btnStop)  btnStop .disabled = (aggregate === 'idle');
+  // SPEC-R2-WORKSHOP-CAPTURE §7.5: in-session annotation. Only
+  // reachable while at least one peer is Recording — the controller
+  // also gates this server-side, but disabling client-side avoids
+  // the confusing toast that says "no active capture".
+  const btnEventMark = document.getElementById('captureEventMarkBtn');
+  if (btnEventMark) btnEventMark.disabled = (aggregate !== 'recording');
 
   const merged = document.getElementById('dataMergedBtn');
   if (merged) merged.disabled = !lastMarkedFilename;
@@ -2807,11 +3198,22 @@ async function captureStart() {
 
 async function captureMark() {
   const input = document.getElementById('runName');
-  const name = (input?.value || '').trim();
+  const raw = (input?.value || '').trim();
+  // Resolve the auto-increment: a bare prefix gets "-01" appended
+  // on first press, then the trailing number rolls forward at Stop
+  // (NOT here) — a "run" is the whole Calibrate→Record→Stop cycle,
+  // so the increment is end-of-cycle. The label sent here is the
+  // current cycle's name; captureStop advances the input for the
+  // next cycle.
+  const { label: name } = nextIncrementLabel(raw, 'run-01');
   if (!/^[A-Za-z0-9_-]+$/.test(name) || name.length > 32) {
     alert('Run name must match [A-Za-z0-9_-]{1,32}');
     return;
   }
+  // Reflect the resolved name into the input so the operator sees
+  // exactly what got sent (e.g. they typed "experiment" → input now
+  // shows "experiment-01" matching the bytes on the wire).
+  if (input) input.value = name;
   // Build a local-time stem like "2026-05-18_13-35-00". Filename
   // becomes `<prefix>-<name>.csv` on every sensor in the fleet, so
   // each shared run ends up with the same human-readable file.
@@ -2840,6 +3242,55 @@ function buildLocalTimePrefix(d) {
          `_${p2(d.getHours())}-${p2(d.getMinutes())}-${p2(d.getSeconds())}`;
 }
 
+/// SPEC-R2-WORKSHOP-CAPTURE §7.5: in-session event mark
+/// (clapperboard-style annotation). The label comes from the inline
+/// `#eventMarkName` input. If the value already ends with a `-NN`
+/// suffix, send as-is and increment NN for the next press. If the
+/// operator typed a bare prefix (e.g. "note"), append "-01" on the
+/// first press, then keep incrementing. Stop resets to "mark-01".
+async function captureEventMark() {
+  const input = document.getElementById('eventMarkName');
+  const raw = (input?.value || '').trim().slice(0, 64);
+  const { label, next } = nextIncrementLabel(raw, 'mark-01');
+  try {
+    await sendCmd('capture.event_mark', [[1, label]]);
+    showToast(`🎬 ${label} · ${new Date().toLocaleTimeString()}`);
+    if (input) input.value = next;
+  } catch (err) {
+    console.warn('[capture] event_mark', err);
+  }
+}
+
+/// Parse `raw` into `{label, next}`:
+///   * If `raw` matches `^(.*)-(\d+)$` → label = raw, next = "<prefix>-<NN+1>"
+///     preserving the original digit width.
+///   * Else (no trailing number, or empty) → treat `raw` as a prefix
+///     (default `fallback` if blank), label = "<prefix>-01", next = "<prefix>-02".
+/// Used by both the event-mark name field and the run-name field;
+/// `fallback` differs ("mark-01" vs "run-01") so each context can
+/// recover sensibly from an empty input.
+function nextIncrementLabel(raw, fallback) {
+  if (!raw) raw = fallback;
+  const m = raw.match(/^(.*?)-(\d+)$/);
+  if (m) {
+    const prefix = m[1];
+    const numStr = m[2];
+    const width = numStr.length;
+    const num = parseInt(numStr, 10);
+    const nextNum = String(num + 1).padStart(width, '0');
+    return { label: raw, next: `${prefix}-${nextNum}` };
+  }
+  // No trailing number → append "-01" this press, increment from there.
+  return { label: `${raw}-01`, next: `${raw}-02` };
+}
+
+/// Back-compat shim — the event-mark handler called this name when
+/// the helper was mark-only. Kept so older inline references still
+/// resolve; new callers should use `nextIncrementLabel` directly.
+function nextEventMarkLabel(raw) {
+  return nextIncrementLabel(raw, 'mark-01');
+}
+
 async function captureStop() {
   try {
     await sendCmd('capture.stop');
@@ -2855,8 +3306,33 @@ async function captureStop() {
   for (const s of sensors.values()) {
     s.captureState = 'idle';
     s.captureFile  = null;
+    // Drop the live-chart mark overlays so a fresh recording's
+    // annotations don't intermix with the previous run's.
+    if (s.chart && s.chart.$r2Marks) {
+      s.chart.$r2Marks = [];
+      s.chart.update('none');
+    }
   }
   updateCaptureUiFromFleet();
+  // Hide the in-flight marks strip — the session is over.
+  // _sessionMarks still holds the entries so the Data-tab session
+  // card can show them after Stop.
+  renderInFlightMarksStrip();
+  // Reset the event-mark name input to the default starting point.
+  // Operator's custom prefix from the previous run doesn't carry
+  // over (different run, different naming).
+  const emName = document.getElementById('eventMarkName');
+  if (emName) emName.value = 'mark-01';
+  // End-of-cycle: advance the run-name counter for the NEXT
+  // Calibrate→Record→Stop sequence. "Run" = whole cycle, so the
+  // increment happens here (at Stop), not at Record press. Reset
+  // is only on Clear store.
+  const runName = document.getElementById('runName');
+  if (runName) {
+    const raw = (runName.value || '').trim();
+    const { next } = nextIncrementLabel(raw, 'run-01');
+    runName.value = next;
+  }
   // Refresh every card after stop so the new file appears.
   for (const card of dataCardEls.values()) card.refresh();
 }
@@ -2960,14 +3436,99 @@ async function downloadMergedLatest() {
   a.remove();
 }
 
+/// Theme-aware colour palette for Chart.js. Chart.js doesn't pick
+/// up CSS custom properties on its own, so we resolve them to
+/// concrete RGBA at chart-creation + theme-toggle time. Light theme
+/// uses a much paler grid so the data lines aren't lost in dark
+/// gridlines, which is what the dark-mode hex values produced when
+/// the operator switched themes.
+function chartColorsForTheme() {
+  const light = document.body.classList.contains('light');
+  return light
+    ? { grid: '#e2e8f0', tick: '#64748b', axisTitle: '#475569', legend: '#334155' }
+    : { grid: '#1e293b', tick: '#475569', axisTitle: '#64748b', legend: '#94a3b8' };
+}
+
+/// Push the current theme's colours onto every live chart. Called
+/// after toggleTheme so the operator sees the new palette without
+/// having to refresh.
+function repaintLiveCharts() {
+  const c = chartColorsForTheme();
+  for (const s of sensors.values()) {
+    if (!s.chart) continue;
+    const o = s.chart.options;
+    if (o.scales?.x?.grid)  o.scales.x.grid.color = c.grid;
+    if (o.scales?.y?.grid)  o.scales.y.grid.color = c.grid;
+    if (o.scales?.x?.ticks) o.scales.x.ticks.color = c.tick;
+    if (o.scales?.y?.ticks) o.scales.y.ticks.color = c.tick;
+    if (o.scales?.y?.title) o.scales.y.title.color = c.axisTitle;
+    if (o.plugins?.legend?.labels) o.plugins.legend.labels.color = c.legend;
+    s.chart.update('none');
+  }
+}
+
 /// Quick-and-dirty light/dark theme toggle. Persists in localStorage
 /// so the operator's preference survives reloads.
 function toggleTheme() {
   const want = !document.body.classList.contains('light');
   document.body.classList.toggle('light', want);
   try { localStorage.setItem('r2.theme', want ? 'light' : 'dark'); } catch (_) {}
+  repaintLiveCharts();
 }
 window.toggleTheme = toggleTheme;  // expose to inline onclick (this script is a module)
+
+/// Minimal non-blocking toast notification. One singleton element,
+/// re-used across calls. Bottom-right, auto-dismisses after 2.5 s.
+/// Used by the event-mark feedback path and anywhere a quick
+/// confirmation beats an alert() dialog.
+let _toastEl = null;
+let _toastTimer = null;
+function showToast(message) {
+  if (!_toastEl) {
+    _toastEl = document.createElement('div');
+    _toastEl.id = 'r2Toast';
+    Object.assign(_toastEl.style, {
+      position: 'fixed',
+      bottom: '24px',
+      right: '24px',
+      padding: '10px 16px',
+      background: 'var(--bg-elevated, #1e293b)',
+      color: 'var(--text-primary, #e2e8f0)',
+      border: '1px solid var(--border-default, #334155)',
+      borderRadius: '8px',
+      boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
+      fontSize: '14px',
+      zIndex: '9999',
+      opacity: '0',
+      transition: 'opacity 0.15s ease',
+      pointerEvents: 'none',
+      maxWidth: '380px',
+    });
+    document.body.appendChild(_toastEl);
+  }
+  _toastEl.textContent = message;
+  _toastEl.style.opacity = '1';
+  if (_toastTimer) clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => {
+    if (_toastEl) _toastEl.style.opacity = '0';
+  }, 2500);
+}
+
+/// SPEC-R2-WORKSHOP-CAPTURE §7.5 — keyboard shortcut `m` triggers
+/// the in-session event mark. Ignored when focus is in an input/
+/// textarea so it doesn't fire while the operator is typing the
+/// run name. Only acts when the button is enabled (Recording).
+window.addEventListener('keydown', (ev) => {
+  if (ev.key !== 'm' && ev.key !== 'M') return;
+  if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+  const tag = (ev.target?.tagName || '').toLowerCase();
+  if (tag === 'input' || tag === 'textarea' || ev.target?.isContentEditable) return;
+  const btn = document.getElementById('captureEventMarkBtn');
+  if (btn && !btn.disabled) {
+    ev.preventDefault();
+    captureEventMark();
+  }
+});
 (() => {
   try {
     if (localStorage.getItem('r2.theme') === 'light') {
@@ -3007,13 +3568,76 @@ async function downloadAllAsZip() {
   a.remove();
 }
 
+/// Sensor-side wipe only — kept for the "By sensor" view where the
+/// operator is reasoning about each sensor's SD individually.
+/// Sessions-first view uses `requestClearLocalStore` instead, which
+/// does both sides + counter reset in one go.
 async function requestDeleteAllFleet() {
-  const cards = [...dataCardEls.values()];
-  if (cards.length === 0) return;
-  if (!confirm(`Delete ALL capture files on ALL ${cards.length} sensor(s)?`)) return;
-  // skipConfirm: per-card deleteAll() would otherwise reprompt for
-  // each sensor — fine at 2 devices, tedious at 20.
-  await Promise.allSettled(cards.map((c) => c.deleteAll({ skipConfirm: true })));
+  const peers = [...sensors.values()].filter((s) => s.online);
+  if (peers.length === 0) {
+    alert('No connected sensors to clear.');
+    return;
+  }
+  if (!confirm(`Delete ALL capture files on ${peers.length} sensor(s)' SD card(s)?\n\nThis does NOT clear files already synced to this laptop — use "Clear store" (sessions view) for the combined wipe.`)) return;
+  await Promise.allSettled(peers.map(async (s) => {
+    try {
+      const res = await fetch(`/api/data/${encodeURIComponent(s.key)}/all`, { method: 'DELETE' });
+      if (!res.ok) console.warn('[data] del_all', s.key, await res.text());
+    } catch (err) {
+      console.warn('[data] del_all', s.key, err);
+    }
+  }));
+  for (const card of dataCardEls.values()) card.refresh();
+}
+
+/// SPEC-R2-WORKSHOP-CAPTURE §7.4: combined wipe — clear the
+/// controller-local store AND every connected sensor's SD ring.
+/// Resets the run-name counter so the next session starts at
+/// `run-01`. Default action of the sessions-first view; the
+/// sensors-only variant lives behind the "By sensor" toggle.
+async function requestClearLocalStore() {
+  const peers = [...sensors.values()].filter((s) => s.online);
+  const localCount = _syncedIndex.size;
+  if (peers.length === 0 && localCount === 0) {
+    alert('Nothing to clear — laptop store empty and no sensors connected.');
+    return;
+  }
+  const parts = [];
+  if (localCount > 0) parts.push(`${localCount} synced file(s) on this laptop`);
+  if (peers.length > 0) parts.push(`every capture file on ${peers.length} sensor(s)' SD card(s)`);
+  if (!confirm(`Clear ${parts.join(' AND ')}?\n\nThis cannot be undone. The run-name counter will reset to run-01.`)) return;
+
+  // Local first — the controller is the source of truth for the
+  // session list, so wiping it before the sensors prevents the
+  // sync-recon pass from racing the sensor-side delete and
+  // re-fetching files we're about to drop.
+  try {
+    const res = await fetch('/api/data/local/all', { method: 'DELETE' });
+    if (!res.ok) console.warn('[data] clear local', await res.text());
+  } catch (err) {
+    console.warn('[data] clear local', err);
+  }
+  _syncedIndex.clear();
+  _sessionMarks.clear();
+  scheduleLocalSessionsRefresh(50);
+
+  // Sensor side — fire DELETE_ALL on each connected peer in parallel.
+  await Promise.allSettled(peers.map(async (s) => {
+    try {
+      const res = await fetch(`/api/data/${encodeURIComponent(s.key)}/all`, { method: 'DELETE' });
+      if (!res.ok) console.warn('[data] del_all', s.key, await res.text());
+    } catch (err) {
+      console.warn('[data] del_all', s.key, err);
+    }
+  }));
+  for (const card of dataCardEls.values()) card.refresh();
+
+  // Reset the run-name counter — a fresh-state store is the natural
+  // moment to start the numbering over.
+  const runName = document.getElementById('runName');
+  if (runName) runName.value = 'run-01';
+  const emName = document.getElementById('eventMarkName');
+  if (emName) emName.value = 'mark-01';
 }
 
 // ── Link tab plumbing (SPEC-R2-WORKSHOP-ACCESS) ─────────────────────────
@@ -4423,8 +5047,8 @@ class R2DeviceCard extends HTMLElement {
   }
 
   /// Toggle the sensor's identify light (solid white) so the
-  /// operator can physically locate the device in a rack of many
-  /// sensors. Optimistic UI: flip local state immediately, POST in
+  /// operator can physically locate the sensor in a rack of many.
+  /// Optimistic UI: flip local state immediately, POST in
   /// the background, auto-revert after 60 s so an operator who
   /// forgets to switch it off doesn't drain the battery.
   async toggleIdentify() {
@@ -4873,6 +5497,394 @@ customElements.define('r2-data-card', R2DataCard);
 // same DOM as the matching card on the Data tab).
 const dataCardEls = new Map();
 
+/// SPEC-R2-WORKSHOP-CAPTURE §7.4 — sessions-first Data tab card.
+/// One per session-stem; lists per-device files inside, with event
+/// marks chronologically above. All data comes from
+/// `/api/data/local/list` (controller-local store); no per-sensor
+/// round-trips at render time.
+class R2SessionCard extends HTMLElement {
+  constructor() {
+    super();
+    this._session = null;
+  }
+  set session(s) {
+    this._session = s;
+    if (s) this.setAttribute('data-stem', s.session_stem);
+    this.render();
+  }
+  connectedCallback() { this.render(); }
+  render() {
+    const s = this._session;
+    if (!s) { this.innerHTML = ''; return; }
+
+    const dataFiles = (s.files || []).filter((f) => f.kind === 'data');
+    const markFiles = (s.files || []).filter((f) => f.kind === 'marks');
+
+    // Aggregate event marks across all sidecars in this session.
+    // Each entry: {ts_ms, mark_id, label, device_safe}. Sorted.
+    // We don't fetch the sidecar bodies here — the entry count is
+    // shown as a badge, and the (ts_ms, label) pairs come from
+    // `r2.dash.capture.event_marked` events accumulated client-side
+    // (see _sessionMarks). The sidecar list will be wired in v0.3.
+    const liveMarks = (_sessionMarks.get(s.session_stem) || [])
+      .slice()
+      .sort((a, b) => a.ts_ms - b.ts_ms);
+
+    const tsDate = s.latest_mtime_ms ? new Date(s.latest_mtime_ms) : null;
+    const tsStr  = tsDate ? tsDate.toLocaleString() : '—';
+    const totalKB = s.total_size > 0 ? `${(s.total_size / 1024).toFixed(1)} KB` : '—';
+    const devicePills = dataFiles.map((f) => `<span class="session-pill">${escHtml(f.device_safe)}</span>`).join('');
+    const marksBadge = (markFiles.length + liveMarks.length) > 0
+      ? `<span class="session-marks-badge">🎬 ${markFiles.length || liveMarks.length}</span>`
+      : '';
+
+    // SPEC-R2-WORKSHOP-CAPTURE §7.4: any file in this session
+    // currently being fetched gets a pulsing "Syncing…" pill.
+    const inFlight = s.files.some((f) =>
+      _syncInFlight.has(_syncedKey(f.device_pk, f.sensor_filename))
+    );
+    const syncingPill = inFlight
+      ? `<span class="session-syncing-pill">Syncing…</span>`
+      : '';
+
+    this.innerHTML = `
+      <div class="session-header">
+        <div class="session-title">${escHtml(s.session_stem)}</div>
+        <div class="session-subline">
+          <div class="session-pills">${devicePills}</div>
+          ${marksBadge}
+          ${syncingPill}
+          <div class="session-meta">${tsStr} · ${totalKB}</div>
+        </div>
+      </div>
+      <div class="session-body">
+        ${liveMarks.length > 0 ? `
+          <div style="margin-bottom:8px;">
+            ${liveMarks.map((m) => `
+              <div class="session-mark-row">
+                <span class="session-mark-ts">${new Date(m.ts_ms).toLocaleTimeString()}</span>
+                <span>🎬 ${escHtml(m.label || 'mark')}</span>
+              </div>`).join('')}
+          </div>
+        ` : ''}
+        ${dataFiles.map((f) => this._renderFileRow(f)).join('')}
+        ${markFiles.map((f) => this._renderFileRow(f)).join('')}
+        ${dataFiles.length > 1 ? `
+          <div class="session-merged-row" onclick="event.stopPropagation()">
+            <label class="session-bin-picker"
+                   title="Average samples into time buckets so timestamps line up across sensors. Raw = no averaging.">
+              Sample at:
+              <select id="sessionBin-${escHtml(s.session_stem)}">
+                <option value="0">Raw</option>
+                <option value="10" selected>10 ms</option>
+                <option value="100">100 ms</option>
+                <option value="1000">1 s</option>
+              </select>
+            </label>
+            <button class="session-merged-btn"
+                    onclick="downloadMergedForSession('${escHtml(s.session_stem)}', this)"
+                    title="Wide-format merge: ts_ms followed by per-sensor x/y/z columns, with marks attached to the nearest sample row.">
+              💾 Download merged CSV
+            </button>
+          </div>` : ''}
+      </div>
+    `;
+
+    // Expand-on-header-click. Stored on the element itself so a
+    // re-render preserves the toggle handler.
+    const header = this.querySelector('.session-header');
+    if (header && !header._wired) {
+      header.addEventListener('click', () => {
+        if (this.hasAttribute('open')) this.removeAttribute('open');
+        else this.setAttribute('open', '');
+      });
+      header._wired = true;
+    }
+  }
+  _renderFileRow(f) {
+    const onDisk = f.controller_path?.split('/').pop() || `${f.session_stem}__${f.device_safe}${f.kind === 'marks' ? '.marks' : ''}.csv`;
+    const dlUrl = `/api/data/local/file/${encodeURIComponent(onDisk)}`;
+    const kindLabel = f.kind === 'marks' ? '🎬 marks' : `📄 ${escHtml(f.device_safe)}`;
+    return `
+      <div class="session-file">
+        <span class="session-file-name">${kindLabel}</span>
+        <span class="session-file-size">${(f.size / 1024).toFixed(1)} KB</span>
+        <a href="${dlUrl}" download="${escHtml(onDisk)}" class="btn-link" style="color:var(--text-link);font-size:12px;">⬇ Download</a>
+      </div>
+    `;
+  }
+}
+customElements.define('r2-session-card', R2SessionCard);
+
+/// session_stem → [{ts_ms, label, mark_id}]. Populated from
+/// `r2.dash.capture.event_marked` (WIRE row 46) — this is what makes
+/// the marker visible to every viewer immediately, before the
+/// sidecar has synced. Survives the current page life only;
+/// authoritative copy is the controller's sidecar file.
+const _sessionMarks = new Map();
+
+/// Controller-local capture index — accumulated from
+/// `r2.dash.capture.synced` events (WIRE row 44). Keyed by
+/// `(device_pk, sensor_filename)`. Updated on every synced event;
+/// fully replayed by the controller on /r2 (re)connect so a
+/// freshly-loaded viewer never has to round-trip an HTTP endpoint.
+const _syncedIndex = new Map();
+function _syncedKey(device_pk, sensor_filename) { return `${device_pk}|${sensor_filename}`; }
+
+/// In-flight syncs — `(device_pk, sensor_filename)` keys for which
+/// `sync_started` has fired but `synced` hasn't yet. Populated by
+/// `r2.dash.capture.sync_started`; entries cleared when the
+/// matching `synced` arrives. The session card displays a
+/// "Syncing…" pill while any of its files is in this set.
+const _syncInFlight = new Set();
+
+/// SPEC-R2-WORKSHOP-CAPTURE §7.4: ingest one `r2.dash.capture.synced`
+/// payload. Idempotent — controller replays on (re)connect, so the
+/// same key arriving twice just refreshes the size/mtime fields.
+///
+/// Two device_pk forms appear on the wire:
+///   * real Ed25519 pk (64 hex chars) — from sync_recon / transition
+///     watcher writes; what every viewer should display.
+///   * synthetic `"alias:<device_safe>"` — controller disk-scan
+///     placeholder for files indexed before any sensor connected.
+///     Superseded by the real-pk entry once sync_recon catches up.
+/// We dedup by (session_stem, sensor_filename, kind) and prefer
+/// the non-synthetic form so the operator never sees both.
+function ingestSyncedEvent(p) {
+  if (!p || !p.device_pk || !p.sensor_filename) return;
+  const isSynthetic = p.device_pk.startsWith('alias:');
+  // device_safe is what the on-disk filename uses for the `<dev>`
+  // portion. For real-pk events we look up the alias; for synthetic
+  // ones the pk itself carries it (`alias:<device_safe>`).
+  const alias = _deviceAliases[p.device_pk];
+  let device_safe;
+  if (isSynthetic) {
+    device_safe = p.device_pk.slice('alias:'.length)
+      .replace(/[^A-Za-z0-9_-]/g, '_');
+  } else {
+    device_safe = (alias || p.device_pk.slice(0, 8))
+      .replace(/[^A-Za-z0-9_-]/g, '_');
+  }
+  const stem = (p.sensor_filename || '').replace(/\.marks\.csv$/, '').replace(/\.csv$/, '');
+  const entry = {
+    device_pk: p.device_pk,
+    device_safe,
+    sensor_filename: p.sensor_filename,
+    session_stem: stem,
+    size: Number(p.size) || 0,
+    fetched_at_ms: Number(p.ts_ms) || 0,
+    kind: p.kind === 'marks' ? 'marks' : 'data',
+    isSynthetic,
+    // on_disk_name derived to match dashboard's filename convention:
+    // <stem>__<device_safe>.csv or <stem>__<device_safe>.marks.csv
+    on_disk_name: `${stem}__${device_safe}${p.kind === 'marks' ? '.marks' : ''}.csv`,
+  };
+
+  // Dedup synthetic-vs-real for the same on-disk file. Scan once;
+  // the index is small (one row per file × ~handful of sensors).
+  for (const [key, existing] of _syncedIndex) {
+    if (existing.session_stem !== entry.session_stem) continue;
+    if (existing.sensor_filename !== entry.sensor_filename) continue;
+    if (existing.kind !== entry.kind) continue;
+    // Same physical file. If exactly one side is synthetic, the
+    // non-synthetic wins. If both same flavour, fall through and
+    // overwrite (idempotent by event semantics).
+    if (existing.isSynthetic && !entry.isSynthetic) {
+      _syncedIndex.delete(key);
+      continue;
+    }
+    if (!existing.isSynthetic && entry.isSynthetic) {
+      return; // real wins — drop this synthetic event
+    }
+  }
+  _syncedIndex.set(_syncedKey(p.device_pk, p.sensor_filename), entry);
+  // Clear the in-flight flag now that the sync completed.
+  _syncInFlight.delete(_syncedKey(p.device_pk, p.sensor_filename));
+  scheduleLocalSessionsRefresh();
+}
+
+/// SPEC-R2-WORKSHOP-CAPTURE §7.4: ingest one
+/// `r2.dash.capture.sync_started` payload. Marks the file as
+/// in-flight so the session card can show a "Syncing…" pill. The
+/// matching `synced` event clears the flag via `ingestSyncedEvent`.
+function ingestSyncStartedEvent(p) {
+  if (!p || !p.device_pk || !p.sensor_filename) return;
+  _syncInFlight.add(_syncedKey(p.device_pk, p.sensor_filename));
+  scheduleLocalSessionsRefresh(50);
+}
+
+/// Per-session merged-CSV download. The bin-ms picker lives on the
+/// session card itself (each card has its own `#sessionBin-<stem>`
+/// select) so the operator chooses a sample rate per run rather
+/// than fleet-wide. Default 10 ms.
+///
+/// Fetches the CSV via `fetch()` (not anchor-href navigation) so the
+/// button can disable + show "Preparing…" while the server-side
+/// merge runs. Otherwise an impatient operator clicks repeatedly,
+/// queueing multiple multi-MB merges. The button-element ref is
+/// passed in by the inline onclick so the disable/restore loop has
+/// a concrete target.
+async function downloadMergedForSession(sessionStem, btn) {
+  const sel = document.getElementById(`sessionBin-${sessionStem}`);
+  const bin = sel ? Number(sel.value) || 0 : 10;
+  const basename = `${sessionStem}.csv`;
+  const url = `/api/data/merged?file=${encodeURIComponent(basename)}${bin > 0 ? `&bin_ms=${bin}` : ''}`;
+
+  const originalLabel = btn ? btn.textContent : null;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '⏳ Preparing merge…';
+  }
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => '');
+      throw new Error(`HTTP ${resp.status}${body ? ' — ' + body.slice(0, 200) : ''}`);
+    }
+    if (btn) btn.textContent = '⬇ Downloading…';
+    const blob = await resp.blob();
+    const objUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = objUrl;
+    a.download = `${sessionStem}-merged.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+    // Revoke after a small delay so Safari/Chrome have time to
+    // actually consume the blob; immediate revoke can cancel the
+    // save on slower paths.
+    setTimeout(() => URL.revokeObjectURL(objUrl), 5000);
+  } catch (err) {
+    console.warn('[merged] download failed', err);
+    alert(`Merged CSV download failed: ${err.message}`);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      if (originalLabel) btn.textContent = originalLabel;
+    }
+  }
+}
+
+/// Build the per-session list from `_syncedIndex` — same shape the
+/// old `/api/data/local/list` endpoint returned (so R2SessionCard's
+/// render path is unchanged).
+function sessionsFromSyncedIndex() {
+  const byStem = new Map();
+  for (const e of _syncedIndex.values()) {
+    let row = byStem.get(e.session_stem);
+    if (!row) {
+      row = {
+        session_stem: e.session_stem,
+        earliest_mtime_ms: e.fetched_at_ms,
+        latest_mtime_ms: e.fetched_at_ms,
+        total_size: 0,
+        files: [],
+      };
+      byStem.set(e.session_stem, row);
+    }
+    if (e.fetched_at_ms && (!row.earliest_mtime_ms || e.fetched_at_ms < row.earliest_mtime_ms)) {
+      row.earliest_mtime_ms = e.fetched_at_ms;
+    }
+    if (e.fetched_at_ms > row.latest_mtime_ms) row.latest_mtime_ms = e.fetched_at_ms;
+    row.total_size += e.size;
+    row.files.push({ ...e, controller_path: e.on_disk_name });
+  }
+  const rows = [...byStem.values()];
+  rows.sort((a, b) => b.latest_mtime_ms - a.latest_mtime_ms);
+  for (const row of rows) {
+    row.files.sort((a, b) => {
+      const ko = (k) => k === 'data' ? 0 : 1;
+      return (ko(a.kind) - ko(b.kind)) || a.device_safe.localeCompare(b.device_safe);
+    });
+  }
+  return rows;
+}
+
+/// Tiny HTML escape — used by R2SessionCard for any operator-supplied
+/// text that lands in innerHTML. Keep it conservative; we don't want
+/// to assume any particular sanitiser library.
+function escHtml(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/// Handle `r2.dash.capture.event_marked` (WIRE row 46): record the
+/// marker locally, refresh the session card if the Data tab is
+/// open, and stamp the marker onto the Live charts. Called from
+/// handleEvent's dispatch.
+function handleCaptureEventMarked(p) {
+  if (!p || p.ts_ms == null) return;
+  const stem = p.session_stem || '';
+  if (stem) {
+    const arr = _sessionMarks.get(stem) || [];
+    // Dedup by mark_id so we don't accumulate one entry per
+    // viewer-tab re-render (every viewer sees the event, but each
+    // session_stem + mark_id pair is unique).
+    if (!arr.some((m) => m.mark_id === p.mark_id)) {
+      arr.push({ ts_ms: p.ts_ms, label: p.label || 'mark', mark_id: p.mark_id });
+      _sessionMarks.set(stem, arr);
+    }
+  }
+  // In-flight strip under the run-control bar — visible during the
+  // active recording so the operator can see at a glance which
+  // marks have landed. Cleared on Stop (see captureStop).
+  renderInFlightMarksStrip();
+  // Live-chart annotation: push the mark onto each sensor's chart
+  // at the current right-edge point index (i.e. aligned with the
+  // most-recent sample). The plugin draws a vertical line + label
+  // there; the shift-on-scroll path in onAcceleration walks it
+  // leftward as new samples arrive.
+  const label = p.label || 'mark';
+  for (const s of sensors.values()) {
+    if (!s.chart || !s.chart.$r2Marks) continue;
+    const idx = Math.max(0, s.chart.data.labels.length - 1);
+    s.chart.$r2Marks.push({ pointIndex: idx, label });
+    s.chart.update('none');
+  }
+  // Sessions card update — only if we're already on the Data tab.
+  if (currentView === 'data' && !document.getElementById('dataPerSensorToggle')?.checked) {
+    scheduleLocalSessionsRefresh(50);
+  }
+}
+
+/// Render the in-flight marks strip under the run-control bar. Only
+/// shows marks that belong to a currently-Recording session; the
+/// stem comes from any peer's last-known capture-state file.
+function renderInFlightMarksStrip() {
+  const strip = document.getElementById('captureMarksStrip');
+  if (!strip) return;
+  // Find the active session_stem from any Recording peer.
+  let activeStem = null;
+  for (const s of sensors.values()) {
+    if (s.captureState === 'recording' && s.captureFile) {
+      const stem = s.captureFile.endsWith('.csv')
+        ? s.captureFile.slice(0, -4)
+        : s.captureFile;
+      activeStem = stem;
+      break;
+    }
+  }
+  if (!activeStem) {
+    strip.hidden = true;
+    strip.innerHTML = '';
+    return;
+  }
+  const marks = (_sessionMarks.get(activeStem) || []).slice().sort((a, b) => a.ts_ms - b.ts_ms);
+  if (marks.length === 0) {
+    strip.hidden = true;
+    return;
+  }
+  strip.hidden = false;
+  strip.innerHTML = marks.map((m) => `
+    <span class="mark-chip">
+      <span class="mark-chip-ts">${new Date(m.ts_ms).toLocaleTimeString()}</span>
+      &nbsp;${escHtml(m.label)}
+    </span>
+  `).join('');
+}
+
 // Map of IP-key → <r2-device-card> currently in the DOM. Lets
 // renderDevices() reuse the existing card element across ticks
 // rather than rebuilding the DOM tree.
@@ -5176,12 +6188,17 @@ Object.assign(window, {
   // Data tab (SPEC-R2-WORKSHOP-CAPTURE).
   captureStart,
   captureMark,
+  captureEventMark,
   captureStop,
+  renderDataViewIfVisible,  // By-sensor toggle's inline onchange
   downloadCaptureFile,
   renameSensor,
   deleteCaptureFile,
   downloadMergedLatest,
+  downloadAllAsZip,
   requestDeleteAllFleet,
+  requestClearLocalStore,
+  downloadMergedForSession,
   // Link tab (SPEC-R2-WORKSHOP-ACCESS).
   loadLinkMembers,
   openOnboardModal,
