@@ -230,6 +230,23 @@ session.
 | 6 | bytes(64) | `sig` — Ed25519 signature over the canonical CBOR encoding of keys 0..5 |
 | 8 | bytes(147) | (optional, present iff cert-issued) `device_cert` — KeyHolder-signed `DeviceCertificate` serialised per `r2-trust::types::DEVICE_CERT_LEN`. When present, the dashboard verifies the cert chain under `TG_PUB_KEY` and verifies `sig` against the cert's `device_public_key`. When absent, the dashboard falls back to TOFU (legacy firmware compatibility for one release; see SPEC-R2-WORKSHOP-SENSOR §3.4). |
 | 10 | uint8 | (optional) `mounting_role` — 0 = unset, 1 = rocker, 2 = bed, 3 = other |
+| 11 | text | `class` — reverse-DNS sensor-class string baked into the firmware at compile time (e.g. `"nz.ac.auckland.workshop.sensor"`). Same string whose FNV-1a-32 hash is embedded in every event hash in this spec — emitting it readably lets the dashboard *display* the class on a foreign-class device (vs silently dropping unrecognised frames). ≤ 64 ASCII bytes; `[A-Za-z0-9._-]` charset. Required from firmware v0.3+. |
+| 12 | text | `carrier` — physical carrier-board slug (e.g. `"devkitc"`, `"xiao"`). Identifies the hardware variant for OTA matching: the dashboard MUST refuse to push a firmware whose carrier differs from this value (SPEC-R2-WORKSHOP-DASHBOARD §13.4). ≤ 32 ASCII bytes; `[a-z0-9-]` charset. Required from firmware v0.3+. |
+
+The `class` and `carrier` fields together form the **identity tuple**
+used for OTA matching. The dashboard:
+
+* Compares `class` against its own configured class
+  (`trust_keys/sensor_class.txt`) — a mismatch is informational
+  (the dashboard already drops frames it can't parse); it's
+  surfaced in the device list so the operator knows a stray
+  foreign-class device is in radio range.
+* Compares `carrier` against the carrier slug of any firmware
+  the operator tries to push (auto or manual); mismatches block
+  or warn per §13.4.
+* Compares `fw_ver` against the latest release whose `(class,
+  carrier)` tuple matches — that's the only valid input to the
+  "needs update" determination (DASHBOARD §13.3).
 
 Dashboard responds (after accepting) with `r2.dash.ack {through_seq:
 last_seq}` confirming where to resume from, and zero or one
@@ -684,6 +701,7 @@ applies uniformly.
 | 2026-05-06 | 0.1 | Initial draft. Event inventory, CBOR schemas, sequencing, calibration, time-sync. |
 | 2026-05-07 | 0.1.1 | §3.4 clarified: `charging` field reserved but unused in v0.1 (no on-board charger); always emitted as `false`. |
 | 2026-05-26 | 0.2 | Auto-sync + event marks: add rows 44 `r2.dash.capture.synced`, 45 `r2.dash.capture.event_mark`, 46 `r2.dash.capture.event_marked`, 47 `r2.dash.cmd.capture.event_mark`, with per-event detail sections §4.9–§4.12. |
+| 2026-05-28 | 0.3 | Heterogeneous-fleet identity: `r2.sensor.announce` payload extended with key 11 `class` (reverse-DNS) and key 12 `carrier` (board slug) — together the OTA-matching tuple. Required from firmware v0.3+. |
 
 ## Appendix A — Event-name to FNV-1a-32 hashes
 

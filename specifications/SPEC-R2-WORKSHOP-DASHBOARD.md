@@ -851,18 +851,56 @@ Devices view, confirmation dialog, `Promise.allSettled` over per-peer
 
 The dashboard exposes a snapshot of the latest available firmware so
 the webapp can flag any device whose announced `fw_ver` is out of
-date.
+date. **The match is by (class, carrier) tuple, version is the
+delta** — a sensor only "needs update" against a binary built for
+the same class+carrier; everything else gets filtered out.
+
+**Release filename convention** (canonical, both GitHub Releases +
+the local fallback dir):
+
+```
+r2-workshop-firmware-<class-slug>-<carrier>-<version>+<git>.bin
+```
+
+* `<class-slug>` is the reverse-DNS class string with dots replaced
+  by hyphens (`nz.ac.auckland.workshop.sensor` → `nz-ac-auckland-workshop-sensor`).
+* `<carrier>` matches the announce's CBOR key 12 (`devkitc`, `xiao`, …).
+* `<version>` is the firmware version per release-mode rules below.
+* `<git>` is the short git sha at build time.
+
+Each released `.bin` is accompanied by a **meta sidecar**
+`r2-workshop-firmware-<class-slug>-<carrier>-<version>+<git>.bin.meta.json`:
+
+```json
+{
+  "class":   "nz.ac.auckland.workshop.sensor",
+  "carrier": "xiao",
+  "version": "0.3.0",
+  "git":     "a1b2c3d",
+  "sha256":  "<hex>",
+  "built":   "2026-05-28T07:00:00Z"
+}
+```
+
+The sidecar is authoritative; if it differs from the filename the
+dashboard SHALL trust the JSON and surface a warning. This decouples
+the OTA-matching logic from filename string-parsing and lets
+operators rename binaries (e.g. for archive organisation) without
+breaking the match.
 
 **Sources (in order of preference):**
 
 1. **GitHub Releases** on `reality2-ai/r2-workshop` — queried via the
-   public REST API. The latest release's `tag_name` is taken as the
-   canonical version; `.bin` assets named `…devkitc…` / `…xiao…`
-   become per-carrier entries.
+   public REST API. The dashboard filters the asset list down to
+   binaries matching its own `(class, carrier)` per the filename
+   convention above, then fetches the sidecar for each survivor
+   (or parses the filename when the sidecar is missing, for
+   pre-v0.3 releases).
 2. **Local `firmware/esp32-s3/<carrier>/releases/` directory** — the
-   highest-mtime `.bin` per carrier. Used when the GitHub query
-   fails (no internet, repo private, rate-limit) so the operator is
-   never stuck without the dot working.
+   highest-mtime `.bin` whose `class-slug` matches the dashboard's
+   configured class. Used when the GitHub query fails (no internet,
+   repo private, rate-limit) so the operator is never stuck without
+   the dot working.
 
 **Endpoint:**
 
@@ -870,15 +908,24 @@ date.
 GET /api/firmware/available
 → {
     "source":  "github" | "local" | "none",
+    "class":   "<dashboard's configured class>",
     "version": "<tag or fw_ver>",
-    "assets":  [{ "carrier": "devkitc",
+    "assets":  [{ "class":   "<class>",
+                  "carrier": "<carrier>",
                   "version": "<fw_ver>",
                   "url":     "<https url for github, fs path for local>",
+                  "sha256":  "<from sidecar when available>",
                   "size":    <bytes> }],
     "note":    "<optional note when GitHub query fell back to local>",
     "fetched_at_ms": <unix ms>
   }
 ```
+
+Assets returned MUST have `class` equal to the dashboard's own
+class — the operator's dashboard never offers them a foreign-class
+binary as an "available update". (A foreign-class binary is still
+*usable* via manual OTA per §13.4 — operator-confirmed re-deploy —
+but it's not auto-surfaced.)
 
 Cached for **5 minutes** to stay under GitHub's 60/hr/IP
 unauthenticated rate limit. Webapp polls every 60 s.
@@ -891,23 +938,16 @@ GET /api/firmware/{carrier}/binary
 ```
 
 The dashboard always **proxies** the bytes (rather than 302-ing the
-browser to GitHub directly). v0.2 originally used a 302 to keep the
-dashboard out of the data path, but GitHub release-download URLs
-don't set `Access-Control-Allow-Origin`, so a redirect from a
-webapp `fetch()` gets blocked by CORS. Proxying the bytes — same
-origin from the browser's perspective — sidesteps that. For
-`source: github` the dashboard streams via `curl -sSL`; for
-`source: local` it reads the file off disk.
+browser to GitHub directly) — see v0.2's CORS rationale.
 
 **Release-mode firmware build:**
 
 For the GitHub-side comparison to make sense, the released `.bin`
 must bake an `fw_ver` string equal to the tag name. The firmware's
 `build.rs` checks `R2_RELEASE=1` and `git describe --tags
---exact-match`: if both pass, `fw_ver` is just the tag (`v0.2.0`);
+--exact-match`: if both pass, `fw_ver` is just the tag (`v0.3.0`);
 if either fails (dirty tree, no tag), the build panics with a clear
-error. Day-to-day dev builds without `R2_RELEASE` continue to bake
-the dev-format `fw_ver` (`0.1.0-<UTC>+<sha>[-dirty]`).
+error.
 
 **Webapp UX:**
 
@@ -915,13 +955,64 @@ On each device card the webapp shows a small pink dot next to the
 firmware line when:
 
 * `availableFirmware.version` is known, AND
-* the device's announced `fw_ver` is neither `availableFirmware.version`
-  nor any per-carrier asset version.
+* there's an asset whose `(class, carrier)` matches the device's
+  announce, AND
+* the device's announced `fw_ver` is older than that asset's
+  version.
 
-The existing "⬆ Update All Firmware…" button (§13.2) accepts a
-`.bin` from a local file picker; v0.2 of this spec adds an
-auto-fetch path that pulls from `/api/firmware/{carrier}/binary` and
-pushes to outdated peers without operator file selection.
+Foreign-class or foreign-carrier devices in the same radio range
+(reported via the bootstrap-scan path, [[feedback_check_r2_specs]])
+do NOT receive a "needs update" dot — there's no valid update for
+them in this dashboard's release stream.
+
+### 13.4 Manual OTA push — (class, carrier) validation
+
+When the operator submits a `.bin` via the "Update Firmware…"
+file-picker (single device) or "Update All Firmware…" (fleet),
+the webapp SHALL inspect the binary's identity before pushing.
+Identity resolution order:
+
+1. **Companion meta sidecar.** The webapp checks for
+   `<basename>.meta.json` alongside the picked file. If present
+   and valid, the `class` + `carrier` + `version` fields are
+   authoritative.
+2. **Filename parse.** If no sidecar, the webapp parses the
+   filename against the §13.3 convention. Successful parse →
+   identity recovered with a "filename-parsed, sidecar absent"
+   note in the confirmation dialog.
+3. **Unknown.** Neither sidecar nor filename matches → the
+   webapp warns ("identity unknown; cannot verify match") and
+   defaults to **cancel**; operator may override with an
+   explicit confirm tick.
+
+For each target sensor in the push, the webapp compares the
+recovered `(class, carrier)` against the target's announce:
+
+| Case | UX |
+|---|---|
+| `class` matches, `carrier` matches, version newer | Push silently — this is the normal update path. |
+| `class` matches, `carrier` matches, version same | Skip with note "already on version X". |
+| `class` matches, `carrier` matches, version older | Confirm "downgrade from Y to X — proceed?"; default cancel. |
+| `class` **differs**, `carrier` matches | Yellow warn: "Different class (`<their>` → `<file>`). Continuing will re-deploy this sensor into a different TG. Proceed?"; default cancel. |
+| `carrier` **differs** (any class) | Red warn: "Different carrier (`<their>` → `<file>`). This is very likely to brick the sensor. Proceed?"; default cancel. Carrier-mismatch is on a separate confirmation step to make the override deliberate. |
+
+Bulk pushes accumulate the per-target verdicts and present the
+operator with a single dialog summarising counts in each bucket
+before any HTTP request fires. After confirmation the dashboard
+runs the per-target pushes in parallel (`Promise.allSettled`)
+exactly as v0.2 did — the validation gate is purely client-side
+preflight; the per-target `POST /api/ota/{addr}` HTTP route is
+unchanged.
+
+**Sensor-side fail-safe.** The sensor's OTA receiver
+(`r2-esp::ota_tcp`) MUST also reject a binary whose embedded
+`carrier` constant differs from its own — the dashboard's gate is
+primary UX, but the sensor is the last line of defence against a
+wrong-carrier flash. Implementation: the OTA preamble carries the
+incoming binary's class+carrier (parsed from the same `esp_app_desc_t`-
+adjacent metadata block the build pipeline writes; see SENSOR §12);
+sensor refuses to write the partition on carrier mismatch and emits
+`r2.sensor.event.log {code: OTA_CARRIER_MISMATCH}`.
 
 ---
 
@@ -1042,6 +1133,34 @@ implementing `SPEC-R2-WORKSHOP-WIRE`):
 4. The `r2.dash.cmd.response` for the cmd echoes `req_id` and
    carries `kind: "capture.event_mark"`.
 
+### 15.8 (class, carrier) matched OTA acceptance
+
+1. `GET /api/firmware/available` returns only assets whose
+   `class` matches the dashboard's own configured class. A
+   foreign-class binary on the same GH release MUST be excluded
+   from the response.
+2. Per-sensor "needs update" dot lights only when an asset's
+   `(class, carrier)` matches the sensor's announce AND the
+   asset's version is newer than the announced `fw_ver`.
+3. Manual OTA upload of a `.bin` whose carrier matches the
+   target proceeds without extra confirmation when class also
+   matches and version is newer.
+4. Manual OTA upload of a `.bin` whose **class** differs from the
+   target triggers a yellow confirmation dialog defaulting to
+   cancel; explicit confirm proceeds with the push.
+5. Manual OTA upload of a `.bin` whose **carrier** differs from
+   the target triggers a red confirmation dialog defaulting to
+   cancel and requiring a deliberate override tick. Confirmation
+   alone is insufficient — operator must also tick "I understand
+   this may brick the sensor".
+6. Binaries without a meta sidecar AND a non-conforming filename
+   are accepted only after the operator explicitly waives identity
+   verification. Default: cancel.
+7. The OTA push HTTP route (`POST /api/ota/{addr}`) MUST NOT
+   short-circuit any of the above; the gate is webapp-side.
+   Sensor-side carrier-mismatch fail-safe (§13.4) is the
+   independent backstop.
+
 ---
 
 ## 16. Change log
@@ -1050,3 +1169,4 @@ implementing `SPEC-R2-WORKSHOP-WIRE`):
 |---|---|---|
 | 2026-05-07 | 0.1 | Initial draft. Process model, listeners, bootstrap, calibration, joints, analytics, UI, OTA, conformance. |
 | 2026-05-26 | 0.2 | §5.1 adds `/api/data/local/list`, `/api/data/local/file/{name}`, and folds in `/api/data/zip` (now sources from controller-local store). §15.6 + §15.7 add capture auto-sync + event-mark acceptance tests per SPEC-R2-WORKSHOP-CAPTURE §7.4 + §7.5. |
+| 2026-05-28 | 0.3 | Heterogeneous-fleet OTA: §13.3 rewritten to filter `/api/firmware/available` by `(class, carrier)` against the dashboard's own class. New §13.4 specifies the manual OTA validation gate (class-mismatch → yellow warn; carrier-mismatch → red double-confirm). §15.8 adds the matching acceptance tests. Sensor-side fail-safe documented in §13.4 (last paragraph) — cross-ref into SENSOR §12 OTA. |

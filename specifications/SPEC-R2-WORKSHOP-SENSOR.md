@@ -191,6 +191,40 @@ string; the FNV-1a-32 derivation is deterministic and verifiable per
 R2-FNV. Changing this string is a wire-breaking change and requires a
 synchronised update of firmware + dashboard + any vendored r2-bootstrap.
 
+The class string baked into the firmware comes from
+`trust_keys/sensor_class.txt`. This is the **same string** the
+firmware emits as `r2.sensor.announce` key 11 (§3.4) so the dashboard
+can recover the class for display + OTA filtering without having to
+reverse the hash.
+
+### 3.3.1 Carrier identifier
+
+The firmware SHALL also bake in a **carrier slug** identifying the
+physical board variant the binary was compiled for:
+
+| Carrier slug | Build directory                    | Hardware-wiring spec       |
+|--------------|------------------------------------|----------------------------|
+| `devkitc`    | `firmware/esp32-s3/devkitc/`       | `HARDWARE-WIRING-DEVKITC.md` |
+| `xiao`       | `firmware/esp32-s3/xiao/`          | `HARDWARE-WIRING-XIAO.md`    |
+| *(future)*   | `firmware/esp32-s3/<carrier>/`     | `HARDWARE-WIRING-<NAME>.md`  |
+
+Each carrier directory's `Cargo.toml` SHALL declare the slug in a
+`[package.metadata.r2-workshop]` table:
+
+```toml
+[package.metadata.r2-workshop]
+carrier = "devkitc"   # or "xiao", etc.
+```
+
+The build script (`tools/build-firmware.sh`) reads this metadata,
+exports it as a `R2_WORKSHOP_CARRIER` env var at compile time, and
+the firmware embeds it as a `&'static str` constant emitted at
+announce time (`r2.sensor.announce` key 12).
+
+The carrier slug is the canonical identifier for **OTA matching**:
+the dashboard refuses to push a firmware whose carrier slug doesn't
+match the target sensor's announce (§13.4 of DASHBOARD).
+
 ### 3.4 Announce signature
 
 On TCP connect to the dashboard, the firmware shall transmit
@@ -914,6 +948,54 @@ A future version SHOULD copy the running firmware image to `/r2/fw.bak/`
 during the OTA flow and provide a manual rollback path via
 `r2.dash.reset` with a flag, for cases where automatic rollback fails.
 
+### 12.4 Carrier-mismatch fail-safe
+
+The sensor SHALL refuse to write a binary whose embedded carrier
+slug differs from its own running carrier — independently of any
+dashboard-side validation gate (SPEC-R2-WORKSHOP-DASHBOARD §13.4).
+This is the last line of defence: an operator who forces a manual
+push past the dashboard's red double-confirm still has the sensor
+refuse to brick itself.
+
+**Implementation hook.** The firmware build pipeline writes the
+`class` + `carrier` strings into a known-offset metadata section
+adjacent to the standard `esp_app_desc_t` block (which already
+lives at a fixed offset inside every ESP-IDF app image). The OTA
+receiver:
+
+1. Buffers the first ≥ 1 KiB of the incoming binary in RAM.
+2. Locates the metadata block by magic (`"R2WORKSHOP"` ASCII +
+   a u8 version byte = 0x01).
+3. Reads the `carrier` field (≤ 32 bytes, NUL-padded).
+4. Compares to its own compile-time `CARRIER` constant.
+5. On mismatch: discard the buffer, free the OTA partition,
+   emit `r2.sensor.event.log {code: OTA_CARRIER_MISMATCH (0x52)}`,
+   return to prior state.
+
+`class` mismatch is logged for diagnostics but does NOT abort the
+flash — re-classing a sensor (e.g. moving a device from one
+deployment's TG to another) is a valid operator intent. Carrier
+mismatch, by contrast, is almost always either operator error or a
+build-pipeline bug, and the cost of bricking the sensor is high.
+
+The metadata block layout (little-endian):
+
+```
++0   "R2WORKSHOP"   10 bytes ASCII magic
++10  version        u8       = 0x01
++11  reserved       u8       = 0x00
++12  class_len      u8       ≤ 64
++13  class          ASCII    NUL-padded to 64 bytes
++77  carrier_len    u8       ≤ 32
++78  carrier        ASCII    NUL-padded to 32 bytes
++110 build_ts_ms    u64      epoch-ms at build time
++118 (reserved, NUL through to next 16-byte boundary)
+```
+
+128 bytes total. The build script emits this block via a linker
+symbol with a `#[link_section]` attribute on a Rust `static`, so
+the offset within the .bin is stable across builds.
+
 ---
 
 ## 13. Errors
@@ -934,6 +1016,7 @@ codes ≥ 0xF0 trigger `ERROR` state.
 | 0x40 | TG_SIG_FAIL | warn | Dashboard rejected announce; continue advertising |
 | 0x50 | OTA_FETCH_FAIL | warn | Return to prior state |
 | 0x51 | OTA_VERIFY_FAIL | warn | Return to prior state |
+| 0x52 | OTA_CARRIER_MISMATCH | warn | Return to prior state — sensor-side fail-safe per §12.4 |
 | 0x60 | BATTERY_LOW | warn | LOW_BATTERY overlay |
 | 0x61 | BATTERY_CRITICAL | error | Safe shutdown |
 | 0x70 | SEQ_WRAP_IMMINENT | info | None — informational, 24 h pre-wrap |
@@ -1020,6 +1103,17 @@ acceptance tests pass on the reference hardware:
 3. First-boot rollback returns to build N if build N+1 fails to connect
    to the dashboard within 60 s.
 
+### 14.7 Class + carrier emission
+
+1. Every `r2.sensor.announce` payload carries CBOR key 11 (`class`,
+   reverse-DNS) matching `trust_keys/sensor_class.txt` byte-for-byte.
+2. Every `r2.sensor.announce` payload carries CBOR key 12 (`carrier`,
+   board slug) matching the `[package.metadata.r2-workshop] carrier`
+   field of the firmware's `Cargo.toml`.
+3. Both fields are present from firmware v0.3+ (legacy firmware
+   omits them — the dashboard treats absence as `class=unknown`,
+   `carrier=unknown` and gates OTA accordingly).
+
 ---
 
 ## 15. Change log
@@ -1028,3 +1122,4 @@ acceptance tests pass on the reference hardware:
 |---|---|---|
 | 2026-05-07 | 0.1 | Initial draft. Boot, FSM, sample pipeline, SD ring, network, battery, calibration, OTA, conformance. |
 | 2026-05-07 | 0.1.1 | §8.4 corrected: no on-board charging — depleted cell is unplugged and replaced with a charged one; this is a cold boot, not a deep-sleep wake. |
+| 2026-05-28 | 0.3 | §3.3 + §3.3.1: announce now carries class (reverse-DNS) + carrier (board slug) as CBOR keys 11 + 12, sourced from `trust_keys/sensor_class.txt` and the per-carrier Cargo.toml's `[package.metadata.r2-workshop]` table. §14.7 adds the matching conformance tests. Drives OTA matching per DASHBOARD §13.3–§13.4. |
