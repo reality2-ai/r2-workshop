@@ -9,8 +9,27 @@
 
 ## 1. Introduction
 
-This specification defines the behaviour of the **r2-workshop dashboard** —
-the single controlling-device application that:
+This specification defines the **operational behaviour** of the
+**r2-workshop dashboard hive** — the single controller process per
+deployment.
+
+In the canonical R2 vocabulary (R2-ENSEMBLE §2.1), the dashboard
+is **not a standalone product**. It is the hive that hosts the
+ensemble's dashboard-side sentants (Fleet / Capture / Sync /
+TimeSync / Access / Bootstrap / OTA / Reset / Identify — see
+SPEC-R2-WORKSHOP-SENTANTS §4) PLUS the **R2-WEB plugin
+registration** that serves the operator's browser UI (static
+bundle + `/r2` WebSocket + `/api/...` HTTP routes — see §5.1).
+
+The current Rust binary (`dashboard/src/main.rs`) is the
+pre-loader-era approximation of all of that: the sentants are
+realised as struct + free-function clusters, the R2-WEB
+registration is built into the binary, and the ensemble's score
+at `ensemble/ensemble.yaml` is documentation rather than the
+operative input. Phase B3 of the SPEC-R2-WORKSHOP-ENSEMBLE
+roadmap will move that score from documentation to operative.
+
+What the dashboard hive currently does, named:
 
 * Hosts a WiFi hotspot for sensors to join.
 * Bootstraps sensors via BLE + L2CAP, signing `#wifi_offer` frames with
@@ -22,6 +41,9 @@ the single controlling-device application that:
   diagnostic per PLAN D-08).
 * Serves the browser UI on the unified R2 port 21042 (HTTP + WebSocket).
 * Manages OTA updates and reset commands.
+* Auto-syncs sensor captures to a controller-local store
+  (SPEC-R2-WORKSHOP-CAPTURE §7.4) and broadcasts in-session event
+  marks (§7.5).
 
 There is **exactly one** dashboard per deployment. The dashboard is the
 only entity holding the TG private key (see `SECRETS-POLICY.md`).
@@ -1170,3 +1192,4 @@ implementing `SPEC-R2-WORKSHOP-WIRE`):
 | 2026-05-07 | 0.1 | Initial draft. Process model, listeners, bootstrap, calibration, joints, analytics, UI, OTA, conformance. |
 | 2026-05-26 | 0.2 | §5.1 adds `/api/data/local/list`, `/api/data/local/file/{name}`, and folds in `/api/data/zip` (now sources from controller-local store). §15.6 + §15.7 add capture auto-sync + event-mark acceptance tests per SPEC-R2-WORKSHOP-CAPTURE §7.4 + §7.5. |
 | 2026-05-28 | 0.3 | Heterogeneous-fleet OTA: §13.3 rewritten to filter `/api/firmware/available` by `(class, carrier)` against the dashboard's own class. New §13.4 specifies the manual OTA validation gate (class-mismatch → yellow warn; carrier-mismatch → red double-confirm). §15.8 adds the matching acceptance tests. Sensor-side fail-safe documented in §13.4 (last paragraph) — cross-ref into SENSOR §12 OTA. |
+| 2026-05-28 | 0.3.1 | §1 introduction reframed: the dashboard is the r2-workshop ensemble's controller hive — hosting the dashboard-side sentants per SPEC-R2-WORKSHOP-SENTANTS §4 + the R2-WEB plugin registration that delivers the operator UI. Cross-references the new SPEC-R2-WORKSHOP-ENSEMBLE. |

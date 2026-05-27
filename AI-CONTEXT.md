@@ -136,11 +136,32 @@ TCP) — vendored self-contained for university handoff.
 
 1. `README.md` — repo layout & quick start.
 2. `PROCESS.md` — the five working rules (spec-first, etc.).
-3. `plan/PLAN.md` *(if it exists yet)* — current phasing & status.
-4. The latest file in `conversation/` — most recent design rationale.
-5. `specifications/HARDWARE-WIRING.md` — physical sensor build.
-6. `specifications/SECRETS-POLICY.md` — before touching any keys.
-7. Any `specifications/SPEC-R2-WORKSHOP-*.md` files — code-driving specs.
+3. `specifications/SPEC-R2-WORKSHOP-ENSEMBLE.md` — **identity-defining**. What this project IS in canonical R2 vocabulary; class string; namespace policy; cross-refs upstream R2-ENSEMBLE / R2-COMPILE / R2-DEF.
+4. `ensemble/ensemble.yaml` — the R2-DEF §7 score for the rocker deployment. Notekeeper's B0 pattern: documents the runtime declaratively even though no loader yet consumes it.
+5. `plan/PLAN.md` *(if it exists yet)* — current phasing & status.
+6. The latest file in `conversation/` — most recent design rationale.
+7. `specifications/HARDWARE-WIRING.md` — physical sensor build.
+8. `specifications/SECRETS-POLICY.md` — before touching any keys.
+9. Any `specifications/SPEC-R2-WORKSHOP-*.md` files — code-driving specs.
+
+**Canonical R2 specs lookup.** When work touches identity (the class
+string, what kind of thing r2-workshop is), distribution (how an
+ensemble gets to its devices), or build pipeline (firmware-from-YAML),
+read these BEFORE drafting anything — they are the upstream
+authority, not r2-workshop's own SPEC-* docs:
+
+* `/mnt/data/Development/R2/r2-specifications/specs/r2-core/R2-ENSEMBLE.md`
+  — what an ensemble is (sentants + plugins + UI registrations,
+  distributed across hives, performed by the mesh, not installed).
+  Class is `(name, class, version)` per §2.2.
+* `/mnt/data/Development/R2/r2-specifications/specs/r2-core/R2-COMPILE.md`
+  — how an ensemble's sentant YAML compiles AOT into firmware for
+  constrained devices. Class declaration → beacon (§3.1); build
+  targets (esp32 / nrf / rp2 / avr / linux-embedded) per §4.
+* `/mnt/data/Development/R2/r2-specifications/specs/r2-core/R2-DEF.md`
+  — the score schema (§7 specifically — Ensemble Definition Schema).
+* `/mnt/data/Development/R2/r2-notekeeper/ensemble/ensemble.yaml`
+  — canonical worked example (notekeeper).
 
 ## Working conventions (binding)
 

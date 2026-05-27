@@ -1,0 +1,342 @@
+# r2-workshop — rocker-rig deployment ensemble score.
+#
+# This file is the R2-DEF §7 score for the rocker deployment of the
+# r2-workshop template. It declares the ensemble's identity, its
+# sentants, ensemble-owned plugins, and singleton-plugin registrations
+# per the canonical R2-ENSEMBLE.md (in r2-specifications/specs/r2-core/).
+#
+# Notekeeper's B0 pattern (see r2-notekeeper/ensemble/README.md):
+# until an R2 ensemble loader is integrated into the r2-workshop
+# runtime, this score is **documentation in declarative form** — the
+# Rust binaries (dashboard + firmware) hand-implement what's described
+# here. Each phase B1-B3 (per SPEC-R2-WORKSHOP-ENSEMBLE §4) moves us
+# toward the loader actually consuming this file.
+#
+# Many sentant automations are summarised rather than fully expressed
+# in R2-DEF template syntax — the rocker's sample / SD-ring / capture
+# pipelines involve binary file IO + hardware peripheral access that
+# the R2-DEF action vocabulary doesn't yet cover (R2-COMPILE §3.2).
+# Where the YAML says "see SPEC-R2-WORKSHOP-…", the linked spec is
+# normative; the YAML is the human-readable cross-reference.
+
+ensemble:
+  name: rocker
+  description: >
+    Structural health monitoring of actuator joints on the tyre-wear
+    rocker test rig. Two-or-more ESP32-S3 sensors (ADXL355 +
+    LiPo + SD) stream calibrated triaxial acceleration to a laptop
+    dashboard; the operator runs Calibrate→Record→Stop cycles per
+    experiment, and data syncs to the laptop automatically.
+  version: "0.2.0"
+  class: nz.ac.auckland.rocker
+  ensemble_version: "0.1"
+
+  # ─── Sentants ───────────────────────────────────────────────────────
+  sentants:
+
+    # === Sensor-side (one instance per ESP32-S3 device) =================
+
+    - name: Sensor
+      description: >
+        The ESP32-S3 sample pipeline: ADXL355 SPI read → SD ring →
+        TCP streaming → cumulative ACK to free SD segments. Owns the
+        capture state machine (Idle / Calibrating / Recording) and
+        the event-mark sidecar writer. Compiled ahead-of-time per
+        R2-COMPILE for the esp32 target; not interpreted.
+      class: ai.reality2.sentant.workshop.sensor
+      storage: durable-state
+      data:
+        device_pk: ""           # Ed25519 public key (NVS-persisted)
+        last_acked_seq: 0       # SD ring's last-acknowledged sample
+        capture_state: 0        # 0=idle, 1=calibrating, 2=recording
+        current_capture_file: null
+      plugins:
+        - name: workshop.adxl355      # SPI peripheral driver
+        - name: workshop.sd-ring       # FAT + ring-segment writer
+        - name: workshop.data-tcp      # Port 21047 LIST/GET/DEL listener
+        - name: workshop.tg-bootstrap  # BLE + L2CAP wifi_offer receiver
+      automations:
+        - name: main
+          # Full state machine specified in SPEC-R2-WORKSHOP-SENSOR §4.
+          # Subscribes: every r2.dash.* event in SPEC-R2-WORKSHOP-WIRE §4
+          #   (ack, capture.start/mark/stop/event_mark, identify_set,
+          #   set_clock_offset, sync_pulse, enrol, …).
+          # Emits: r2.sensor.announce, r2.sensor.acceleration,
+          #   r2.sensor.battery, r2.sensor.status, r2.sensor.capture.state,
+          #   r2.sensor.sync_pong, r2.sensor.event.log (per WIRE §3).
+          # See SPEC-R2-WORKSHOP-CAPTURE for the capture sub-state-machine.
+
+    # === Dashboard-side (one instance per controller laptop) ============
+
+    - name: Fleet
+      description: >
+        Tracks per-peer announce metadata + alive / stale / offline
+        state. Replays cached announce + capture.state to viewers
+        that connect mid-session so the UI re-syncs without waiting
+        for the next sensor event.
+      class: ai.reality2.sentant.workshop.fleet
+      storage: durable-state
+      data:
+        peers: {}              # SocketAddr → {device_pk, hostname, fw_ver, …}
+        aliases: {}            # device_pk → operator-assigned name
+      automations:
+        - name: main
+          # Subscribes: r2.sensor.announce, r2.peer.disconnected (synth),
+          #   r2.dash.cmd.device.alias.set
+          # Emits: r2.dash.device.alias.changed
+          # See SPEC-R2-WORKSHOP-DASHBOARD §3 (state persistence).
+
+    - name: Capture
+      description: >
+        Fleet-wide Calibrate → Record → Stop state machine. Stamps
+        authoritative ts_ms on Record; assigns monotonic mark_id on
+        each event_mark; fans out r2.dash.capture.* to every peer.
+      class: ai.reality2.sentant.workshop.capture
+      storage: ephemeral
+      data:
+        next_mark_id: 1        # monotonic per controller-run
+      automations:
+        - name: main
+          # Subscribes: r2.dash.cmd.capture.start/mark/stop/event_mark
+          # Emits: r2.dash.capture.start/mark/stop/event_mark (to sensors),
+          #   r2.dash.capture.progress, r2.dash.capture.event_marked,
+          #   r2.dash.cmd.response (to viewers).
+          # See SPEC-R2-WORKSHOP-CAPTURE §2 + §7.5.
+
+    - name: Sync
+      description: >
+        Captures store + auto-sync engine. On every Recording → Idle
+        transition observed for a peer, fetches the just-finalised
+        file (and its event-mark sidecar) via data_tcp; writes under
+        the controller-local captures dir; emits a synced status
+        event. Backstop: a 60 s reconciliation poll + an immediate
+        single-peer recon on each announce closes any gaps.
+      class: ai.reality2.sentant.workshop.sync
+      storage: durable-state
+      data:
+        captures_dir: "$XDG_DATA_HOME/r2-workshop/captures/"
+        index: {}              # (device_pk, sensor_filename) → CaptureEntry
+      plugins:
+        - name: workshop.sd-relay
+      automations:
+        - name: main
+          # Subscribes: r2.sensor.capture.state (observes peer state
+          #   transitions to detect Recording → Idle).
+          # Emits: r2.dash.capture.sync_started, r2.dash.capture.synced.
+          # See SPEC-R2-WORKSHOP-CAPTURE §7.4.
+
+    - name: TimeSync
+      description: >
+        Per-peer Cristian's-algorithm sync_pulse / sync_pong loop.
+        Smooths offsets exponentially; pushes set_clock_offset when
+        the estimate stabilises or drifts past threshold.
+      class: ai.reality2.sentant.workshop.timesync
+      storage: ephemeral
+      data:
+        per_peer: {}           # addr → PeerSyncState
+      automations:
+        - name: main
+          # Emits: r2.dash.sync_pulse (1 Hz first 30 s, 30 s after).
+          # Subscribes: r2.sensor.sync_pong → smoothed offset update.
+          # Emits: r2.dash.set_clock_offset when stable.
+          # See SPEC-R2-WORKSHOP-TIMESYNC.
+
+    - name: Access
+      description: >
+        Trust-group enrolment + viewer access. KeyHolder issues
+        DeviceCertificates to sensors over either the TCP post-announce
+        path or BLE L2CAP. Manages viewer pairing + revocation.
+      class: ai.reality2.sentant.workshop.access
+      storage: durable-state
+      data:
+        tg_pk: ""              # TG public key (paired with tg_priv outside the repo)
+        members: []
+        pending: []
+      plugins:
+        - name: workshop.relay-tunnel  # Off-network viewer leg
+      automations:
+        - name: main
+          # Subscribes: r2.dash.cmd.access.*
+          # Emits: r2.dash.access.event, r2.dash.enrol (to sensors).
+          # See SPEC-R2-WORKSHOP-ACCESS.
+
+    - name: Bootstrap
+      description: >
+        BLE scan + L2CAP CoC handshake. Discovers sensors advertising
+        the workshop class via the R2-BEACON legacy AD payload,
+        signs #wifi_offer with the TG private key, delivers WiFi
+        credentials so the sensor can connect to the dashboard's hotspot.
+      class: ai.reality2.sentant.workshop.bootstrap
+      storage: ephemeral
+      automations:
+        - name: main
+          # Subscribes: r2.dash.cmd.bootstrap
+          # Emits: r2.dash.bootstrap.progress (status to viewers).
+          # See SPEC-R2-WORKSHOP-SENSOR §3.5 + DASHBOARD §6.
+
+  # ─── Ensemble-owned plugins ─────────────────────────────────────────
+  plugins:
+
+    - name: workshop.adxl355
+      description: >
+        SPI driver + WHO_AM_I + sample pipeline for the Analog
+        Devices ADXL355 triaxial accelerometer. Implements
+        sim-fallback per SPEC-R2-WORKSHOP-SENSOR-HEALTH when the
+        chip doesn't respond on cold boot.
+      kind: native
+      compile_target: [esp32]
+
+    - name: workshop.sd-ring
+      description: >
+        FATFS-backed ring of 20-byte fixed records on the sensor's
+        microSD. Boot-recovery rolls forward to tail_seq; segment
+        rotation + delete on dashboard ACK.
+      kind: native
+      compile_target: [esp32]
+
+    - name: workshop.data-tcp
+      description: >
+        Per-sensor TCP server on port 21047 implementing LIST / GET /
+        DEL / DEL_ALL opcodes for the controller's sync engine to
+        fetch capture files + sidecars off the SD. Per
+        SPEC-R2-WORKSHOP-CAPTURE §6.
+      kind: native
+      compile_target: [esp32]
+
+    - name: workshop.tg-bootstrap
+      description: >
+        Sensor-side BLE peripheral + L2CAP CoC server; accepts
+        #wifi_offer from the dashboard during bootstrap; verifies
+        the TG signature; persists the resulting credentials to NVS.
+      kind: native
+      compile_target: [esp32]
+
+    - name: workshop.sd-relay
+      description: >
+        Dashboard-side data_tcp client. Dials sensor port 21047,
+        issues LIST / GET / DEL on behalf of the Sync sentant +
+        Data-tab HTTP routes.
+      kind: native
+      compile_target: [linux]
+
+    - name: workshop.relay-tunnel
+      description: >
+        Dashboard's off-network viewer leg. Maintains a WebSocket
+        session to an r2-hive relay so viewers on github.io can
+        reach the controller without lab-network connectivity.
+        Per SPEC-R2-WORKSHOP-ACCESS §5.2.
+      kind: native
+      compile_target: [linux]
+
+  # ─── Registrations with hive-shared singleton plugins ───────────────
+  #
+  # Per R2-ENSEMBLE §2.1.2: transport bindings (TCP, WiFi, BLE) are
+  # hive-shared singletons owned by the hive itself, NEVER carried in
+  # an ensemble's score. The R2-WEB registration below is the only
+  # singleton registration the rocker ensemble makes; everything else
+  # rides the standard event bus.
+  registrations:
+    r2-web:
+      route_prefix: /
+      static_bundle: ../webapp/
+      api_routes:
+        # Operator-visible HTTP routes, per SPEC-R2-WORKSHOP-DASHBOARD §5.1.
+        # Long-term migration target is to express these as GraphQL
+        # subscriptions over /r2 (matching notekeeper); for v0.2 they
+        # remain HTTP because the ensemble loader doesn't yet exist.
+        - path: /r2
+          kind: websocket
+          description: R2-WIRE compact frames in both directions.
+        - path: /api/data/{addr}/...
+          description: Per-sensor data_tcp proxy (LIST/GET/DEL).
+        - path: /api/data/local/...
+          description: Controller-local captures store (list/file/all).
+        - path: /api/data/merged
+          description: Wide-format multi-sensor merge with mark column.
+        - path: /api/data/zip
+          description: End-of-day bundle of every synced file.
+        - path: /api/ota/{addr}
+          description: Manual OTA push.
+        - path: /api/firmware/...
+          description: Firmware-available cache + binary fetch.
+        - path: /api/access/...
+          description: KeyHolder + viewer enrolment endpoints.
+        - path: /api/devices/aliases
+          description: Operator-assigned alias map (bulk fetch).
+        - path: /ws/logs/{addr}
+          kind: websocket
+          description: Per-sensor live log tail.
+
+  # ─── Aggregate capabilities ─────────────────────────────────────────
+  # Authoritative event-name set the ensemble emits / consumes; the
+  # hive's bloom-filter capability advertisement is derived from this.
+  capabilities:
+    emits:
+      # Sensor → dashboard / viewer:
+      - r2.sensor.announce
+      - r2.sensor.acceleration
+      - r2.sensor.acceleration.batch
+      - r2.sensor.battery
+      - r2.sensor.status
+      - r2.sensor.capture.state
+      - r2.sensor.sync_pong
+      - r2.sensor.cal.sample.resp
+      - r2.sensor.event.log
+      # Dashboard → sensor:
+      - r2.dash.ack
+      - r2.dash.sync_pulse
+      - r2.dash.set_clock_offset
+      - r2.dash.cal.sample.req
+      - r2.dash.capture.start
+      - r2.dash.capture.mark
+      - r2.dash.capture.stop
+      - r2.dash.capture.event_mark
+      - r2.dash.identify_set
+      - r2.dash.fw.update
+      - r2.dash.reset
+      - r2.dash.enrol
+      # Dashboard → viewer (status / progress):
+      - r2.peer.disconnected
+      - r2.dash.capture.progress
+      - r2.dash.capture.synced
+      - r2.dash.capture.sync_started
+      - r2.dash.capture.event_marked
+      - r2.dash.ota.progress
+      - r2.dash.reset.progress
+      - r2.dash.bootstrap.progress
+      - r2.dash.access.event
+      - r2.dash.device.alias.changed
+      - r2.dash.cmd.response
+    consumes:
+      # Operator-plane commands from viewer → controller:
+      - r2.dash.cmd.capture.start
+      - r2.dash.cmd.capture.mark
+      - r2.dash.cmd.capture.stop
+      - r2.dash.cmd.capture.event_mark
+      - r2.dash.cmd.reset
+      - r2.dash.cmd.identify
+      - r2.dash.cmd.bootstrap
+      - r2.dash.cmd.device.alias.set
+      - r2.dash.cmd.access.members.query
+      - r2.dash.cmd.access.pending.query
+      - r2.dash.cmd.access.check
+      - r2.dash.cmd.access.approve
+      - r2.dash.cmd.access.deny
+      - r2.dash.cmd.access.revoke
+      - r2.dash.cmd.access.request
+
+  # ─── Compile targets ────────────────────────────────────────────────
+  # Hybrid: sentants split between Linux (dashboard) and ESP32 (sensors).
+  # Per R2-COMPILE §4 + §11 each sentant's compile_target is implicit
+  # from its hosting (Fleet/Capture/Sync/TimeSync/Access/Bootstrap →
+  # linux; Sensor → esp32). Per-carrier sub-targets (esp32:devkitc,
+  # esp32:xiao) are documented in SPEC-R2-WORKSHOP-SENSOR §3.3.1 and
+  # baked at compile time from each Cargo.toml's `[package.metadata.
+  # r2-workshop] carrier`.
+  compile_target: [linux, esp32]
+
+  # ─── Signatures ─────────────────────────────────────────────────────
+  # Local-development form — unsigned. For trust-group distribution
+  # (post-B2 phase when the ensemble loader lands), the KeyHolder
+  # signs this file with Ed25519 per R2-DEF §7.8.
+  signatures: []

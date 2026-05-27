@@ -1,28 +1,38 @@
-# SPEC-R2-WORKSHOP-SENTANTS: Sensor-firmware sentant + plugin catalog
+# SPEC-R2-WORKSHOP-SENTANTS: Ensemble sentant + plugin catalog
 
-**Version:** 0.1 Draft
-**Date:** 2026-05-18
+**Version:** 0.2 Draft
+**Date:** 2026-05-28
 **Status:** Normative Draft
-**Depends on:** SPEC-R2-WORKSHOP-SENSOR, SPEC-R2-WORKSHOP-WIRE, SPEC-R2-WORKSHOP-TIMESYNC, SPEC-R2-WORKSHOP-SENSOR-HEALTH, SPEC-R2-WORKSHOP-SENSOR-REMOTE-RESET, SPEC-R2-WORKSHOP-SENSOR-LIVE-LOGS, canonical R2-HIVE / R2-SENTANT / R2-CAP
+**Depends on:** SPEC-R2-WORKSHOP-ENSEMBLE, SPEC-R2-WORKSHOP-SENSOR, SPEC-R2-WORKSHOP-DASHBOARD, SPEC-R2-WORKSHOP-WIRE, SPEC-R2-WORKSHOP-CAPTURE, SPEC-R2-WORKSHOP-TIMESYNC, SPEC-R2-WORKSHOP-ACCESS, SPEC-R2-WORKSHOP-SENSOR-HEALTH, SPEC-R2-WORKSHOP-SENSOR-REMOTE-RESET, SPEC-R2-WORKSHOP-SENSOR-LIVE-LOGS, canonical R2-ENSEMBLE / R2-SENTANT / R2-CAP / R2-DEF
 
 ---
 
 ## 1. Introduction
 
-r2-workshop's sensor firmware today is a monolithic Rust binary
-(`firmware/esp32-s3/<carrier>/src/main.rs`) composed by hand from a
-handful of modules (`adxl355`, `sender`, `ring`, `sd`, `led`,
-`clock`, etc.). This spec re-frames that monolith as an **R2 hive**:
-a fixed ensemble of **sentants** (event-driven logic) and
-**plugins** (hardware-side capability shims), so the firmware
-matches the same architectural vocabulary as the dashboard and
-webapp hives — and so individual building blocks can be reused or
-swapped (e.g. ADXL355 → BNO055 → strain gauge) without restructuring
-the rest of the firmware.
+The r2-workshop ensemble's sentants live across **two hive
+classes**:
 
-The catalog below is **what the firmware currently is**, named.
-v0.2 will introduce a minimal `Sentant` trait + an ensemble
-composer; the per-module code itself stays largely as-is.
+* **Sensor hive** — one per ESP32-S3 device. Hand-coded Rust
+  monolith at `firmware/esp32-s3/<carrier>/src/main.rs`. The
+  Sensor sentant + supporting plugins documented in §3.
+* **Dashboard hive** — one per controller laptop. Hand-coded Rust
+  binary at `dashboard/src/main.rs`. The Fleet / Capture / Sync /
+  TimeSync / Access / Bootstrap sentants + supporting plugins
+  documented in §4.
+
+This spec re-frames both monoliths in the canonical R2 vocabulary
+— **sentants** (event-driven logic) and **plugins** (hardware /
+platform shims) — so the firmware and dashboard match the same
+architectural model as r2-notekeeper and so individual building
+blocks can be reused or swapped (e.g. ADXL355 → BNO055; rocker
+analysis → people-counter detection) without restructuring the
+rest of the ensemble.
+
+The catalogue below is **what the runtime currently is**, named
+declaratively. The normative score is at
+[`ensemble/ensemble.yaml`](../ensemble/ensemble.yaml) per
+SPEC-R2-WORKSHOP-ENSEMBLE; this document is the human-readable
+companion.
 
 ### 1.1 Scope
 
@@ -209,10 +219,64 @@ compile them to working code" workflow noted in the README.
 
 ---
 
-## 4. Conformance
+## 4. The r2-workshop dashboard ensemble
 
-A sensor build **conforms** to this spec when ALL of the following
-hold:
+The dashboard hive runs on the controller laptop (Linux, std).
+Hand-coded today at `dashboard/src/main.rs`; the score documents
+the canonical decomposition.
+
+### 4.1 Plugins (platform shims)
+
+| Plugin | Owns / wraps | Used by |
+|---|---|---|
+| `relay-tunnel` | WebSocket session to the r2-hive relay (SPEC-R2-WORKSHOP-ACCESS §5.2). Forwards R2-WIRE frames bidirectionally between LAN viewers and off-network viewers. | `access` |
+| `sd-relay` | data_tcp client. Dials sensor port 21047 to LIST / GET / DEL files on the SD ring (SPEC-R2-WORKSHOP-CAPTURE §6). | `sync`, HTTP route handlers under `/api/data/{addr}/...` |
+| `github-firmware-cache` | Periodic poll of `reality2-ai/r2-workshop` Releases + local `firmware/esp32-s3/<carrier>/releases/` fallback (DASHBOARD §13.3). | HTTP route `/api/firmware/available` |
+| `tg-signer` | Loads the KeyHolder Ed25519 keypair from `~/.config/r2-workshop/tg_signer/tg_priv.bin` (per `SECRETS-POLICY.md`); signs DeviceCertificates + `#wifi_offer` payloads. | `access`, `bootstrap` |
+| `captures-store` | XDG-rooted persistent index over `~/.local/share/r2-workshop/captures/`; provides `has`, `write_data`, `write_marks`, `list_sessions`, `clear_all` (CAPTURE §7.4). | `sync`, HTTP route handlers under `/api/data/local/...` and `/api/data/zip` |
+| `ble-scan` | bluez / btleplug scanner subscription for the workshop class hash on the R2-BEACON legacy AD payload. | `bootstrap` |
+
+### 4.2 Sentants (event-driven logic)
+
+| Sentant | Subscribes to | Emits | Role |
+|---|---|---|---|
+| `r2.dash.fleet` | `r2.sensor.announce`, `r2.peer.disconnected`, `r2.dash.cmd.device.alias.set` | `r2.dash.device.alias.changed` | Tracks every peer's `device_pk` + operator alias + last-known online/stale/offline state. Caches the most-recent announce frame so `/r2` viewer-connects can replay the metadata to late-joining viewers without waiting for the next sensor reboot. |
+| `r2.dash.capture` | `r2.dash.cmd.capture.start`, `r2.dash.cmd.capture.mark`, `r2.dash.cmd.capture.stop`, `r2.dash.cmd.capture.event_mark` | `r2.dash.capture.start`, `r2.dash.capture.mark`, `r2.dash.capture.stop`, `r2.dash.capture.event_mark` (to sensors); `r2.dash.capture.progress`, `r2.dash.capture.event_marked`, `r2.dash.cmd.response` (to viewers) | Owns the fleet-wide Calibrate → Record → Stop state machine + the monotonic `mark_id` counter. Stamps authoritative `ts_ms` on Record and on every event_mark. Per SPEC-R2-WORKSHOP-CAPTURE §2 + §7.5. |
+| `r2.dash.sync` | `r2.sensor.capture.state` (observes Recording → Idle transitions) | `r2.dash.capture.sync_started`, `r2.dash.capture.synced` | Per-peer transition watcher + 60-second reconciliation poll + immediate single-peer recon on each announce (closes the 0-60 s blind window after a mid-experiment sensor reset). Drives the `captures-store` plugin; replays the full index to every `/r2` viewer on connect. Per SPEC-R2-WORKSHOP-CAPTURE §7.4. |
+| `r2.dash.timesync` | `r2.sensor.sync_pong` | `r2.dash.sync_pulse`, `r2.dash.set_clock_offset` | Cristian's-algorithm round per peer. 1 Hz cadence for the first 30 s after each TCP connect, then 30 s thereafter. Exponentially smooths the offset estimate; pushes `set_clock_offset` when the estimate stabilises or drifts past threshold. Per SPEC-R2-WORKSHOP-TIMESYNC §3. |
+| `r2.dash.access` | `r2.dash.cmd.access.members.query`, `…pending.query`, `…check`, `…approve`, `…deny`, `…revoke`, `…request` | `r2.dash.access.event`, `r2.dash.enrol` (to sensors), `r2.dash.cmd.response` | KeyHolder-side viewer + device enrolment. Mints DeviceCertificates via the `tg-signer` plugin; manages the pending + approved member lists; emits status events viewers consume to update their Link tab. Per SPEC-R2-WORKSHOP-ACCESS. |
+| `r2.dash.bootstrap` | `r2.dash.cmd.bootstrap` | `r2.dash.bootstrap.progress`, `r2.dash.enrol` (over L2CAP) | BLE-scan + L2CAP CoC handshake. Discovers sensors advertising the workshop class hash, signs `#wifi_offer` with the TG private key via `tg-signer`, delivers WiFi credentials so the sensor can join the hotspot. Per SPEC-R2-WORKSHOP-SENSOR §3.5 + DASHBOARD §6. |
+| `r2.dash.ota` | (driven by `POST /api/ota/{addr}` HTTP route + `r2.dash.cmd.access.approve` for bulk cases) | `r2.dash.fw.update` (to sensors), `r2.dash.ota.progress` (to viewers) | Streams firmware blobs to peers, surfaces progress. Manual OTA validation per DASHBOARD §13.4 lives client-side; this sentant is the transport. |
+| `r2.dash.reset` | `r2.dash.cmd.reset` | `r2.dash.reset.progress` | Opens a TCP session to the sensor's reset port (21044) and writes the `CMD_RESET` byte. Surfaces success/failure as a progress event. Per SPEC-R2-WORKSHOP-SENSOR-REMOTE-RESET. |
+| `r2.dash.identify` | `r2.dash.cmd.identify` | `r2.dash.identify_set` (to sensors) | Toggles the sensor's identify-LED via a single-frame fire-and-forget command. Per SPEC-R2-WORKSHOP-SENSOR-IDENTIFY. |
+
+### 4.3 R2-WEB registration
+
+The dashboard's webapp surface is **not a sentant**. Per
+R2-ENSEMBLE §2.1.1 it's a registration with the hive-shared
+R2-WEB singleton plugin — a static bundle + a `/r2` WebSocket
+channel + a set of `/api/...` HTTP routes. See
+`ensemble/ensemble.yaml` `registrations.r2-web` for the
+authoritative shape; SPEC-R2-WORKSHOP-DASHBOARD §5.1 for the
+per-route detail.
+
+### 4.4 Implementation note (non-normative)
+
+The dashboard binary today is a single Rust monolith; the sentants
+above are realised as struct + free-function clusters within
+`dashboard/src/main.rs` (plus the `dashboard/src/captures.rs`,
+`dashboard/src/access.rs`, `dashboard/src/relay.rs` modules). The
+sentant decomposition is the canonical mental model + the target
+shape for the future R2 ensemble loader; until that loader lands
+(SPEC-R2-WORKSHOP-ENSEMBLE §4 phase B3), the binary is the
+operative form.
+
+---
+
+## 5. Conformance
+
+A **sensor firmware build** conforms to this spec when ALL of the
+following hold:
 
 1. Every sentant listed in §3.2 **MUST** be present in the
    firmware image.
@@ -222,14 +286,31 @@ hold:
    the `HiveCtx` (or equivalent ownership pattern). No sentant
    **SHALL** access an ESP-IDF peripheral directly.
 4. The boot order in §3.3 **MUST** be respected.
-5. A sentant or plugin **SHOULD** be portable to a non-rocker
-   ESP-IDF project by porting the file plus its declared plugin
-   dependencies — i.e. no rocker-specific globals.
+5. A sentant or plugin **SHOULD** be portable to a sibling
+   ensemble (e.g. people-counter) by porting the file plus its
+   declared plugin dependencies — i.e. no deployment-specific
+   globals.
+
+A **dashboard build** conforms to this spec when ALL of the
+following hold:
+
+1. Every sentant listed in §4.2 **MUST** be reachable as part of
+   the dashboard process. The decomposition need not be a literal
+   1-Rust-struct-per-sentant (pre-loader era) but the event
+   surface MUST match.
+2. Every plugin in §4.1 **MUST** be the sole code path to the
+   relevant capability (e.g. only `tg-signer` holds the
+   KeyHolder private key; only `captures-store` mutates the
+   captures dir).
+3. The R2-WEB registration's static bundle (§4.3) **MUST** be
+   served at `/` and **MUST** expose the `/r2` WebSocket per
+   SPEC-R2-WORKSHOP-DASHBOARD §5.2.
 
 ---
 
-## 5. Versioning
+## 6. Versioning
 
 | Date       | Ver | Change                                                 |
 |------------|-----|--------------------------------------------------------|
 | 2026-05-18 | 0.1 | Initial draft — catalog of the existing firmware modules, framed as sentants + plugins. No code change yet. |
+| 2026-05-28 | 0.2 | Add §4 — dashboard-hive sentants (Fleet, Capture, Sync, TimeSync, Access, Bootstrap, OTA, Reset, Identify) + their plugins (relay-tunnel, sd-relay, github-firmware-cache, tg-signer, captures-store, ble-scan). Title + intro reframed to cover the whole ensemble across both hive classes; cross-refs the new SPEC-R2-WORKSHOP-ENSEMBLE.md + `ensemble/ensemble.yaml`. |
