@@ -334,6 +334,89 @@ impl CaptureMgr {
         }
     }
 
+    /// SPEC-R2-WORKSHOP-CAPTURE §3 row 5 + §7.5: operator annotation
+    /// injected into the active capture's `<stem>.marks.csv` sidecar.
+    /// No-op (with a warn log) when not in Recording — same liveness
+    /// gate the controller already applies, defensive on the sensor.
+    /// Each call opens-appends-fsyncs to keep the sidecar durable in
+    /// case of power loss (one fsync per click is cheap — operators
+    /// don't click marks at sample rate).
+    pub fn event_mark(&mut self, ts_ms: u64, label: &str, mark_id: u32) -> Result<()> {
+        let file_name = match &self.state {
+            CaptureState::Recording { file_name: Some(n), .. } => n.clone(),
+            CaptureState::Recording { file_name: None, .. } => {
+                // SD-less capture — wire-only calibration is active
+                // but no file is open. Nothing to annotate. Operator
+                // sees no sidecar, but no error.
+                info!("[capture] event_mark — SD-less capture, no sidecar written");
+                return Ok(());
+            }
+            _ => {
+                // No active recording — per spec, silently ignore.
+                warn!("[capture] event_mark ignored — not Recording");
+                return Ok(());
+            }
+        };
+
+        let stem = file_name.strip_suffix(".csv").unwrap_or(&file_name);
+        let sidecar_name = format!("{stem}.marks.csv");
+        let escaped = csv_escape(label);
+
+        // Open or create the sidecar — same primary/fallback dir
+        // policy as `open_capture_file` so a FATFS create_dir_all
+        // quirk doesn't lose the sidecar even when the main file
+        // succeeded via the fallback path.
+        let dir = self.mount_point.join(CAPTURES_SUBDIR);
+        let primary = dir.join(&sidecar_name);
+        let fallback = self.mount_point.join(format!("cap-{}", sidecar_name));
+
+        let (mut f, is_new) = match self.open_sidecar(&primary, &fallback) {
+            Ok(v) => v,
+            Err(e) => {
+                warn!("[capture] event_mark — open sidecar failed: {}", e);
+                return Err(e);
+            }
+        };
+
+        if is_new {
+            // v1 header per SPEC-R2-WORKSHOP-CAPTURE §4.1.
+            f.write_all(b"# r2-workshop event marks v1\nts_ms,mark_id,label\n")
+                .context("write event-mark header")?;
+        } else {
+            // Append mode — make sure we're at EOF (the OpenOptions
+            // builder used .append(true), so this is belt-and-braces).
+            let _ = f.seek(SeekFrom::End(0));
+        }
+
+        let line = format!("{ts_ms},{mark_id},{escaped}\n");
+        f.write_all(line.as_bytes()).context("write event-mark row")?;
+        f.sync_all().context("fsync event-mark sidecar")?;
+        info!("[capture] event_mark ts={} id={} label={:?} → {}", ts_ms, mark_id, label, sidecar_name);
+        Ok(())
+    }
+
+    /// Open the event-mark sidecar. Tries `primary` first; if either
+    /// the parent dir creation or the file open fails, falls back to
+    /// `<mount>/cap-<sidecar_name>`. Returns `(file, is_new)` so the
+    /// caller can decide whether to write the v1 header.
+    fn open_sidecar(&self, primary: &std::path::Path, fallback: &std::path::Path) -> Result<(File, bool)> {
+        if let Some(parent) = primary.parent() {
+            if fs::create_dir_all(parent).is_ok() {
+                let is_new = !primary.exists();
+                if let Ok(f) = OpenOptions::new()
+                    .create(true).append(true).read(true).open(primary)
+                {
+                    return Ok((f, is_new));
+                }
+            }
+        }
+        let is_new = !fallback.exists();
+        let f = OpenOptions::new()
+            .create(true).append(true).read(true).open(fallback)
+            .context("open event-mark sidecar (fallback)")?;
+        Ok((f, is_new))
+    }
+
     /// Open `<mount>/captures/<file_name>` for write. Falls back to
     /// `<mount>/cap-<file_name>` if `create_dir_all` fails (matches
     /// SPEC §4's documented fall-back, motivated by the ESP-IDF
@@ -412,6 +495,24 @@ fn is_valid_name(name: &str) -> bool {
 fn is_valid_prefix(p: &str) -> bool {
     if p.is_empty() || p.len() > 32 { return false; }
     p.bytes().all(|b| matches!(b, b'0'..=b'9' | b'_' | b'-'))
+}
+
+/// RFC-4180 minimal CSV escape: wrap in `"` if the field contains a
+/// comma, quote, or newline; double internal quotes. Used by the
+/// event-mark sidecar writer (SPEC-R2-WORKSHOP-CAPTURE §4.1).
+fn csv_escape(s: &str) -> String {
+    if s.contains(',') || s.contains('"') || s.contains('\n') || s.contains('\r') {
+        let mut out = String::with_capacity(s.len() + 2);
+        out.push('"');
+        for c in s.chars() {
+            if c == '"' { out.push('"'); }
+            out.push(c);
+        }
+        out.push('"');
+        out
+    } else {
+        s.to_string()
+    }
 }
 
 #[cfg(test)]

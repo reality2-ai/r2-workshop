@@ -135,6 +135,10 @@ multi-sensor receive path on dashboard port 21042.
 | 41 | `r2.dash.cmd.access.deny` | viewer → controller | KeyHolder action: deny a pending access request. Payload `{0: req_id, 1: device_pk}`. Emits `r2.dash.access.event` subtype `"request_denied"`. KeyHolder-only. Replaces `POST /api/access/deny/{device_pk}`. |
 | 42 | `r2.dash.cmd.access.revoke` | viewer → controller | KeyHolder action: revoke an existing access member. Payload `{0: req_id, 1: device_pk}`. Emits `r2.dash.access.event` subtype `"revoked"`. KeyHolder-only. Replaces `POST /api/access/revoke/{device_pk}`. |
 | 43 | `r2.dash.cmd.access.request` | viewer → controller | Device action: submit a request for access. Payload `{0: req_id, 1: device_pk, 2: name (text), 3: hint (text, optional — defaults to the requester's IP)}`. Emits `r2.dash.access.event` subtype `"request_pending"`. Open to any caller (this is how a new viewer enters the system). Replaces `POST /api/access/request`. |
+| 44 | `r2.dash.capture.synced` | dash → viewer | Auto-sync status: one capture file has just been written to the controller-local store. Payload `{1: device_pk (text — 64 hex chars), 2: sensor_filename (text), 3: size (u32), 4: ts_ms (u64), 5: kind (text — `"data"` for main capture, `"marks"` for sidecar)}`. Per SPEC-R2-WORKSHOP-CAPTURE §7.4. |
+| 45 | `r2.dash.capture.event_mark` | dash → sensor | Operator annotation: inject one mark row into the active capture's sidecar. Payload `{1: ts_ms (u64, controller-stamped), 2: label (text, ≤64 chars), 3: mark_id (u32 — monotonic per controller-run)}`. Sensors **MUST** ignore when not in `Recording`. Per SPEC-R2-WORKSHOP-CAPTURE §3 row 5 + §7.5. |
+| 46 | `r2.dash.capture.event_marked` | dash → viewer | Status broadcast confirming an event mark was issued. Payload `{1: ts_ms (u64), 2: label (text), 3: mark_id (u32), 4: session_stem (text)}`. Sent on every `r2.dash.cmd.capture.event_mark` regardless of whether any sensor has yet written its sidecar — viewers render the marker immediately. |
+| 47 | `r2.dash.cmd.capture.event_mark` | viewer → controller | Operator action: place an event mark in the current capture. Payload `{0: req_id (u32), 1: label (text, ≤64 chars — empty string substitutes `"mark"`)}`. Controller stamps `ts_ms`, assigns `mark_id`, fans out row 45 to every connected peer, and emits row 46 on `/r2`. Per SPEC-R2-WORKSHOP-CAPTURE §7.5. |
 
 Implementations MUST treat unknown event hashes as receivable but
 non-actionable — log them and move on; never close the connection over
@@ -423,6 +427,67 @@ SHOULD log a warning. See `SPEC-R2-WORKSHOP-SENSOR` §OTA.
 A factory reset triggers re-pairing on next boot — the sensor will
 generate a fresh `device_pk` and re-announce.
 
+### 4.9 `r2.dash.capture.event_mark` (row 45)
+
+| CBOR key | Type | Description |
+|---|---|---|
+| 1 | u64 | `ts_ms` — controller-stamped epoch milliseconds |
+| 2 | text | `label` — operator-supplied annotation, ≤64 UTF-8 bytes |
+| 3 | u32 | `mark_id` — monotonic counter per controller-run |
+
+Sensors MUST inspect their `CurrentRecording` lock on receipt. If
+no capture is open the event is silently dropped (it carries no
+binding for an Idle sensor). If a capture is open, the sensor
+appends one RFC-4180-escaped row to the sidecar
+`<stem>.marks.csv` per SPEC-R2-WORKSHOP-CAPTURE §4.1 and fsyncs.
+
+### 4.10 `r2.dash.capture.synced` (row 44)
+
+| CBOR key | Type | Description |
+|---|---|---|
+| 1 | text | `device_pk` — 64 lowercase hex chars |
+| 2 | text | `sensor_filename` — the name as it exists on the sensor SD |
+| 3 | u32  | `size` — bytes written to the controller-local store |
+| 4 | u64  | `ts_ms` — when the local-write completed |
+| 5 | text | `kind` — `"data"` for the main capture file, `"marks"` for a sidecar |
+
+Emitted by the controller on `/r2` after each successful
+local-write per SPEC-R2-WORKSHOP-CAPTURE §7.4. Viewers use it to
+update the Data tab's session-row sync badge in real time.
+
+### 4.11 `r2.dash.capture.event_marked` (row 46)
+
+| CBOR key | Type | Description |
+|---|---|---|
+| 1 | u64  | `ts_ms` — same as the fan-out event |
+| 2 | text | `label` |
+| 3 | u32  | `mark_id` |
+| 4 | text | `session_stem` — the active capture's `<prefix>-<name>` (without `.csv`) at the moment the mark was issued |
+
+Emitted by the controller on every successful
+`r2.dash.cmd.capture.event_mark` regardless of sensor sidecar
+status — gives the operator immediate UI feedback. Per
+SPEC-R2-WORKSHOP-CAPTURE §7.5.
+
+### 4.12 `r2.dash.cmd.capture.event_mark` (row 47)
+
+| CBOR key | Type | Description |
+|---|---|---|
+| 0 | u32  | `req_id` (operator-plane framework §2.1) |
+| 1 | text | `label` — ≤64 UTF-8 bytes; empty string substitutes `"mark"` |
+
+Operator-plane cmd: viewer → controller. Controller stamps a
+fresh `ts_ms` from its own clock, assigns a monotonic `mark_id`,
+fans out row 45, emits row 46, and finally a `r2.dash.cmd.response`
+with `kind: "capture.event_mark"`. If no capture is currently
+active across the fleet the controller MAY return
+`status: "ok"` (the mark was recorded as an intent — viewers
+still see the marker on /r2; sensors that weren't Recording
+ignored it), or `status: "err", message: "no active capture"`
+when the controller knows the fleet is fully Idle. The webapp
+SHOULD gate the button on at least one peer reporting
+`capture_state = 2` so the err path is rare.
+
 ---
 
 ## 5. Sequencing & retention
@@ -618,6 +683,7 @@ applies uniformly.
 |---|---|---|
 | 2026-05-06 | 0.1 | Initial draft. Event inventory, CBOR schemas, sequencing, calibration, time-sync. |
 | 2026-05-07 | 0.1.1 | §3.4 clarified: `charging` field reserved but unused in v0.1 (no on-board charger); always emitted as `false`. |
+| 2026-05-26 | 0.2 | Auto-sync + event marks: add rows 44 `r2.dash.capture.synced`, 45 `r2.dash.capture.event_mark`, 46 `r2.dash.capture.event_marked`, 47 `r2.dash.cmd.capture.event_mark`, with per-event detail sections §4.9–§4.12. |
 
 ## Appendix A — Event-name to FNV-1a-32 hashes
 

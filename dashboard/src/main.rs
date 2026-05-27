@@ -10,6 +10,7 @@
 //!   Browser --POST /api/bootstrap--> Gateway --BLE--> Sensor discovery
 
 mod access;
+mod captures;
 mod relay;
 
 use axum::{
@@ -77,6 +78,12 @@ const DASH_CAPTURE_START:     u32 = r2_fnv::fnv1a_32(b"r2.dash.capture.start");
 const DASH_CAPTURE_MARK:      u32 = r2_fnv::fnv1a_32(b"r2.dash.capture.mark");
 const DASH_CAPTURE_STOP:      u32 = r2_fnv::fnv1a_32(b"r2.dash.capture.stop");
 const SENSOR_CAPTURE_STATE:   u32 = r2_fnv::fnv1a_32(b"r2.sensor.capture.state");
+// Auto-sync + event marks (SPEC-R2-WORKSHOP-CAPTURE §7.4 + §7.5,
+// SPEC-R2-WORKSHOP-WIRE rows 44–47, added 2026-05-26).
+const DASH_CAPTURE_SYNCED:    u32 = r2_fnv::fnv1a_32(b"r2.dash.capture.synced");
+const DASH_CAPTURE_SYNC_STARTED: u32 = r2_fnv::fnv1a_32(b"r2.dash.capture.sync_started");
+const DASH_CAPTURE_EVENT_MARK:   u32 = r2_fnv::fnv1a_32(b"r2.dash.capture.event_mark");
+const DASH_CAPTURE_EVENT_MARKED: u32 = r2_fnv::fnv1a_32(b"r2.dash.capture.event_marked");
 
 // Track C operator-plane events (viewer → controller). Per
 // SPEC-R2-WORKSHOP-WIRE §2.1, viewer hives send these inbound on
@@ -86,6 +93,7 @@ const SENSOR_CAPTURE_STATE:   u32 = r2_fnv::fnv1a_32(b"r2.sensor.capture.state")
 const DASH_CMD_CAPTURE_START: u32 = r2_fnv::fnv1a_32(b"r2.dash.cmd.capture.start");
 const DASH_CMD_CAPTURE_MARK:  u32 = r2_fnv::fnv1a_32(b"r2.dash.cmd.capture.mark");
 const DASH_CMD_CAPTURE_STOP:  u32 = r2_fnv::fnv1a_32(b"r2.dash.cmd.capture.stop");
+const DASH_CMD_CAPTURE_EVENT_MARK: u32 = r2_fnv::fnv1a_32(b"r2.dash.cmd.capture.event_mark");
 const DASH_CMD_RESET:         u32 = r2_fnv::fnv1a_32(b"r2.dash.cmd.reset");
 const DASH_CMD_IDENTIFY:      u32 = r2_fnv::fnv1a_32(b"r2.dash.cmd.identify");
 const DASH_CMD_BOOTSTRAP:     u32 = r2_fnv::fnv1a_32(b"r2.dash.cmd.bootstrap");
@@ -111,6 +119,11 @@ fn event_name(hash: u32) -> &'static str {
         SENSOR_SYNC_PONG          => "r2.sensor.sync_pong",
         SENSOR_ANNOUNCE           => "r2.sensor.announce",
         SENSOR_CAPTURE_STATE      => "r2.sensor.capture.state",
+        DASH_CAPTURE_SYNCED       => "r2.dash.capture.synced",
+        DASH_CAPTURE_SYNC_STARTED => "r2.dash.capture.sync_started",
+        DASH_CAPTURE_EVENT_MARK   => "r2.dash.capture.event_mark",
+        DASH_CAPTURE_EVENT_MARKED => "r2.dash.capture.event_marked",
+        DASH_CMD_CAPTURE_EVENT_MARK => "r2.dash.cmd.capture.event_mark",
         _                         => "unknown",
     }
 }
@@ -301,10 +314,27 @@ struct SensorPeer {
     /// Replaying the cached state on /r2 open re-syncs the UI
     /// without needing a round-trip to the sensor.
     last_capture_state: Option<Vec<u8>>,
+    /// Decoded form of `last_capture_state`, kept in lockstep with the
+    /// raw frame. Used by the auto-sync engine (SPEC-R2-WORKSHOP-
+    /// CAPTURE §7.4) to detect `Recording → Idle` transitions and the
+    /// filename that just got finalised. `None` if we've never seen a
+    /// state event for this peer.
+    last_capture_decoded: Option<CaptureStateSnapshot>,
     /// Per-peer time-sync state per SPEC-R2-WORKSHOP-TIMESYNC §3.
     /// Updated by both the sync_pulse-sender task and the sync_pong
     /// handler in the read loop, hence Mutex-wrapped.
     sync: Arc<Mutex<PeerSyncState>>,
+}
+
+/// Decoded snapshot of `r2.sensor.capture.state` (WIRE row 20). Cached
+/// per-peer so the auto-sync engine can detect transitions without
+/// re-decoding the raw frame on every event. State values match the
+/// firmware's `CaptureState` enum: 0 = Idle, 1 = Calibrating, 2 =
+/// Recording. `filename` is the open file when `state == 2`.
+#[derive(Debug, Clone)]
+struct CaptureStateSnapshot {
+    state: u8,
+    filename: Option<String>,
 }
 
 /// Cristian's-algorithm time-sync state, per peer. The dashboard sends
@@ -699,6 +729,11 @@ struct AppState {
     /// name — pushing aliases into firmware NVS is a follow-up task
     /// (see project memory `heterogeneous-fleet-open-question.md`).
     device_aliases: Arc<Mutex<HashMap<String, String>>>,
+    /// Controller-local capture store + auto-sync bookkeeping per
+    /// SPEC-R2-WORKSHOP-CAPTURE §7.4. Lazy-fetched files land under
+    /// `$XDG_DATA_HOME/r2-workshop/captures/`; the `r2.dash.capture.
+    /// synced` event broadcasts each successful write.
+    captures: Arc<captures::CapturesStore>,
 }
 
 const FIRMWARE_CACHE_TTL_SECS: u64 = 300;
@@ -764,6 +799,22 @@ async fn main() {
     // Load persisted device aliases (renames survive dashboard restarts).
     let device_aliases = Arc::new(Mutex::new(load_device_aliases()));
 
+    // SPEC-R2-WORKSHOP-CAPTURE §7.4: controller-local capture store.
+    // Scans `$XDG_DATA_HOME/r2-workshop/captures/` on startup so files
+    // synced in a previous run are immediately visible — restart-safe
+    // by design (the directory itself is the source of truth).
+    let captures = match captures::CapturesStore::load().await {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("[captures] failed to initialise store: {e} — auto-sync disabled");
+            // Fail soft: keep the dashboard runnable; sync engine will
+            // no-op when the directory is unwritable. Use an in-memory
+            // fallback so the rest of AppState stays simple. (Rebuilding
+            // the dir later requires a restart.)
+            captures::CapturesStore::load().await.expect("captures fallback")
+        }
+    };
+
     let state = Arc::new(AppState {
         event_tx: event_tx.clone(),
         raw_frame_tx: raw_frame_tx.clone(),
@@ -774,7 +825,27 @@ async fn main() {
         access: access_handle.clone(),
         relay_binary_tx: relay_binary_tx.clone(),
         device_aliases,
+        captures,
     });
+
+    // SPEC-R2-WORKSHOP-CAPTURE §7.4 — reconciliation poll for auto-
+    // sync. Every 60 s, for each connected peer: LIST via data_tcp,
+    // diff against the CapturesStore index, fetch anything missing.
+    // The primary trigger is the Recording → Idle transition watcher
+    // wired into the per-peer dispatch loop; this loop catches files
+    // missed during dashboard downtime, late sensor reconnects, etc.
+    {
+        let recon_state = state.clone();
+        tokio::spawn(async move {
+            // First pass after 5 s so newly-connected sensors have a
+            // chance to settle; thereafter every 60 s.
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            loop {
+                reconcile_captures_pass(&recon_state).await;
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            }
+        });
+    }
 
     // Phase 5 / SPEC-R2-WORKSHOP-ACCESS §5.2 — off-network viewer path
     // via the R2 relay. Only spawn when both --relay-url is set AND
@@ -852,6 +923,13 @@ async fn main() {
         .route("/api/data/{addr}/all",         axum::routing::delete(data_delete_all_handler))
         .route("/api/data/merged",             get(data_merged_handler))
         .route("/api/data/zip",                get(data_zip_handler))
+        // SPEC-R2-WORKSHOP-CAPTURE §7.4 + SPEC-R2-WORKSHOP-DASHBOARD §5.1:
+        // controller-local capture store. Sessions-first index + single-
+        // file download served straight from `$XDG_DATA_HOME/r2-workshop/
+        // captures/` — works while sensors are offline.
+        .route("/api/data/local/list",         get(data_local_list_handler))
+        .route("/api/data/local/file/{name}",  get(data_local_file_handler))
+        .route("/api/data/local/all",          axum::routing::delete(data_local_delete_all_handler))
         // Operator-assigned device aliases. Persisted to
         // ~/.config/r2-workshop/device_aliases.json. Read by every
         // dashboard browser session on load + applied on top of the
@@ -1357,6 +1435,7 @@ async fn handle_sensor_connection(stream: TcpStream, addr: SocketAddr, state: Ar
             device_pk: None,
             last_announce: None,
             last_capture_state: None,
+            last_capture_decoded: None,
             sync: sync_state.clone(),
         });
     }
@@ -1551,10 +1630,44 @@ async fn handle_sensor_connection(stream: TcpStream, addr: SocketAddr, state: Ar
                         // to the actual sensor state without waiting for the
                         // next start/mark/stop transition (sensors only emit
                         // capture.state on transitions, not periodically).
-                        if event_hash == Some(SENSOR_CAPTURE_STATE) {
-                            let mut peers = read_state.peers.write().await;
-                            if let Some(peer) = peers.get_mut(&addr) {
-                                peer.last_capture_state = Some(frame.clone());
+                        //
+                        // ALSO — SPEC-R2-WORKSHOP-CAPTURE §7.4 — decode the
+                        // payload so the auto-sync engine can detect
+                        // `Recording → Idle` transitions and spawn a fetch
+                        // for the file that just got finalised on the
+                        // sensor's SD.
+                        if event_hash == Some(SENSOR_CAPTURE_STATE) && frame.len() > 12 {
+                            let decoded = decode_capture_state(&frame[12..]);
+                            // Snapshot the previous decoded state, then
+                            // write the new one. Done under the same
+                            // lock so we don't lose a transition under
+                            // concurrent state events from one peer.
+                            let prev = {
+                                let mut peers = read_state.peers.write().await;
+                                if let Some(peer) = peers.get_mut(&addr) {
+                                    peer.last_capture_state = Some(frame.clone());
+                                    let prev = peer.last_capture_decoded.clone();
+                                    peer.last_capture_decoded = decoded.clone();
+                                    prev
+                                } else {
+                                    None
+                                }
+                            };
+                            // Recording (2) → Idle (0) transition: the
+                            // sensor just fsync'd and closed the file
+                            // named in the PREVIOUS state. Spawn a
+                            // detached fetch so we don't block the
+                            // per-peer dispatch loop on network I/O.
+                            if let (Some(prev), Some(new)) = (prev.as_ref(), decoded.as_ref()) {
+                                if prev.state == 2 && new.state == 0 {
+                                    if let Some(fname) = prev.filename.clone() {
+                                        let state_clone = Arc::clone(&read_state);
+                                        let addr_str = addr.to_string();
+                                        tokio::spawn(async move {
+                                            sync_capture_from_sensor(state_clone, addr_str, fname).await;
+                                        });
+                                    }
+                                }
                             }
                         }
 
@@ -1682,6 +1795,38 @@ async fn handle_sensor_connection(stream: TcpStream, addr: SocketAddr, state: Ar
                                     }
                                     peer.last_announce = Some(frame.clone());
                                 }
+                            }
+
+                            // SPEC-R2-WORKSHOP-CAPTURE §7.4 — immediate
+                            // reconciliation pass for this peer the
+                            // moment its announce verifies. Eliminates
+                            // the 0-60 s blind window where a sensor
+                            // that just reset (mid-experiment power
+                            // glitch, reboot, etc.) has files on its SD
+                            // that the fleet-wide poll hasn't yet seen.
+                            // Spawned detached so the per-peer dispatch
+                            // loop isn't blocked on network I/O.
+                            if let Some(pk) = device_pk_hex.clone() {
+                                let ip_only = addr.ip().to_string();
+                                let alias = {
+                                    let g = read_state.device_aliases.lock().await;
+                                    g.get(&pk).cloned()
+                                };
+                                let raw_name = alias.unwrap_or_else(|| ip_only.replace('.', "_"));
+                                let device_safe: String = raw_name.chars()
+                                    .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+                                    .collect();
+                                let recon_state = Arc::clone(&read_state);
+                                tokio::spawn(async move {
+                                    // Small settle delay — the announce
+                                    // arrives before the firmware is
+                                    // necessarily ready to serve the
+                                    // data_tcp listener (port 21047 is
+                                    // a separate task that comes up
+                                    // shortly after the streaming TCP).
+                                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                                    reconcile_single_peer(&recon_state, &ip_only, &pk, &device_safe).await;
+                                });
                             }
 
                             let now = std::time::SystemTime::now()
@@ -2537,6 +2682,32 @@ async fn dispatch_cmd_frame(state: &Arc<AppState>, peer_addr: SocketAddr, body: 
             let _peers = do_capture_stop(state).await;
             emit_cmd_response(state, req_id, "ok", None, "capture.stop");
         }
+        DASH_CMD_CAPTURE_EVENT_MARK => {
+            // SPEC-R2-WORKSHOP-CAPTURE §7.5: operator-paced annotation
+            // injected into the active capture's sidecar. Label
+            // defaults to "mark" if omitted/empty.
+            let label_raw = payload.get("1").and_then(|v| v.as_str()).unwrap_or("");
+            let label_owned;
+            let label: &str = if label_raw.is_empty() {
+                "mark"
+            } else if label_raw.len() > 64 {
+                // RFC-4180 escaping is sensor-side; we just gate length
+                // before letting the bytes loose on the wire.
+                label_owned = label_raw[..64].to_string();
+                &label_owned
+            } else {
+                label_raw
+            };
+            match do_capture_event_mark(state, label).await {
+                Ok((sent, _ts_ms, _mark_id)) if sent > 0 => {
+                    emit_cmd_response(state, req_id, "ok", None, "capture.event_mark");
+                }
+                Ok(_) => {
+                    emit_cmd_response(state, req_id, "err", Some("no active capture"), "capture.event_mark");
+                }
+                Err(msg) => emit_cmd_response(state, req_id, "err", Some(&msg), "capture.event_mark"),
+            }
+        }
         DASH_CMD_RESET => {
             let addr = match payload.get("1").and_then(|v| v.as_str()) {
                 Some(s) => s.to_string(),
@@ -2821,6 +2992,41 @@ async fn handle_ws_raw(mut socket: WebSocket, state: Arc<AppState>, peer_addr: S
                     src: addr.to_string(),
                     ts_ms: now_ms,
                     frame: frame.clone(),
+                });
+                if socket.send(Message::Binary(envelope.into())).await.is_err() {
+                    return;
+                }
+            }
+        }
+
+        // SPEC-R2-WORKSHOP-CAPTURE §7.4: replay the controller-local
+        // capture index as `r2.dash.capture.synced` events so the Data
+        // tab is populated on first open — no `/api/data/local/list`
+        // round-trip, no HTTP coupling. Same path works LAN + relay:
+        // remote viewers see the index over their WS even though the
+        // file-blob `/api` routes aren't reachable from their origin.
+        let sessions = state.captures.list_sessions().await;
+        for session in &sessions {
+            for entry in &session.files {
+                let kind_str = match entry.kind {
+                    captures::CaptureKind::Data => "data",
+                    captures::CaptureKind::Marks => "marks",
+                };
+                let mut buf = vec![0u8; 64 + entry.device_pk.len() + entry.sensor_filename.len() + kind_str.len()];
+                let mut enc = r2_cbor::Encoder::new(&mut buf);
+                let _ = enc.map(5);
+                let _ = enc.kv(1, &r2_cbor::Value::Text(&entry.device_pk));
+                let _ = enc.kv(2, &r2_cbor::Value::Text(&entry.sensor_filename));
+                let _ = enc.kv(3, &r2_cbor::Value::UInt(entry.size));
+                let _ = enc.kv(4, &r2_cbor::Value::UInt(entry.fetched_at_ms));
+                let _ = enc.kv(5, &r2_cbor::Value::Text(kind_str));
+                let used = enc.len();
+                buf.truncate(used);
+                let frame = build_dash_frame_body(DASH_CAPTURE_SYNCED, 0, &buf);
+                let envelope = encode_raw_frame_envelope(&RawFrame {
+                    src: "dash".to_string(),
+                    ts_ms: now_ms,
+                    frame,
                 });
                 if socket.send(Message::Binary(envelope.into())).await.is_err() {
                     return;
@@ -3365,6 +3571,102 @@ async fn do_capture_stop(state: &Arc<AppState>) -> usize {
     sent
 }
 
+/// SPEC-R2-WORKSHOP-CAPTURE §7.5: controller-stamped event-mark
+/// fan-out. Returns `(peers_sent, ts_ms, mark_id)`. `peers_sent` is
+/// the count of currently-Recording peers we reached; if zero, the
+/// caller responds with "no active capture".
+async fn do_capture_event_mark(
+    state: &Arc<AppState>,
+    label: &str,
+) -> Result<(usize, i64, u32), String> {
+    let ts_ms = dash_wall_ms() as i64;
+    let mark_id = state.captures.next_mark_id();
+
+    // Identify the active session_stem by reading any one peer's
+    // last_capture_decoded — every Recording peer is on the same
+    // session (controller fans out one filename per Mark). Snapshot
+    // under the read lock; release before encoding/sending.
+    let (session_stem, recording_peers) = {
+        let peers = state.peers.read().await;
+        let mut stem: Option<String> = None;
+        let mut count = 0usize;
+        for (_, p) in peers.iter() {
+            if let Some(s) = &p.last_capture_decoded {
+                if s.state == 2 {
+                    count += 1;
+                    if stem.is_none() {
+                        // Strip the .csv suffix to match the wire
+                        // payload's session_stem convention (CAPTURE
+                        // §7.5 row 46 key 4).
+                        if let Some(fname) = &s.filename {
+                            stem = Some(fname.strip_suffix(".csv").unwrap_or(fname).to_string());
+                        }
+                    }
+                }
+            }
+        }
+        (stem, count)
+    };
+
+    if recording_peers == 0 {
+        return Ok((0, ts_ms, mark_id));
+    }
+
+    // Fan out the per-sensor event_mark frame.
+    let payload = encode_capture_event_mark(ts_ms as u64, label, mark_id);
+    let sent = fan_out_dash_frame(state, DASH_CAPTURE_EVENT_MARK, (mark_id & 0xFFFF) as u16, payload).await;
+
+    // Status broadcast on /r2 so every viewer renders the marker
+    // immediately, regardless of whether the sidecar has synced.
+    broadcast_event_marked(state, ts_ms as u64, label, mark_id, session_stem.as_deref().unwrap_or("")).await;
+    Ok((sent, ts_ms, mark_id))
+}
+
+/// Encode `r2.dash.capture.event_mark` payload (SPEC-R2-WORKSHOP-WIRE
+/// row 45): `{1: u64 ts_ms, 2: str label, 3: u32 mark_id}`.
+fn encode_capture_event_mark(ts_ms: u64, label: &str, mark_id: u32) -> Vec<u8> {
+    let mut buf = vec![0u8; 32 + label.len()];
+    let used = {
+        let mut enc = r2_cbor::Encoder::new(&mut buf);
+        let _ = enc.map(3);
+        let _ = enc.kv(1, &r2_cbor::Value::UInt(ts_ms));
+        let _ = enc.kv(2, &r2_cbor::Value::Text(label));
+        let _ = enc.kv(3, &r2_cbor::Value::UInt(mark_id as u64));
+        enc.len()
+    };
+    buf[..used].to_vec()
+}
+
+/// Emit `r2.dash.capture.event_marked` (WIRE row 46) on `/r2`.
+async fn broadcast_event_marked(
+    state: &Arc<AppState>,
+    ts_ms: u64,
+    label: &str,
+    mark_id: u32,
+    session_stem: &str,
+) {
+    let mut buf = vec![0u8; 64 + label.len() + session_stem.len()];
+    let mut enc = r2_cbor::Encoder::new(&mut buf);
+    let _ = enc.map(4);
+    let _ = enc.kv(1, &r2_cbor::Value::UInt(ts_ms));
+    let _ = enc.kv(2, &r2_cbor::Value::Text(label));
+    let _ = enc.kv(3, &r2_cbor::Value::UInt(mark_id as u64));
+    let _ = enc.kv(4, &r2_cbor::Value::Text(session_stem));
+    let used = enc.len();
+    buf.truncate(used);
+
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let frame = build_dash_frame_body(DASH_CAPTURE_EVENT_MARKED, 0, &buf);
+    let _ = state.raw_frame_tx.send(RawFrame {
+        src: "dash".to_string(),
+        ts_ms: now_ms,
+        frame,
+    });
+}
+
 fn is_valid_capture_name(n: &str) -> bool {
     !n.is_empty() && n.len() <= 32 && n.bytes().all(|b| matches!(
         b, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'_' | b'-'
@@ -3611,6 +3913,19 @@ async fn data_delete_all_handler(Path(addr): Path<String>) -> impl IntoResponse 
 /// row per bucket per sensor — with N chosen above the sample period
 /// (samples land at ~10 ms), every bucket has an entry for every
 /// sensor and the timestamps line up across columns.
+/// Tiny RFC-4180 unescape — used by the merged-CSV mark column to
+/// recover the operator's original label from the sidecar file's
+/// quoted-and-doubled form. Conservative: anything that isn't a
+/// `"…"`-wrapped field passes through unchanged.
+fn unquote_csv(s: &str) -> String {
+    let s = s.trim();
+    if s.starts_with('"') && s.ends_with('"') && s.len() >= 2 {
+        s[1..s.len() - 1].replace("\"\"", "\"")
+    } else {
+        s.to_string()
+    }
+}
+
 async fn data_merged_handler(
     State(state): State<Arc<AppState>>,
     axum::extract::Query(q): axum::extract::Query<HashMap<String, String>>,
@@ -3625,28 +3940,99 @@ async fn data_merged_handler(
         .and_then(|s| s.parse::<i64>().ok())
         .filter(|&n| n > 0 && n <= 60_000);
 
-    // Sort peer IPs so column order is stable across runs (the natural
-    // peer-map order is hash-based and would shuffle headers between
-    // downloads, breaking any downstream tooling pinned to column
-    // positions).
-    let mut peer_addrs: Vec<String> = {
-        let peers = state.peers.read().await;
-        peers.keys().map(|a| a.ip().to_string()).collect()
+    // v0.2 (SPEC-R2-WORKSHOP-CAPTURE §7.4): source from the
+    // controller-local store rather than dialling every connected
+    // peer's data_tcp. Works even when sensors are offline + naturally
+    // includes the event-mark sidecars (`<stem>.marks.csv`) which the
+    // per-sensor live-fetch path couldn't see.
+    let stem = name.strip_suffix(".csv").unwrap_or(&name);
+    let sessions = state.captures.list_sessions().await;
+    let Some(session) = sessions.into_iter().find(|s| s.session_stem == stem) else {
+        return (
+            axum::http::StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": format!("session-stem {:?} not in controller-local store", stem)})),
+        ).into_response();
     };
-    peer_addrs.sort();
 
-    let mut fetched: Vec<(String, Vec<u8>)> = Vec::with_capacity(peer_addrs.len());
-    for addr in &peer_addrs {
-        match fetch_capture_bytes(addr, &name).await {
-            Ok(bytes) => fetched.push((addr.clone(), bytes)),
-            Err(e) => eprintln!("[merge] {} {}: {}", addr, name, e),
+    // Per-device data files for this session, in sorted-alias order
+    // (stable header). Sidecars are pulled out separately so the
+    // mark column is filled in.
+    let mut data_entries: Vec<captures::CaptureEntry> = session.files.iter()
+        .filter(|e| e.kind == captures::CaptureKind::Data)
+        .cloned()
+        .collect();
+    data_entries.sort_by(|a, b| a.device_safe.cmp(&b.device_safe));
+    let marks_entries: Vec<&captures::CaptureEntry> = session.files.iter()
+        .filter(|e| e.kind == captures::CaptureKind::Marks)
+        .collect();
+
+    if data_entries.is_empty() {
+        return (
+            axum::http::StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "no data files synced for this session yet"})),
+        ).into_response();
+    }
+
+    // Load each per-device file off disk. For the merged path the
+    // CSV header (line 1 from the controller-local store) is skipped:
+    // we re-emit our own header below. Map (device_safe → raw bytes
+    // post-header), preserving sorted order for column stability.
+    let mut fetched: Vec<(String, Vec<u8>)> = Vec::with_capacity(data_entries.len());
+    for e in &data_entries {
+        match std::fs::read(&e.controller_path) {
+            Ok(bytes) => {
+                // Strip the first line (the spliced CSV header — see
+                // CapturesStore::write_data — `seq,ts_ms,<dev>_x,…\n`).
+                // The merged path doesn't want the per-file header
+                // in-band; it'd corrupt the row-parser below.
+                let body = match bytes.iter().position(|&b| b == b'\n') {
+                    Some(nl) => bytes[nl + 1..].to_vec(),
+                    None     => bytes,
+                };
+                fetched.push((e.device_safe.clone(), body));
+            }
+            Err(err) => {
+                eprintln!("[merge] read {:?}: {}", e.controller_path, err);
+            }
         }
     }
     if fetched.is_empty() {
         return (
             axum::http::StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "no sensor returned this file"})),
+            Json(serde_json::json!({"error": "captures dir read failed for every device"})),
         ).into_response();
+    }
+
+    // Parse marks sidecars (SPEC-R2-WORKSHOP-CAPTURE §4.1):
+    //   # r2-workshop event marks v1
+    //   ts_ms,mark_id,label
+    //   <rows>
+    // De-dup across devices on (ts_ms, mark_id) — same event lands
+    // in every sensor's sidecar so they should agree.
+    let mut marks: std::collections::BTreeMap<i64, Vec<String>> =
+        std::collections::BTreeMap::new();
+    let mut seen_mark_ids: std::collections::HashSet<(i64, u32)> =
+        std::collections::HashSet::new();
+    for e in marks_entries {
+        let Ok(text) = std::fs::read_to_string(&e.controller_path) else { continue; };
+        for (i, line) in text.lines().enumerate() {
+            // Skip the "# r2-workshop event marks v1" header + the
+            // CSV column line. Either-or — operator could rebuild the
+            // file by hand; just be permissive.
+            if i < 2 && (line.starts_with('#') || line.starts_with("ts_ms")) { continue; }
+            if line.is_empty() { continue; }
+            // Minimal RFC-4180 split: label may be quoted with
+            // doubled-quote escapes.
+            let mut parts = line.splitn(3, ',');
+            let Some(ts_s) = parts.next() else { continue; };
+            let Some(mid_s) = parts.next() else { continue; };
+            let label_raw = parts.next().unwrap_or("");
+            let Ok(ts) = ts_s.trim().parse::<i64>() else { continue; };
+            let Ok(mid) = mid_s.trim().parse::<u32>() else { continue; };
+            if !seen_mark_ids.insert((ts, mid)) { continue; }
+            let label = unquote_csv(label_raw);
+            marks.entry(ts).or_default().push(label);
+        }
     }
 
     // Fixed-width capture row (SPEC-R2-WORKSHOP-CAPTURE §4 +
@@ -3706,48 +4092,78 @@ async fn data_merged_handler(
         }
     }
 
-    // Column-name pass: prefer the operator-assigned alias for each
-    // sensor (looked up via device_pk per peer's last announce).
-    // Falls back to the raw IP if no alias is set.
-    let aliases_snapshot = {
-        let g = state.device_aliases.lock().await;
-        g.clone()
+    // Attach each mark to the row with the nearest ts_ms. No
+    // synthetic rows: a mark whose nearest sample is many ms away
+    // still rides on that row (analyst sees the marker; the mark's
+    // own ts_ms is preserved in the sidecar file if they need the
+    // exact stamp). Same rule for raw and binned modes — the row
+    // timestamps differ (sample ts vs bucket ts) but the
+    // closest-neighbour lookup is identical.
+    //
+    // Implementation: build the sorted row-key set (sample ts in
+    // raw mode, bucket ts in bin mode), then for each mark use
+    // BTreeMap::range to find the immediate neighbours and pick
+    // the closer one.
+    let row_keys: std::collections::BTreeSet<i64> = if bin_ms.is_some() {
+        buckets.keys().copied().collect()
+    } else {
+        by_ts.keys().copied().collect()
     };
-    // Map peer IP → device_pk hex. SensorPeer.device_pk is set when
-    // the announce is decoded (handle_sensor_connection); reading it
-    // out beats scanning the raw CBOR for a literal string, which
-    // doesn't work because the CBOR uses integer keys.
-    let pk_by_ip: HashMap<String, String> = {
-        let peers = state.peers.read().await;
-        peers.iter().filter_map(|(sa, p)| {
-            p.device_pk.as_ref().map(|pk| (sa.ip().to_string(), pk.clone()))
-        }).collect()
-    };
-    let display_name_for = |ip: &str| -> String {
-        if let Some(pk) = pk_by_ip.get(ip) {
-            if let Some(alias) = aliases_snapshot.get(pk) {
-                return alias.clone();
+    let mut marks_by_key: std::collections::BTreeMap<i64, Vec<String>> =
+        std::collections::BTreeMap::new();
+    for (&mark_ts, labels) in &marks {
+        // Find the row ts closest to this mark.
+        let mut below = row_keys.range(..=mark_ts).next_back().copied();
+        let mut above = row_keys.range(mark_ts..).next().copied();
+        // Edge case: mark_ts itself might be a row ts; the .. ranges
+        // above already handle that (below = mark_ts, above = mark_ts).
+        let closest = match (below.take(), above.take()) {
+            (Some(b), Some(a)) => {
+                if (mark_ts - b).abs() <= (a - mark_ts).abs() { Some(b) } else { Some(a) }
             }
+            (Some(b), None) => Some(b),
+            (None, Some(a)) => Some(a),
+            (None, None)    => None, // no rows at all — mark is dropped
+        };
+        if let Some(key) = closest {
+            marks_by_key.entry(key).or_default().extend(labels.iter().cloned());
         }
-        ip.replace('.', "_")
+    }
+    let mark_for_key = |ts: i64| -> Option<String> {
+        marks_by_key.get(&ts).map(|labels| {
+            let joined = labels.join("; ");
+            if joined.contains(',') || joined.contains('"') || joined.contains('\n') {
+                format!("\"{}\"", joined.replace('"', "\"\""))
+            } else {
+                joined
+            }
+        })
     };
+    // No more mark-injection: every emitted row is a real sample
+    // row, mark column simply blank when no mark snapped to it.
+    let mark_keys: std::collections::BTreeSet<i64> = std::collections::BTreeSet::new();
 
     let mut output = String::with_capacity(64 * 1024);
-    // Header: ts_ms then three columns per sensor in sorted-IP order.
+    // Header: ts_ms then three columns per sensor in sorted-alias
+    // order, then a single "mark" column at the end. Mark is one
+    // text column so analysts can grep/filter without flattening
+    // multi-mark rows.
     output.push_str("ts_ms");
-    for (sensor_name, _) in &fetched {
-        let safe = display_name_for(sensor_name);
-        output.push(','); output.push_str(&safe); output.push_str("_x");
-        output.push(','); output.push_str(&safe); output.push_str("_y");
-        output.push(','); output.push_str(&safe); output.push_str("_z");
+    for (dev_safe, _) in &fetched {
+        output.push(','); output.push_str(dev_safe); output.push_str("_x");
+        output.push(','); output.push_str(dev_safe); output.push_str("_y");
+        output.push(','); output.push_str(dev_safe); output.push_str("_z");
     }
-    output.push('\n');
+    output.push_str(",mark\n");
 
     if bin_ms.is_some() {
-        // Emit mean(x/y/z) per bucket; blank trio when a sensor had no
-        // samples in that bucket.
-        for (ts, slots) in &buckets {
+        // Union of buckets that have samples AND buckets that hold a mark.
+        let mut all_keys: std::collections::BTreeSet<i64> = buckets.keys().copied().collect();
+        all_keys.extend(mark_keys.iter().copied());
+        for ts in &all_keys {
             output.push_str(&ts.to_string());
+            let empty_slots: Vec<Option<(f64, f64, f64, u32)>> = vec![None; fetched.len()];
+            let slots = buckets.get(ts).unwrap_or(&empty_slots);
             for slot in slots {
                 output.push(',');
                 if let Some((sx, sy, sz, n)) = slot {
@@ -3764,11 +4180,18 @@ async fn data_merged_handler(
                     output.push(','); output.push(',');
                 }
             }
+            output.push(',');
+            if let Some(m) = mark_for_key(*ts) { output.push_str(&m); }
             output.push('\n');
         }
     } else {
-        for (ts, slots) in &by_ts {
+        // Union of sample-rows and mark-rows.
+        let mut all_keys: std::collections::BTreeSet<i64> = by_ts.keys().copied().collect();
+        all_keys.extend(mark_keys.iter().copied());
+        for ts in &all_keys {
             output.push_str(&ts.to_string());
+            let empty_slots: Vec<Option<Triplet>> = vec![None; fetched.len()];
+            let slots = by_ts.get(ts).unwrap_or(&empty_slots);
             for slot in slots {
                 output.push(',');
                 if let Some((x, y, z)) = slot {
@@ -3776,11 +4199,11 @@ async fn data_merged_handler(
                     output.push_str(y); output.push(',');
                     output.push_str(z);
                 } else {
-                    // Three empty cells — blank means "no reading for this
-                    // ts_ms from this sensor", per the wide-merge contract.
                     output.push(','); output.push(',');
                 }
             }
+            output.push(',');
+            if let Some(m) = mark_for_key(*ts) { output.push_str(&m); }
             output.push('\n');
         }
     }
@@ -3814,25 +4237,20 @@ async fn data_zip_handler(
     use zip::CompressionMethod;
     use std::io::{Cursor, Write};
 
-    // Snapshot the connected-sensor IPs + their device-aliases up
-    // front, then release the locks before we hit the network. Avoids
-    // holding `state.peers` across .await boundaries.
-    let sensors: Vec<(String, Option<String>)> = {
-        let peers = state.peers.read().await;
-        let aliases = state.device_aliases.lock().await;
-        peers.iter()
-            .map(|(sa, p)| {
-                let ip = sa.ip().to_string();
-                let alias = p.device_pk.as_ref().and_then(|pk| aliases.get(pk).cloned());
-                (ip, alias)
-            })
-            .collect()
-    };
-
-    if sensors.is_empty() {
+    // v0.2 (SPEC-R2-WORKSHOP-DASHBOARD §5.1): bundle from the
+    // controller-local captures dir instead of round-tripping every
+    // connected sensor. Much faster, works while sensors are offline,
+    // and matches the operator's "data is already on the laptop" mental
+    // model after auto-sync (SPEC-R2-WORKSHOP-CAPTURE §7.4).
+    //
+    // Files in the captures dir are pre-spliced (main captures have
+    // the CSV header inline; sidecars are byte-for-byte). Both go
+    // into the zip as-is.
+    let sessions = state.captures.list_sessions().await;
+    if sessions.is_empty() {
         return (
             axum::http::StatusCode::NOT_FOUND,
-            "No sensors connected — nothing to bundle.".to_string(),
+            "No synced captures on the controller yet — connect sensors and run an experiment first.".to_string(),
         ).into_response();
     }
 
@@ -3844,47 +4262,22 @@ async fn data_zip_handler(
     let mut files_added: usize = 0;
     let mut errors: Vec<String> = Vec::new();
 
-    for (ip, alias) in sensors {
-        // Same device_safe derivation as data_get_handler — alias if
-        // set, else IP-with-underscores, then collapse anything that
-        // isn't [A-Za-z0-9_-] to '_' so the result is filename- and
-        // CSV-column-safe.
-        let raw_name = alias.clone().unwrap_or_else(|| ip.replace('.', "_"));
-        let device_safe: String = raw_name.chars()
-            .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
-            .collect();
-
-        // LIST on the data_tcp port — the sensor's IP plus the fixed
-        // 21047 (matches the existing data_list_handler convention).
-        let addr_listen = format!("{ip}:21047");
-        let listing = match list_files_on_sensor(&addr_listen).await {
-            Ok(v) => v,
-            Err(e) => {
-                errors.push(format!("{}: list failed: {}", device_safe, e));
-                continue;
-            }
-        };
-
-        for fname in listing {
-            let body = match fetch_file_on_sensor(&addr_listen, &fname).await {
+    for session in &sessions {
+        for entry in &session.files {
+            let body = match std::fs::read(&entry.controller_path) {
                 Ok(b) => b,
                 Err(e) => {
-                    errors.push(format!("{}/{}: get failed: {}", device_safe, fname, e));
+                    errors.push(format!("read {}: {}", entry.controller_path.display(), e));
                     continue;
                 }
             };
-
-            // Same CSV header + filename convention as data_get_handler.
-            let stem = fname.strip_suffix(".csv").unwrap_or(&fname);
-            let out_name = format!("{}__{}.csv", stem, device_safe);
-            let header_line = format!("seq,ts_ms,{0}_x,{0}_y,{0}_z\n", device_safe);
+            let out_name = entry.controller_path.file_name()
+                .and_then(|s| s.to_str())
+                .map(String::from)
+                .unwrap_or_else(|| format!("{}__{}.csv", entry.session_stem, entry.device_safe));
 
             if let Err(e) = zw.start_file(&out_name, opts) {
                 errors.push(format!("zip start_file {}: {}", out_name, e));
-                continue;
-            }
-            if let Err(e) = zw.write_all(header_line.as_bytes()) {
-                errors.push(format!("zip header {}: {}", out_name, e));
                 continue;
             }
             if let Err(e) = zw.write_all(&body) {
@@ -3896,9 +4289,7 @@ async fn data_zip_handler(
     }
 
     // Optional manifest with anything that went wrong. Keeps the zip
-    // self-describing — if a sensor was offline or a file got skipped,
-    // the operator sees it in the bundle instead of having to dig
-    // through the dashboard log later.
+    // self-describing.
     if !errors.is_empty() {
         let _ = zw.start_file("_errors.txt", opts);
         let _ = zw.write_all(errors.join("\n").as_bytes());
@@ -3914,7 +4305,7 @@ async fn data_zip_handler(
     if files_added == 0 {
         return (
             axum::http::StatusCode::NOT_FOUND,
-            "No capture files on any connected sensor.".to_string(),
+            "Controller-local store is empty.".to_string(),
         ).into_response();
     }
 
@@ -3944,6 +4335,65 @@ async fn data_zip_handler(
 /// names only — we don't need sizes/mtimes for the zip, just the
 /// names to GET. Mirrors the parsing in `data_list_handler` minus the
 /// JSON wrapping.
+/// `GET /api/data/local/list` — controller-local capture index per
+/// SPEC-R2-WORKSHOP-DASHBOARD §5.1 and SPEC-R2-WORKSHOP-CAPTURE §7.4.
+/// Returns the CapturesStore sessions view as JSON: one row per
+/// session-stem, with per-device files inside. Reflects what has
+/// actually synced to the laptop — works even when no sensor is
+/// currently connected.
+async fn data_local_list_handler(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let sessions = state.captures.list_sessions().await;
+    (axum::http::StatusCode::OK, Json(serde_json::json!({"sessions": sessions}))).into_response()
+}
+
+/// `DELETE /api/data/local/all` — wipe every synced file from the
+/// controller-local store. Pairs with the operator's "Delete all
+/// data" action; per-sensor DELETE_ALL remains the way to clear the
+/// sensor's SD ring.
+async fn data_local_delete_all_handler(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    match state.captures.clear_all().await {
+        Ok(n) => (axum::http::StatusCode::OK, Json(serde_json::json!({"ok": true, "removed": n}))).into_response(),
+        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"ok": false, "error": e.to_string()}))).into_response(),
+    }
+}
+
+/// `GET /api/data/local/file/{name}` — stream a single file from the
+/// controller-local captures dir per SPEC-R2-WORKSHOP-DASHBOARD §5.1.
+/// `{name}` is the `<stem>__<dev>.csv` (or `.marks.csv`) filename as
+/// it appears in the local/list response.
+async fn data_local_file_handler(
+    State(state): State<Arc<AppState>>,
+    Path(name): Path<String>,
+) -> impl IntoResponse {
+    // Path-traversal guard: only accept names that match the
+    // on-disk shape the captures store wrote. The store's lookup
+    // helper already filters by file_name() match against the index,
+    // so a bogus `../../etc/passwd` won't return Some(entry).
+    let Some(entry) = state.captures.lookup_on_disk_name(&name).await else {
+        return (axum::http::StatusCode::NOT_FOUND, "not in captures store").into_response();
+    };
+    let body = match tokio::fs::read(&entry.controller_path).await {
+        Ok(b) => b,
+        Err(e) => {
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                format!("read {}: {}", entry.controller_path.display(), e),
+            ).into_response();
+        }
+    };
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(axum::http::header::CONTENT_TYPE, "text/csv".parse().unwrap());
+    headers.insert(
+        axum::http::header::CONTENT_DISPOSITION,
+        format!("attachment; filename=\"{}\"", name).parse().unwrap(),
+    );
+    (axum::http::StatusCode::OK, headers, body).into_response()
+}
+
 async fn list_files_on_sensor(addr: &str) -> std::io::Result<Vec<String>> {
     let mut s = dial_data_tcp(addr).await?;
     s.write_all(&[0x01u8]).await?;
@@ -3971,6 +4421,279 @@ async fn list_files_on_sensor(addr: &str) -> std::io::Result<Vec<String>> {
         out.push(String::from_utf8_lossy(&name_buf).into_owned());
     }
     Ok(out)
+}
+
+/// Decode a `r2.sensor.capture.state` CBOR payload (WIRE row 20) into
+/// `(state, filename?)`. Returns `None` if the payload doesn't look
+/// like the expected map. Used by the auto-sync transition watcher
+/// (SPEC-R2-WORKSHOP-CAPTURE §7.4).
+fn decode_capture_state(payload: &[u8]) -> Option<CaptureStateSnapshot> {
+    let json = decode_cbor_payload(payload)?;
+    let obj = json.as_object()?;
+    // Payload keys are int-keyed CBOR; decode_cbor_payload stringifies
+    // them, so "0" is the state byte and "1" is the optional filename.
+    let state = obj.get("0").and_then(|v| v.as_u64())? as u8;
+    let filename = obj.get("1")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    Some(CaptureStateSnapshot { state, filename })
+}
+
+/// SPEC-R2-WORKSHOP-CAPTURE §7.4 — fetch a just-finalised capture
+/// file (and its event-mark sidecar if present) from the named sensor
+/// over `data_tcp` (port 21047), write under the controller-local
+/// captures dir with the device-stamped filename + CSV header, then
+/// emit `r2.dash.capture.synced` (WIRE row 44) for every viewer.
+///
+/// Detached: spawned from the per-peer dispatch loop on a
+/// `Recording → Idle` transition. Errors are logged but not
+/// propagated — the next reconciliation pass (§7.4) will retry.
+async fn sync_capture_from_sensor(
+    state: Arc<AppState>,
+    addr: String,
+    sensor_filename: String,
+) {
+    // device_pk + device_safe — same resolution path as
+    // data_get_handler / data_zip_handler. Snapshot under the locks,
+    // then release before hitting the network.
+    let ip_only = addr.split(':').next().unwrap_or(&addr).to_string();
+    let device_pk = {
+        let peers = state.peers.read().await;
+        peers.iter()
+            .find(|(sa, _)| sa.ip().to_string() == ip_only)
+            .and_then(|(_, p)| p.device_pk.clone())
+    };
+    let Some(device_pk) = device_pk else {
+        eprintln!("[sync] {addr}: no device_pk yet for {sensor_filename} — will retry next reconciliation pass");
+        return;
+    };
+    let alias = {
+        let g = state.device_aliases.lock().await;
+        g.get(&device_pk).cloned()
+    };
+    let raw_name = alias.unwrap_or_else(|| ip_only.replace('.', "_"));
+    let device_safe: String = raw_name.chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .collect();
+
+    // Idempotency: if we've already synced this (device_pk, filename),
+    // skip. Reconciliation pass can race with the transition watcher.
+    if state.captures.has(&device_pk, &sensor_filename).await {
+        return;
+    }
+
+    let addr_listen = format!("{ip_only}:{DATA_PORT}");
+
+    // Main capture file first. Wrap a short delay around the very
+    // first fetch attempt — the firmware emits `state=Idle` at the
+    // tail end of `stop()` so the fsync has landed; this gives the
+    // FAT cache a moment to settle on slow SD cards.
+    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+
+    // Tell viewers a sync is starting — they'll show a "Syncing…"
+    // pill on the matching session row until the synced event lands.
+    broadcast_sync_started(&state, &device_pk, &sensor_filename, "data").await;
+
+    match fetch_file_on_sensor(&addr_listen, &sensor_filename).await {
+        Ok(body) => {
+            match state.captures.write_data(&device_pk, &device_safe, &sensor_filename, &body, 0).await {
+                Ok(entry) => {
+                    eprintln!("[sync] {ip_only} → {} ({} bytes)",
+                        entry.controller_path.display(), entry.size);
+                    broadcast_synced(&state, &entry).await;
+                }
+                Err(e) => eprintln!("[sync] write {sensor_filename}: {e}"),
+            }
+        }
+        Err(e) => {
+            eprintln!("[sync] fetch {addr_listen} {sensor_filename}: {e}");
+            // No retry here — the 60 s reconciliation pass will pick
+            // it up. Return so we don't also try the sidecar fetch
+            // (which is doomed if the sensor TCP is unavailable).
+            return;
+        }
+    }
+
+    // Event-mark sidecar — same stem with `.marks.csv` suffix per
+    // SPEC-R2-WORKSHOP-CAPTURE §4.1. Optional: only exists when the
+    // operator hit Mark at least once during the recording. Fetch
+    // attempt is best-effort; ENOENT-style errors are silent.
+    let stem = sensor_filename.strip_suffix(".csv").unwrap_or(&sensor_filename);
+    let marks_name = format!("{stem}.marks.csv");
+    if state.captures.has(&device_pk, &marks_name).await {
+        return;
+    }
+    broadcast_sync_started(&state, &device_pk, &marks_name, "marks").await;
+    match fetch_file_on_sensor(&addr_listen, &marks_name).await {
+        Ok(body) => {
+            match state.captures.write_marks(&device_pk, &device_safe, &marks_name, &body, 0).await {
+                Ok(entry) => {
+                    eprintln!("[sync] {ip_only} → {} (sidecar, {} bytes)",
+                        entry.controller_path.display(), entry.size);
+                    broadcast_synced(&state, &entry).await;
+                }
+                Err(e) => eprintln!("[sync] write marks {marks_name}: {e}"),
+            }
+        }
+        Err(_) => {
+            // No sidecar — operator didn't Mark during this run.
+            // Silent. Reconciliation poll won't re-try because the
+            // sensor's LIST won't return a file that doesn't exist.
+        }
+    }
+}
+
+/// SPEC-R2-WORKSHOP-CAPTURE §7.4 reconciliation pass. One snapshot
+/// over the currently-connected peers; per peer, LIST via data_tcp,
+/// fetch any file the captures store doesn't already have. `ST_BUSY`
+/// (the live recording) is skipped here — the transition watcher
+/// catches it on Stop. Errors are logged and the pass continues.
+async fn reconcile_captures_pass(state: &Arc<AppState>) {
+    // Snapshot (ip, device_pk, alias) per peer up front; release the
+    // locks before hitting the network so the dispatch loop isn't
+    // blocked while we wait on sensor TCP.
+    let targets: Vec<(String, String, String)> = {
+        let peers = state.peers.read().await;
+        let aliases = state.device_aliases.lock().await;
+        peers.iter()
+            .filter_map(|(sa, p)| {
+                let device_pk = p.device_pk.clone()?;
+                let ip_only = sa.ip().to_string();
+                let raw_name = aliases.get(&device_pk)
+                    .cloned()
+                    .unwrap_or_else(|| ip_only.replace('.', "_"));
+                let device_safe: String = raw_name.chars()
+                    .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+                    .collect();
+                Some((ip_only, device_pk, device_safe))
+            })
+            .collect()
+    };
+
+    if targets.is_empty() {
+        return;
+    }
+
+    for (ip, device_pk, device_safe) in targets {
+        reconcile_single_peer(state, &ip, &device_pk, &device_safe).await;
+    }
+}
+
+/// SPEC-R2-WORKSHOP-CAPTURE §7.4: one-peer variant of the
+/// reconciliation pass. Used by the fleet-wide 60 s loop AND by the
+/// immediate-on-reconnect path in handle_sensor_connection's announce
+/// handler — when a sensor's TCP comes back up, we don't wait up to
+/// 60 s for the next fleet poll, we kick a one-shot pass for that
+/// peer right then. Closes the operator-visible blind window after
+/// a mid-experiment sensor reset.
+async fn reconcile_single_peer(
+    state: &Arc<AppState>,
+    ip: &str,
+    device_pk: &str,
+    device_safe: &str,
+) {
+    let addr_listen = format!("{ip}:{DATA_PORT}");
+    let listing = match list_files_on_sensor(&addr_listen).await {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("[sync recon] {ip}: list failed: {e}");
+            return;
+        }
+    };
+    for fname in listing {
+        if state.captures.has(device_pk, &fname).await { continue; }
+        let is_marks = fname.ends_with(".marks.csv");
+        broadcast_sync_started(state, device_pk, &fname,
+            if is_marks { "marks" } else { "data" }).await;
+        match fetch_file_on_sensor(&addr_listen, &fname).await {
+            Ok(body) => {
+                let write_result = if is_marks {
+                    state.captures.write_marks(device_pk, device_safe, &fname, &body, 0).await
+                } else {
+                    state.captures.write_data(device_pk, device_safe, &fname, &body, 0).await
+                };
+                match write_result {
+                    Ok(entry) => {
+                        eprintln!("[sync recon] {ip} → {} ({} bytes{})",
+                            entry.controller_path.display(),
+                            entry.size,
+                            if is_marks { ", sidecar" } else { "" });
+                        broadcast_synced(state, &entry).await;
+                    }
+                    Err(e) => eprintln!("[sync recon] write {fname}: {e}"),
+                }
+            }
+            Err(e) => {
+                let msg = e.to_string();
+                if !msg.contains("status_byte=2") {
+                    eprintln!("[sync recon] {ip}/{fname}: {msg}");
+                }
+            }
+        }
+    }
+}
+
+/// Emit `r2.dash.capture.sync_started` so viewers can show a
+/// "Syncing…" pill on the session row while the fetch is in flight.
+/// Paired with `r2.dash.capture.synced` (success) — viewers clear
+/// the pill when the matching synced event arrives.
+async fn broadcast_sync_started(
+    state: &Arc<AppState>,
+    device_pk: &str,
+    sensor_filename: &str,
+    kind: &str,
+) {
+    let mut buf = vec![0u8; 32 + device_pk.len() + sensor_filename.len() + kind.len()];
+    let mut enc = r2_cbor::Encoder::new(&mut buf);
+    let _ = enc.map(3);
+    let _ = enc.kv(1, &r2_cbor::Value::Text(device_pk));
+    let _ = enc.kv(2, &r2_cbor::Value::Text(sensor_filename));
+    let _ = enc.kv(5, &r2_cbor::Value::Text(kind));
+    let used = enc.len();
+    buf.truncate(used);
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let frame = build_dash_frame_body(DASH_CAPTURE_SYNC_STARTED, 0, &buf);
+    let _ = state.raw_frame_tx.send(RawFrame {
+        src: "dash".to_string(),
+        ts_ms: now_ms,
+        frame,
+    });
+}
+
+/// Emit `r2.dash.capture.synced` (WIRE row 44) on `/r2` so every
+/// connected viewer can update the session-row sync badge in real
+/// time. Best-effort — if no viewers are listening the broadcast just
+/// drops on the floor.
+async fn broadcast_synced(state: &Arc<AppState>, entry: &captures::CaptureEntry) {
+    let kind_str = match entry.kind {
+        captures::CaptureKind::Data => "data",
+        captures::CaptureKind::Marks => "marks",
+    };
+    // CBOR map per SPEC-R2-WORKSHOP-WIRE row 44.
+    let mut buf = vec![0u8; 64 + entry.device_pk.len() + entry.sensor_filename.len() + kind_str.len()];
+    let mut enc = r2_cbor::Encoder::new(&mut buf);
+    let _ = enc.map(5);
+    let _ = enc.kv(1, &r2_cbor::Value::Text(&entry.device_pk));
+    let _ = enc.kv(2, &r2_cbor::Value::Text(&entry.sensor_filename));
+    let _ = enc.kv(3, &r2_cbor::Value::UInt(entry.size));
+    let _ = enc.kv(4, &r2_cbor::Value::UInt(entry.fetched_at_ms));
+    let _ = enc.kv(5, &r2_cbor::Value::Text(kind_str));
+    let used = enc.len();
+    buf.truncate(used);
+
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let frame = build_dash_frame_body(DASH_CAPTURE_SYNCED, 0, &buf);
+    let _ = state.raw_frame_tx.send(RawFrame {
+        src: "dash".to_string(),
+        ts_ms: now_ms,
+        frame,
+    });
 }
 
 /// Small data_tcp GET helper for `data_zip_handler`. Mirrors

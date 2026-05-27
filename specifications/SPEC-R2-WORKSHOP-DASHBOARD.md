@@ -352,6 +352,9 @@ whichever occurs first (per WIRE §4.1).
 | `/api/data/{addr}/file/{name}` | GET, DELETE | `GET` opens TCP 21047 and streams the raw fixed-width rows with a synthesised CSV header `seq,ts_ms,<dev>_x,<dev>_y,<dev>_z\n` where `<dev>` is the operator-assigned alias (or IP-with-underscores fallback) — same name resolution as `/api/data/merged`. Content-Disposition filename becomes `<original-stem>__<dev>.csv` so multi-sensor downloads don't collide when collected later. `DELETE` issues `DEL`. |
 | `/api/data/{addr}/all` | DELETE | `DEL_ALL` against the named sensor. |
 | `/api/data/merged` | GET `?file=<basename>` | Wide-format merge across the fleet: header is `ts_ms` followed by three columns per sensor (`<ip>_x, <ip>_y, <ip>_z`, IP dots → underscores, sensors in sorted-IP order). One row per unique `ts_ms`, ascending; cells are blank where that sensor has no sample at that `ts_ms`. |
+| `/api/data/local/list` | GET | Controller-local capture index. Returns the `CapturesStore` contents (SPEC-R2-WORKSHOP-CAPTURE §7.4) as JSON, grouped by session-stem. Each session row carries `{stem, ts_ms, files: [{device_pk, alias, sensor_filename, controller_path, size, mtime_ms, kind: "data"|"marks"}], marks: [{ts_ms, mark_id, label}]}`. Reflects what has actually synced to the laptop — works even when no sensor is currently connected. |
+| `/api/data/local/file/{name}` | GET | Stream a single file from the controller-local captures dir. `{name}` is the `<stem>__<dev>.csv` (or `.marks.csv`) filename as it appears in `local/list`. Content-Disposition matches the filename. |
+| `/api/data/zip` | GET | End-of-day "grab everything" bundle. v0.2 sources from the controller-local store (was: per-sensor round-trip in v0.1) — much faster and works while sensors are offline. Sensors that haven't synced their latest file yet are simply absent from the zip; operator can trigger a fresh sync round and re-zip. |
 | `/api/devices/aliases` | GET | Bulk-fetch the operator-assigned alias map on webapp boot. Per-sensor mutations ride `r2.dash.cmd.device.alias.set` on `/r2`. |
 | `/api/version` | GET | `{name, version, git_sha, built}` introspection. |
 | `/api/keyholder/tg-pub` | GET | TG public key bytes for QR-code generation. |
@@ -1004,6 +1007,41 @@ implementing `SPEC-R2-WORKSHOP-WIRE`):
 2. Killing the dashboard during write does not corrupt JSON files
    (atomic replace via tempfile + rename).
 
+### 15.6 Capture auto-sync acceptance
+
+1. A sensor `Recording → Idle` transition triggers a fetch of the
+   just-finalised file (main + sidecar if present) within 5 s of
+   the transition arriving on `/r2`. The local file lands under
+   `$XDG_DATA_HOME/r2-workshop/captures/` (fallback
+   `~/.local/share/...`) with the spliced CSV header for the main
+   file and byte-for-byte sidecar.
+2. Each successful local-write emits `r2.dash.capture.synced`
+   (WIRE row 44) on `/r2`.
+3. The 60-second reconciliation poll fetches anything missed
+   (sensor reconnected after Stop, dashboard restarted mid-run)
+   without operator action.
+4. Files already present in the captures dir at startup are
+   indexed and not re-fetched.
+5. Sensor-side files remain on the SD after sync; the only way
+   to delete them is the existing per-file `DELETE` route or
+   `/api/data/{addr}/all`.
+
+### 15.7 Event-mark acceptance
+
+1. `r2.dash.cmd.capture.event_mark` with non-empty `label`:
+   controller stamps `ts_ms` from its own clock, assigns a
+   monotonic `mark_id`, fans out `r2.dash.capture.event_mark`
+   (WIRE row 45) to every connected peer, and emits
+   `r2.dash.capture.event_marked` (row 46) on `/r2` within 200 ms.
+2. With empty `label`, the controller substitutes `"mark"`.
+3. With at least one peer Recording, the sidecar
+   `<stem>.marks.csv` for that session appears on the sensor's SD
+   with one row per event; after Stop the sidecar reaches the
+   captures dir via §15.6 sync, with `kind: "marks"` on the
+   accompanying `r2.dash.capture.synced` event.
+4. The `r2.dash.cmd.response` for the cmd echoes `req_id` and
+   carries `kind: "capture.event_mark"`.
+
 ---
 
 ## 16. Change log
@@ -1011,3 +1049,4 @@ implementing `SPEC-R2-WORKSHOP-WIRE`):
 | Date | Version | Change |
 |---|---|---|
 | 2026-05-07 | 0.1 | Initial draft. Process model, listeners, bootstrap, calibration, joints, analytics, UI, OTA, conformance. |
+| 2026-05-26 | 0.2 | §5.1 adds `/api/data/local/list`, `/api/data/local/file/{name}`, and folds in `/api/data/zip` (now sources from controller-local store). §15.6 + §15.7 add capture auto-sync + event-mark acceptance tests per SPEC-R2-WORKSHOP-CAPTURE §7.4 + §7.5. |

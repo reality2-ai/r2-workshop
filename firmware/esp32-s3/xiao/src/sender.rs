@@ -28,11 +28,11 @@ use crate::led::LedHandle;
 use crate::ring::Ring;
 use crate::sim::AccelSim;
 use crate::wire::{
-    decode_compact_frame, frame_for_tcp, parse_capture_mark, parse_dash_ack_through_seq,
-    parse_identify_set, parse_set_clock_offset, parse_sync_pulse_req_id,
+    decode_compact_frame, frame_for_tcp, parse_capture_event_mark, parse_capture_mark,
+    parse_dash_ack_through_seq, parse_identify_set, parse_set_clock_offset, parse_sync_pulse_req_id,
     CborWriter,
-    EVT_DASH_ACK, EVT_DASH_CAPTURE_MARK, EVT_DASH_CAPTURE_START, EVT_DASH_CAPTURE_STOP,
-    EVT_DASH_ENROL, EVT_DASH_IDENTIFY_SET, EVT_DASH_SET_CLOCK_OFFSET, EVT_DASH_SYNC_PULSE,
+    EVT_DASH_ACK, EVT_DASH_CAPTURE_EVENT_MARK, EVT_DASH_CAPTURE_MARK, EVT_DASH_CAPTURE_START,
+    EVT_DASH_CAPTURE_STOP, EVT_DASH_ENROL, EVT_DASH_IDENTIFY_SET, EVT_DASH_SET_CLOCK_OFFSET, EVT_DASH_SYNC_PULSE,
     EVT_SENSOR_ACCELERATION, EVT_SENSOR_ANNOUNCE, EVT_SENSOR_BATTERY,
     EVT_SENSOR_CAPTURE_STATE, EVT_SENSOR_STATUS, EVT_SENSOR_SYNC_PONG,
 };
@@ -401,6 +401,21 @@ impl Sender {
                         warn!("[capture] stop: {}", e);
                     }
                     self.send_capture_state(stream)?;
+                }
+            }
+            EVT_DASH_CAPTURE_EVENT_MARK => {
+                // SPEC-R2-WORKSHOP-CAPTURE §3 row 5 + §7.5:
+                // operator annotation. Append a row to
+                // <stem>.marks.csv if we're Recording; silently
+                // ignore otherwise.
+                match (self.capture.as_mut(), parse_capture_event_mark(payload)) {
+                    (Some(cap), Some((ts_ms, label, mark_id))) => {
+                        if let Err(e) = cap.event_mark(ts_ms, label, mark_id) {
+                            warn!("[capture] event_mark failed: {}", e);
+                        }
+                    }
+                    (None, _) => warn!("[capture] event_mark ignored — no SD"),
+                    (_, None) => warn!("[sender] malformed capture.event_mark payload"),
                 }
             }
             EVT_DASH_IDENTIFY_SET => {

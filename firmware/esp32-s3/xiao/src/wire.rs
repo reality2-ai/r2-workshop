@@ -59,6 +59,10 @@ pub const EVT_DASH_CAPTURE_START:    u32 = fnv1a_32(b"r2.dash.capture.start");
 pub const EVT_DASH_CAPTURE_MARK:     u32 = fnv1a_32(b"r2.dash.capture.mark");
 pub const EVT_DASH_CAPTURE_STOP:     u32 = fnv1a_32(b"r2.dash.capture.stop");
 pub const EVT_SENSOR_CAPTURE_STATE:  u32 = fnv1a_32(b"r2.sensor.capture.state");
+/// SPEC-R2-WORKSHOP-CAPTURE §3 row 5 + §7.5: operator annotation
+/// injected by the controller into the active recording's sidecar.
+/// Payload `{1: u64 ts_ms, 2: str label, 3: u32 mark_id}`.
+pub const EVT_DASH_CAPTURE_EVENT_MARK: u32 = fnv1a_32(b"r2.dash.capture.event_mark");
 
 // ── R2-WIRE compact frame ────────────────────────────────────────────────
 
@@ -358,6 +362,55 @@ pub fn parse_capture_mark<'a>(payload: &'a [u8]) -> Option<(i64, &'a str, Option
     }
 
     Some((ts_ms?, name?, prefix))
+}
+
+/// Parse `r2.dash.capture.event_mark` payload per SPEC-R2-WORKSHOP-WIRE
+/// row 45: `{1: u64 ts_ms, 2: str label, 3: u32 mark_id}`. Returns
+/// `(ts_ms, label, mark_id)` on success.
+pub fn parse_capture_event_mark<'a>(payload: &'a [u8]) -> Option<(u64, &'a str, u32)> {
+    let mut p = 0;
+    if payload.len() <= p { return None; }
+    let head = payload[p]; p += 1;
+    if head & 0xE0 != MT_MAP { return None; }
+    let n_entries = (head & 0x1F) as usize;
+    if n_entries < 3 { return None; }
+
+    let mut ts_ms: Option<u64> = None;
+    let mut label: Option<&'a str> = None;
+    let mut mark_id: Option<u32> = None;
+
+    for _ in 0..n_entries {
+        if payload.len() <= p { return None; }
+        let kh = payload[p]; p += 1;
+        if kh & 0xE0 != MT_UINT { return None; }
+        let key = (kh & 0x1F) as u8;
+        if payload.len() <= p { return None; }
+        let vh = payload[p];
+        let mt = vh & 0xE0;
+        match (key, mt) {
+            (1, MT_UINT) => {
+                let (mag, _mt2, used) = read_cbor_int_at(&payload[p..])?;
+                p += used;
+                ts_ms = Some(mag);
+            }
+            (2, MT_TEXT) => {
+                let (mag, _mt2, used) = read_cbor_string_head_at(&payload[p..])?;
+                p += used;
+                let len = mag as usize;
+                if payload.len() < p + len { return None; }
+                let s = core::str::from_utf8(&payload[p..p + len]).ok()?;
+                p += len;
+                label = Some(s);
+            }
+            (3, MT_UINT) => {
+                let (mag, _mt2, used) = read_cbor_int_at(&payload[p..])?;
+                p += used;
+                mark_id = Some(u32::try_from(mag).ok()?);
+            }
+            _ => return None,
+        }
+    }
+    Some((ts_ms?, label?, mark_id?))
 }
 
 /// Read a CBOR string head (MT_BYTES or MT_TEXT) and return its byte
