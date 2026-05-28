@@ -181,7 +181,7 @@ embedded similarly. Build fails if `trust_keys/tg_pub.bin` is missing.
 The firmware SHALL advertise the canonical class string
 
 ```
-nz.ac.auckland.workshop.sensor   →   FNV-1a-32 hash 0xE6C6AFCD
+nz.ac.auckland.rocker   →   FNV-1a-32 hash 0x624C47BC
 ```
 
 in its R2-BEACON legacy AD payload (R2-BEACON §7.3). The hash is what
@@ -190,6 +190,13 @@ the dashboard's bootstrap loop matches against (cross-ref
 string; the FNV-1a-32 derivation is deterministic and verifiable per
 R2-FNV. Changing this string is a wire-breaking change and requires a
 synchronised update of firmware + dashboard + any vendored r2-bootstrap.
+
+This string identifies the **rocker deployment** of the r2-workshop
+template — see SPEC-R2-WORKSHOP-ENSEMBLE §2.1. Sibling deployments
+(people-counter, gait analysis, …) use distinct class strings
+(`nz.ac.auckland.people-counter`, `nz.ac.auckland.gait`, …) and
+therefore distinct FNV hash tables, so their traffic doesn't
+intermingle with the rocker's even when the radios share spectrum.
 
 The class string baked into the firmware comes from
 `trust_keys/sensor_class.txt`. This is the **same string** the

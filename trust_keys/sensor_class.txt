@@ -1,1 +1,1 @@
-nz.ac.auckland.workshop.sensor
+nz.ac.auckland.rocker

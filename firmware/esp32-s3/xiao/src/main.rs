@@ -3,8 +3,8 @@
 //! Boot sequence per `SPEC-R2-WORKSHOP-SENSOR.md` §2.1.1:
 //!   1. Resolve WiFi creds: NVS → wifi_config.toml fallback → none.
 //!   2. If creds: bring up WiFi STA, mark OTA app valid, run sender.
-//!   3. Always: advertise R2-BEACON (`nz.ac.auckland.workshop.sensor`,
-//!      class hash `0xE6C6AFCD` per dashboard §6.3) and listen on
+//!   3. Always: advertise R2-BEACON (`nz.ac.auckland.rocker`,
+//!      class hash `0x624C47BC` per dashboard §6.3) and listen on
 //!      L2CAP PSM 0xD2 for `#wifi_offer` events from the controller.
 //!   4. On a valid offer: persist creds to NVS and reboot to apply.
 
@@ -34,11 +34,12 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 /// R2-BEACON class string — read from `trust_keys/sensor_class.txt` at
 /// build time (see `build.rs::stamp_sensor_class`). The default value
-/// for this repo is `nz.ac.auckland.workshop.sensor` (FNV-1a-32 hash
-/// `0xE6C6AFCD`); a deployment forking this repo should run
-/// `cargo run -p r2-workshop-tg --release -- init` to mint its own
-/// class string (and TG keys) so its sensors and dashboard match
-/// without sharing on-air identity with other labs.
+/// for this repo is `nz.ac.auckland.rocker` (FNV-1a-32 hash
+/// `0x624C47BC`) — the rocker-rig deployment of the r2-workshop
+/// template (SPEC-R2-WORKSHOP-ENSEMBLE §2.1). A deployment forking
+/// this repo should run `cargo run -p r2-workshop-tg --release -- init`
+/// to mint its own class string (and TG keys) so its sensors and
+/// dashboard match without sharing on-air identity with other labs.
 const SENSOR_CLASS: &str = env!("R2_SENSOR_CLASS");
 
 const GATEWAY_IP:   &str = env!("R2_GATEWAY_IP");

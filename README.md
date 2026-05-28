@@ -13,7 +13,7 @@ detects anomalies and alerts before something breaks.
 > lab instrumentation jobs. The architecture, R2-protocol
 > conformance, and binding decisions are unchanged.
 >
-> **If you used r2-rocker before this rename:**
+> **If you used r2-rocker before the r2-workshop rename:**
 > * Move your TG private key:
 >   `mv ~/.config/r2-rocker ~/.config/r2-workshop`
 > * Reflash any sensors carrying pre-rename firmware — the
@@ -23,6 +23,16 @@ detects anomalies and alerts before something breaks.
 > * The archived original repo at
 >   [reality2-ai/r2-rocker](https://github.com/reality2-ai/r2-rocker)
 >   has the full v0.1–v0.2 history if you need it.
+>
+> **If you used r2-workshop pre-ensemble (before 2026-05-28):**
+> The class string rotated again, this time to align with
+> the canonical R2-ENSEMBLE namespace policy — r2-workshop is
+> the *template*, the rocker rig is the *deployment*:
+> * `nz.ac.auckland.workshop.sensor` → `nz.ac.auckland.rocker`
+> * FNV `0xE6C6AFCD` → `0x624C47BC`
+> * Reflash every sensor (the FNV event-hash table changes; old
+>   firmware can't talk to the new dashboard).
+> See SPEC-R2-WORKSHOP-ENSEMBLE §2.1 + §2.3 for the policy.
 
 ![r2-workshop dashboard — Live tab during a two-sensor run](docs/screenshots/dashboard-live.png)
 

@@ -505,13 +505,15 @@ The dashboard shall scan for BLE advertisements matching R2-BEACON
 (per R2-BEACON spec). The canonical r2-workshop sensor class string is:
 
 ```
-nz.ac.auckland.workshop.sensor   →   FNV-1a-32 hash 0xE6C6AFCD
+nz.ac.auckland.rocker   →   FNV-1a-32 hash 0x624C47BC
 ```
 
-(Reverse-DNS per R2-BEACON §4 recommendation; institutional + project
-scope so a stray r2-notekeeper or generic R2 device on the air doesn't
-get pulled into the rig's bootstrap loop.) For each unique RBID found,
-spawn a per-sensor bootstrap task.
+(Reverse-DNS per R2-BEACON §4 recommendation; institutional +
+deployment scope so a stray r2-notekeeper or sibling-ensemble
+device on the air doesn't get pulled into the rocker's bootstrap
+loop.) The class identifies this deployment of the r2-workshop
+template per SPEC-R2-WORKSHOP-ENSEMBLE §2.1. For each unique RBID
+found, spawn a per-sensor bootstrap task.
 
 Scan duration: 10 s; if zero matches, the loop sleeps 20 s and retries.
 
@@ -885,7 +887,7 @@ r2-workshop-firmware-<class-slug>-<carrier>-<version>+<git>.bin
 ```
 
 * `<class-slug>` is the reverse-DNS class string with dots replaced
-  by hyphens (`nz.ac.auckland.workshop.sensor` → `nz-ac-auckland-workshop-sensor`).
+  by hyphens (`nz.ac.auckland.rocker` → `nz-ac-auckland-rocker`).
 * `<carrier>` matches the announce's CBOR key 12 (`devkitc`, `xiao`, …).
 * `<version>` is the firmware version per release-mode rules below.
 * `<git>` is the short git sha at build time.
@@ -895,7 +897,7 @@ Each released `.bin` is accompanied by a **meta sidecar**
 
 ```json
 {
-  "class":   "nz.ac.auckland.workshop.sensor",
+  "class":   "nz.ac.auckland.rocker",
   "carrier": "xiao",
   "version": "0.3.0",
   "git":     "a1b2c3d",
