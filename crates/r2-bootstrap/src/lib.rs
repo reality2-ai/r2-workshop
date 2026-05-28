@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Context, Result};
 use bluer::l2cap::{Socket, SocketAddr as L2capSocketAddr, Security, SecurityLevel};
-use bluer::{AdapterEvent, Address, AddressType, DiscoveryFilter, DiscoveryTransport};
+use bluer::{Address, AddressType, DiscoveryFilter, DiscoveryTransport};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::{broadcast, mpsc};
@@ -608,104 +608,130 @@ async fn ble_scan(
     };
     adapter.set_discovery_filter(filter).await?;
     let mut disco = adapter.discover_devices().await?;
-    let mut found: HashMap<Address, DiscoveredSensor> = HashMap::new();
-    // (class_hash, addr) pairs we've already reported as "foreign R2 device"
-    // this scan. Without this, the same beacon's repeated advertisements
-    // would each fire a Log event and flood the Connections panel.
-    let mut foreign_seen: HashSet<(u32, Address)> = HashSet::new();
-    let deadline = Instant::now() + Duration::from_secs(scan_secs);
 
+    // ── Phase 1: discovery ──────────────────────────────────────────
+    // Drain the discovery stream for the full window purely to KEEP
+    // discovery active — we deliberately do NOT read manufacturer_data
+    // inside the DeviceAdded arm. BlueZ frequently fires DeviceAdded
+    // before it has parsed the advert's manufacturer data, and
+    // DeviceAdded only fires ONCE per device per scan; reading mfr_data
+    // at that instant misses any device whose data populates a few
+    // hundred ms later (which, in practice, is most of them). Instead
+    // we harvest mfr_data from EVERY known device after the window
+    // closes, so late-arriving adverts are captured. (Bug fix
+    // 2026-05-28 — sensors were intermittently invisible because their
+    // DeviceAdded raced ahead of their manufacturer-data parse.)
+    let deadline = Instant::now() + Duration::from_secs(scan_secs);
     while Instant::now() < deadline {
         let remaining = deadline.saturating_duration_since(Instant::now());
         match tokio::time::timeout(remaining, disco.next()).await {
-            Ok(Some(AdapterEvent::DeviceAdded(addr))) => {
-                let device = match adapter.device(addr) {
-                    Ok(d) => d,
-                    Err(_) => continue,
-                };
-                let mfr_data = match device.manufacturer_data().await {
-                    Ok(Some(m)) => m,
-                    _ => continue,
-                };
+            Ok(Some(_)) => { /* keep draining to sustain discovery */ }
+            Ok(None) => break,
+            Err(_) => break, // window elapsed
+        }
+    }
+    drop(disco);
 
-                for &company_id in &[0xFFFFu16, 0xFFFE] {
-                    if let Some(data) = mfr_data.get(&company_id) {
-                        if data.len() >= 11 && data[0] == beacon::R2_BEACON_MAGIC {
-                            if data.len() >= 15 {
-                                let class_hash = u32::from_be_bytes([
-                                    data[11], data[12], data[13], data[14],
-                                ]);
-                                // Match against the accepted set (target +
-                                // any legacy classes per transition policy).
-                                let matched = accepted_classes.iter()
-                                    .find(|(h, _, _)| *h == class_hash);
-                                if let Some((_, label, is_legacy)) = matched {
-                                    let mut rbid = [0u8; 8];
-                                    rbid.copy_from_slice(&data[3..11]);
-                                    // Mirror every matching sighting to
-                                    // dashboard stderr too — operator
-                                    // tailing the log sees what's on the
-                                    // air without needing the webapp open.
-                                    eprintln!(
-                                        "[bootstrap] R2 device seen: class={} (0x{:08X}{}) addr={} rbid={}",
-                                        label, class_hash,
-                                        if *is_legacy { ", legacy" } else { "" },
-                                        addr, hex::encode(rbid),
-                                    );
-                                    if !found.contains_key(&addr) {
-                                        let addr_type = device.address_type().await
-                                            .unwrap_or(AddressType::LePublic);
-                                        let name = if *is_legacy {
-                                            format!("RBID:{} (legacy: {})", hex::encode(rbid), label)
-                                        } else {
-                                            format!("RBID:{}", hex::encode(rbid))
-                                        };
-                                        let _ = progress_tx.send(BootstrapEvent::SensorFound {
-                                            addr: addr.to_string(),
-                                            name,
-                                        }).await;
-                                        found.insert(
-                                            addr,
-                                            DiscoveredSensor { addr, addr_type, rbid },
-                                        );
-                                    }
-                                } else if foreign_seen.insert((class_hash, addr)) {
-                                    // R2-BEACON advertisement with an
-                                    // unrecognised class hash — could be a
-                                    // sibling ensemble, another lab, or a
-                                    // pre-rotation sensor of our own.
-                                    // Emit as a structured event so the
-                                    // webapp can surface it as "Found N
-                                    // foreign R2 sensors" rather than
-                                    // burying it in the connection log.
-                                    let mut rbid = [0u8; 8];
-                                    rbid.copy_from_slice(&data[3..11]);
-                                    let class_name = lookup_known_class(class_hash);
-                                    let label = class_name.clone()
-                                        .unwrap_or_else(|| "unknown class".to_string());
-                                    eprintln!(
-                                        "[bootstrap] foreign R2 device seen: class_hash=0x{:08X} ({}) addr={} rbid={}",
-                                        class_hash, label, addr, hex::encode(rbid),
-                                    );
-                                    let _ = progress_tx.send(BootstrapEvent::ForeignSensor {
-                                        addr: addr.to_string(),
-                                        class_hash,
-                                        class_name,
-                                        rbid: hex::encode(rbid),
-                                    }).await;
-                                }
-                            }
-                        }
+    // Harvest manufacturer data from every device the adapter saw this
+    // scan. This is the actual R2-BEACON classification pass.
+    struct SeenBeacon {
+        addr: Address,
+        addr_type: AddressType,
+        class_hash: u32,
+        rbid: [u8; 8],
+    }
+    let mut beacons: Vec<SeenBeacon> = Vec::new();
+    if let Ok(addrs) = adapter.device_addresses().await {
+        for addr in addrs {
+            let device = match adapter.device(addr) {
+                Ok(d) => d,
+                Err(_) => continue,
+            };
+            let mfr_data = match device.manufacturer_data().await {
+                Ok(Some(m)) => m,
+                _ => continue,
+            };
+            for &company_id in &[0xFFFFu16, 0xFFFE] {
+                if let Some(data) = mfr_data.get(&company_id) {
+                    if data.len() >= 15 && data[0] == beacon::R2_BEACON_MAGIC {
+                        let class_hash = u32::from_be_bytes([
+                            data[11], data[12], data[13], data[14],
+                        ]);
+                        let mut rbid = [0u8; 8];
+                        rbid.copy_from_slice(&data[3..11]);
+                        let addr_type = device.address_type().await
+                            .unwrap_or(AddressType::LePublic);
+                        beacons.push(SeenBeacon { addr, addr_type, class_hash, rbid });
+                        break; // one R2-BEACON record per device is enough
                     }
                 }
             }
-            Ok(Some(_)) => {}
-            Ok(None) => break,
-            Err(_) => break,
         }
     }
 
-    drop(disco);
+    // ── Phase 1 report ──────────────────────────────────────────────
+    // Every R2-BEACON device on the air, regardless of class. Lets the
+    // operator confirm their sensors ARE advertising even when the
+    // class doesn't match what this dashboard expects.
+    if beacons.is_empty() {
+        let _ = progress_tx.send(BootstrapEvent::Log(
+            "Phase 1 — no R2-BEACON devices on the air this scan.".into()
+        )).await;
+    } else {
+        let _ = progress_tx.send(BootstrapEvent::Log(format!(
+            "Phase 1 — {} R2-BEACON device(s) on the air:", beacons.len()
+        ))).await;
+        for b in &beacons {
+            let name = lookup_known_class(b.class_hash)
+                .unwrap_or_else(|| "unknown class".to_string());
+            eprintln!(
+                "[bootstrap] phase1 R2 device: class=0x{:08X} ({}) addr={} rbid={}",
+                b.class_hash, name, b.addr, hex::encode(b.rbid),
+            );
+            let _ = progress_tx.send(BootstrapEvent::Log(format!(
+                "  · class=0x{:08X} ({}) addr={} RBID={}",
+                b.class_hash, name, b.addr, hex::encode(b.rbid),
+            ))).await;
+        }
+    }
+
+    // ── Phase 2: refine to accepted classes ─────────────────────────
+    // Partition the Phase-1 set into matches (→ bootstrap) and foreign
+    // (→ ForeignSensor report). The operator sees which of the devices
+    // on the air this dashboard will actually adopt.
+    let mut found: HashMap<Address, DiscoveredSensor> = HashMap::new();
+    for b in &beacons {
+        let matched = accepted_classes.iter().find(|(h, _, _)| *h == b.class_hash);
+        if let Some((_, label, is_legacy)) = matched {
+            let name = if *is_legacy {
+                format!("RBID:{} (legacy: {})", hex::encode(b.rbid), label)
+            } else {
+                format!("RBID:{}", hex::encode(b.rbid))
+            };
+            let _ = progress_tx.send(BootstrapEvent::SensorFound {
+                addr: b.addr.to_string(),
+                name,
+            }).await;
+            found.entry(b.addr).or_insert(DiscoveredSensor {
+                addr: b.addr,
+                addr_type: b.addr_type,
+                rbid: b.rbid,
+            });
+        } else {
+            let class_name = lookup_known_class(b.class_hash);
+            let _ = progress_tx.send(BootstrapEvent::ForeignSensor {
+                addr: b.addr.to_string(),
+                class_hash: b.class_hash,
+                class_name,
+                rbid: hex::encode(b.rbid),
+            }).await;
+        }
+    }
+    let _ = progress_tx.send(BootstrapEvent::Log(format!(
+        "Phase 2 — {} of {} match this dashboard's class(es); bootstrapping those.",
+        found.len(), beacons.len()
+    ))).await;
+
     Ok(found.into_values().collect())
 }
 

@@ -1532,20 +1532,23 @@ async fn handle_sensor_connection(stream: TcpStream, addr: SocketAddr, state: Ar
         let mut ack_msg_id: u16 = 1;
 
         loop {
-            // 5 s read deadline. The sensor sends `r2.sensor.status` every
-            // 2 s plus continuous 10 Hz acceleration; if 5 s pass with no
-            // bytes, the peer is gone (chip reset / WiFi drop / hard
-            // crash). Forces the read loop to exit fast so the caller's
-            // `peer_disconnected` broadcast goes out, rather than waiting
-            // for the kernel's 60 s TCP keepalive timeout.
+            // 15 s read deadline. The sensor sends `r2.sensor.status`
+            // every 2 s plus continuous 10 Hz acceleration; a healthy
+            // peer transmits dozens of frames per second, so 15 s of
+            // silence still reliably catches genuinely-gone peers
+            // (chip reset / WiFi drop / hard crash) without flapping on
+            // transient stalls. Bumped from 5 s after a 2026-05-28
+            // bench observation where freshly-flashed sensors went
+            // silent for >5 s in the post-announce window, getting
+            // hung up on every reconnect cycle.
             let read_result = tokio::time::timeout(
-                std::time::Duration::from_secs(5),
+                std::time::Duration::from_secs(15),
                 reader.read(&mut buf),
             ).await;
             let read_outcome = match read_result {
                 Ok(r) => r,
                 Err(_) => {
-                    eprintln!("[events] read timeout from {} (no traffic in 5 s) — closing", addr);
+                    eprintln!("[events] read timeout from {} (no traffic in 15 s) — closing", addr);
                     break;
                 }
             };
