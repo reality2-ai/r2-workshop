@@ -1132,6 +1132,17 @@ async fn do_bootstrap(state: &Arc<AppState>) {
         // dashboard and sensor always agree on the on-air identity.
         // See SPEC-R2-WORKSHOP-DASHBOARD §6.3.
         target_class: env!("R2_SENSOR_CLASS").to_string(),
+        // Legacy classes from `trust_keys/legacy_classes.txt` (one per
+        // semicolon in the build-time env var). Empty string → no
+        // legacy entries; behaviour identical to the single-class
+        // scan filter. Used during a class-string rotation transition
+        // so sensors still carrying pre-rotation firmware remain
+        // discoverable until they're reflashed.
+        legacy_classes: env!("R2_SENSOR_CLASS_LEGACY")
+            .split(';')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect(),
         // Always cycle the hotspot on a fresh bootstrap press. Sensors
         // currently joined to the existing hotspot will lose WiFi for
         // a few seconds and fall back to BLE advertising, which is the
@@ -2251,6 +2262,22 @@ fn emit_bootstrap_progress(state: &Arc<AppState>, event: &BootstrapEvent) {
             let _ = enc.map(2);
             let _ = enc.kv(0, &r2_cbor::Value::Text("Error"));
             let _ = enc.kv(1, &r2_cbor::Value::Text(s));
+        }
+        BootstrapEvent::ForeignSensor { addr, class_hash, class_name, rbid } => {
+            // Reuse the kind/text/addr keys from SensorFound where it
+            // makes sense; add class_hash (key 6) + class_name (key 7)
+            // + rbid (key 8) for the foreign-specific fields. Webapp
+            // dispatches on `kind` so this won't be confused with a
+            // normal SensorFound.
+            let n_keys = 4 + if class_name.is_some() { 1 } else { 0 };
+            let _ = enc.map(n_keys);
+            let _ = enc.kv(0, &r2_cbor::Value::Text("ForeignSensor"));
+            let _ = enc.kv(2, &r2_cbor::Value::Text(addr));
+            let _ = enc.kv(6, &r2_cbor::Value::UInt(*class_hash as u64));
+            if let Some(name) = class_name {
+                let _ = enc.kv(7, &r2_cbor::Value::Text(name));
+            }
+            let _ = enc.kv(8, &r2_cbor::Value::Text(rbid));
         }
     }
     let used = enc.len();

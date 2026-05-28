@@ -52,6 +52,15 @@ pub struct BootstrapConfig {
     pub psk: Option<String>,
     pub scan_secs: u64,
     pub target_class: String,
+    /// Additional class strings the scan SHOULD also accept beyond
+    /// `target_class`. Used during a class-string rotation
+    /// transition where sensors still carrying pre-rotation firmware
+    /// would otherwise be invisible to bootstrap. Each entry is
+    /// FNV-1a-32-hashed and added to the scan filter; matches log
+    /// as "Legacy class accepted" so the operator knows which
+    /// devices still need reflashing. Empty list = behaviour as
+    /// before the legacy-class feature landed.
+    pub legacy_classes: Vec<String>,
     /// When true, the engine tears down any existing matching hotspot
     /// before bringing one up, even if one is already active on the
     /// right adapter. Sensors currently joined to that hotspot lose
@@ -69,6 +78,22 @@ pub enum BootstrapEvent {
     Log(String),
     SensorFound { addr: String, name: String },
     SensorConnected { addr: String, name: String, ip: String },
+    /// A device advertising R2-BEACON magic with a class hash that
+    /// matches neither the target class nor any legacy class. Carried
+    /// out of the scan loop so the operator can see what's on the air
+    /// — useful when a class rotation has left some sensors stranded,
+    /// or when a sibling ensemble's beacons are bleeding into our
+    /// scan space. v1 is informational only; v2 (planned) will let
+    /// the operator approve a foreign sensor for adoption.
+    ForeignSensor {
+        addr: String,
+        class_hash: u32,
+        /// Best-effort reverse-lookup of `class_hash` against a small
+        /// list of historically-known r2-workshop class strings.
+        /// `None` when the hash is unrecognised.
+        class_name: Option<String>,
+        rbid: String, // 16 hex chars
+    },
     Done { count: usize },
     Error(String),
 }
@@ -141,6 +166,22 @@ pub async fn run_bootstrap(
         "Target class: '{}' (hash: 0x{:08X})",
         config.target_class, target_class_hash
     ))).await;
+
+    // Build (hash, label) pairs for the scan filter — target plus any
+    // legacy classes accepted during a class-string rotation. Labels
+    // are kept so the scan log can call out "Legacy class accepted"
+    // distinctly from primary-target matches.
+    let mut accepted_classes: Vec<(u32, String, bool)> = vec![
+        (target_class_hash, config.target_class.clone(), false /* legacy? */),
+    ];
+    for legacy in &config.legacy_classes {
+        let h = fnv::fnv1a_32(legacy.to_lowercase().as_bytes());
+        accepted_classes.push((h, legacy.clone(), true));
+        let _ = progress_tx.send(BootstrapEvent::Log(format!(
+            "Legacy class accepted: '{}' (hash: 0x{:08X}) — reflash these sensors to drop the legacy entry",
+            legacy, h
+        ))).await;
+    }
 
     // One-time WiFi setup
     let (ssid, psk, our_ip) = setup_wifi_credentials(&config, &progress_tx).await?;
@@ -265,7 +306,7 @@ pub async fn run_bootstrap(
         };
         let _ = progress_tx.send(BootstrapEvent::Log(scan_label)).await;
 
-        let discovered = match ble_scan(target_class_hash, config.scan_secs, &progress_tx).await {
+        let discovered = match ble_scan(&accepted_classes, config.scan_secs, &progress_tx).await {
             Ok(d) => d,
             Err(e) => {
                 let _ = progress_tx.send(BootstrapEvent::Log(format!(
@@ -538,9 +579,12 @@ fn get_active_sensor_ips(port: u16) -> HashSet<String> {
     ips
 }
 
-/// BLE passive scan for R2 beacons matching target class hash.
+/// BLE passive scan for R2 beacons matching any of the accepted
+/// class hashes. `accepted_classes` carries `(hash, label, is_legacy)`
+/// triples — the target plus any legacy classes per the rotation
+/// transition policy (§"Configuration for a bootstrap run").
 async fn ble_scan(
-    target_class_hash: u32,
+    accepted_classes: &[(u32, String, bool)],
     scan_secs: u64,
     progress_tx: &mpsc::Sender<BootstrapEvent>,
 ) -> Result<Vec<DiscoveredSensor>> {
@@ -591,15 +635,34 @@ async fn ble_scan(
                                 let class_hash = u32::from_be_bytes([
                                     data[11], data[12], data[13], data[14],
                                 ]);
-                                if class_hash == target_class_hash {
+                                // Match against the accepted set (target +
+                                // any legacy classes per transition policy).
+                                let matched = accepted_classes.iter()
+                                    .find(|(h, _, _)| *h == class_hash);
+                                if let Some((_, label, is_legacy)) = matched {
                                     let mut rbid = [0u8; 8];
                                     rbid.copy_from_slice(&data[3..11]);
+                                    // Mirror every matching sighting to
+                                    // dashboard stderr too — operator
+                                    // tailing the log sees what's on the
+                                    // air without needing the webapp open.
+                                    eprintln!(
+                                        "[bootstrap] R2 device seen: class={} (0x{:08X}{}) addr={} rbid={}",
+                                        label, class_hash,
+                                        if *is_legacy { ", legacy" } else { "" },
+                                        addr, hex::encode(rbid),
+                                    );
                                     if !found.contains_key(&addr) {
                                         let addr_type = device.address_type().await
                                             .unwrap_or(AddressType::LePublic);
+                                        let name = if *is_legacy {
+                                            format!("RBID:{} (legacy: {})", hex::encode(rbid), label)
+                                        } else {
+                                            format!("RBID:{}", hex::encode(rbid))
+                                        };
                                         let _ = progress_tx.send(BootstrapEvent::SensorFound {
                                             addr: addr.to_string(),
-                                            name: format!("RBID:{}", hex::encode(rbid)),
+                                            name,
                                         }).await;
                                         found.insert(
                                             addr,
@@ -607,17 +670,29 @@ async fn ble_scan(
                                         );
                                     }
                                 } else if foreign_seen.insert((class_hash, addr)) {
-                                    // R2-BEACON advertisement, but a class hash we
-                                    // don't recognise — another lab's deployment,
-                                    // a different sensor variant on this band, or
-                                    // pre-rename firmware from this same project.
-                                    // Surface it once per (class, addr) per scan so
-                                    // the operator can see what's on the air without
-                                    // the engine ever trying to bootstrap it.
-                                    let _ = progress_tx.send(BootstrapEvent::Log(format!(
-                                        "Foreign R2 device seen: class_hash=0x{:08X} addr={} — not approved, skipping",
-                                        class_hash, addr
-                                    ))).await;
+                                    // R2-BEACON advertisement with an
+                                    // unrecognised class hash — could be a
+                                    // sibling ensemble, another lab, or a
+                                    // pre-rotation sensor of our own.
+                                    // Emit as a structured event so the
+                                    // webapp can surface it as "Found N
+                                    // foreign R2 sensors" rather than
+                                    // burying it in the connection log.
+                                    let mut rbid = [0u8; 8];
+                                    rbid.copy_from_slice(&data[3..11]);
+                                    let class_name = lookup_known_class(class_hash);
+                                    let label = class_name.clone()
+                                        .unwrap_or_else(|| "unknown class".to_string());
+                                    eprintln!(
+                                        "[bootstrap] foreign R2 device seen: class_hash=0x{:08X} ({}) addr={} rbid={}",
+                                        class_hash, label, addr, hex::encode(rbid),
+                                    );
+                                    let _ = progress_tx.send(BootstrapEvent::ForeignSensor {
+                                        addr: addr.to_string(),
+                                        class_hash,
+                                        class_name,
+                                        rbid: hex::encode(rbid),
+                                    }).await;
                                 }
                             }
                         }
@@ -632,6 +707,20 @@ async fn ble_scan(
 
     drop(disco);
     Ok(found.into_values().collect())
+}
+
+/// Reverse-lookup table for historically-known r2-workshop class
+/// hashes. Helps the operator decode a foreign-class advertisement
+/// without needing to remember which hash corresponded to which
+/// rename / rotation. Returns `None` for hashes we don't recognise —
+/// the operator still sees the raw hex.
+fn lookup_known_class(hash: u32) -> Option<String> {
+    match hash {
+        0x624C47BC => Some("nz.ac.auckland.rocker".to_string()),
+        0xE6C6AFCD => Some("nz.ac.auckland.workshop.sensor (pre-2026-05-28)".to_string()),
+        0x6A3B0860 => Some("nz.ac.auckland.rocker.sensor (pre-r2-workshop rename)".to_string()),
+        _ => None,
+    }
 }
 
 /// Bootstrap a single sensor: L2CAP → WiFi offer → UDP presence → TCP ping/pong.

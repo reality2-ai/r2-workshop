@@ -1,0 +1,19 @@
+# Legacy ensemble-class strings — accepted by the dashboard's BLE
+# scan filter alongside the canonical `sensor_class.txt` value
+# during a class-string rotation transition.
+#
+# Each line below names a previous class string that pre-rotation
+# firmware in the field still advertises on R2-BEACON. The
+# dashboard accepts these so the operator can bootstrap +
+# reflash the stragglers without losing sight of them.
+#
+# Once every sensor is on the canonical class, empty this file
+# (or delete the lines) and rebuild the dashboard. The BLE-scan
+# filter narrows back to the single canonical class.
+#
+# Lines starting with '#' are comments; blank lines are ignored.
+
+# Rotation 2026-05-28: nz.ac.auckland.workshop.sensor → nz.ac.auckland.rocker
+# (workshop became the template name; rocker is the deployment).
+# Drop this line once both bench sensors are reflashed past 4f2a11f.
+nz.ac.auckland.workshop.sensor

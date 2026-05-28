@@ -8,6 +8,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=../.git/HEAD");
     println!("cargo:rerun-if-changed=../trust_keys/sensor_class.txt");
+    println!("cargo:rerun-if-changed=../trust_keys/legacy_classes.txt");
 
     // Per-deployment sensor class — same file the firmware reads at
     // build time. Both sides see the same string so the firmware's
@@ -28,6 +29,26 @@ fn main() {
         );
     }
     println!("cargo:rustc-env=R2_SENSOR_CLASS={class}");
+
+    // Legacy classes — pre-rotation strings the dashboard's BLE scan
+    // should also accept during a class-string transition so sensors
+    // still carrying old-class firmware remain discoverable through
+    // bootstrap until they're reflashed. One class per line; lines
+    // beginning with `#` are comments; blank lines ignored. File is
+    // optional — when absent, behaviour is identical to the
+    // pre-rotation single-class scan filter.
+    let legacy_path = std::path::Path::new("../trust_keys/legacy_classes.txt");
+    let legacy_joined = std::fs::read_to_string(legacy_path)
+        .ok()
+        .map(|raw| {
+            raw.lines()
+                .map(|l| l.trim())
+                .filter(|l| !l.is_empty() && !l.starts_with('#'))
+                .collect::<Vec<_>>()
+                .join(";")
+        })
+        .unwrap_or_default();
+    println!("cargo:rustc-env=R2_SENSOR_CLASS_LEGACY={legacy_joined}");
 
     let sha = std::process::Command::new("git")
         .args(["rev-parse", "--short=8", "HEAD"])

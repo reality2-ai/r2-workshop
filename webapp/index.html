@@ -2564,7 +2564,7 @@ function remapPayload(eventName, raw) {
     // handleAccessWsEvent (which reads msg.event as the access-flow
     // discriminator) works against this remapped payload unchanged.
     'r2.dash.access.event':            [['0','event'],['1','device_pk'],['2','name'],['3','hint']],
-    'r2.dash.bootstrap.progress':      [['0','kind'],['1','message'],['2','addr'],['3','name'],['4','ip'],['5','count']],
+    'r2.dash.bootstrap.progress':      [['0','kind'],['1','message'],['2','addr'],['3','name'],['4','ip'],['5','count'],['6','class_hash'],['7','class_name'],['8','rbid']],
     'r2.dash.device.alias.changed':    [['0','device_pk'],['1','name']],
   };
   const map = SCHEMA[eventName];
@@ -2612,6 +2612,19 @@ function handleEvent(msg) {
       event = { kind: 'SensorFound', data: { addr: p.addr, name: p.name } };
     } else if (p.kind === 'SensorConnected') {
       event = { kind: 'SensorConnected', data: { addr: p.addr, name: p.name, ip: p.ip } };
+    } else if (p.kind === 'ForeignSensor') {
+      // Foreign R2 device — class doesn't match this dashboard or
+      // any legacy entry. Surface it through the same bootstrap-log
+      // panel as a plain Log line so the operator can SEE what's on
+      // the air, even if we don't auto-pair it.
+      const hex = (typeof p.class_hash === 'number')
+        ? '0x' + p.class_hash.toString(16).padStart(8, '0').toUpperCase()
+        : String(p.class_hash);
+      const label = p.class_name ? `${p.class_name} (${hex})` : hex;
+      event = {
+        kind: 'Log',
+        data: `🛰 Foreign R2 sensor: class=${label}, addr=${p.addr || '?'}, RBID=${p.rbid || '?'} — not adopted (different ensemble or pre-rotation firmware)`,
+      };
     } else if (p.kind === 'Done') {
       event = { kind: 'Done', data: { count: p.count } };
     }
