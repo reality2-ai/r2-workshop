@@ -1,0 +1,408 @@
+# rocker — SENSOR role-ensemble.
+#
+# One of four role-ensembles of the rocker deployment (see
+# ensemble/README.md). A role IS an ensemble; a hive performs one role.
+# The four scores share the `nz.ac.auckland.rocker` class + trust group
+# and interoperate because R2 event hashes derive from the event NAME,
+# independent of class.
+#
+# This is the SENSOR role — one per ESP32 device on the rig. It is the
+# **deployment-specific** role: the sensing element + the domain sentant
+# are what change when this template is forked for a sibling deployment
+# (people-counter, pet-gait, …). Everything else here is substrate.
+#
+# The substrate/deployment boundary is visible in the class namespace:
+#   ai.reality2.workshop.*      → framework substrate (reused unchanged)
+#   nz.ac.auckland.rocker.*     → rocker-specific (the swap points)
+#
+# THE SWAP LEVER (R2-PLUGIN §10 + R2-CAP): the sensing sentant binds the
+# *generic capability* `ai.reality2.cap.accel.triaxial`, NOT a specific
+# chip. The `adxl355` plugin provides that capability today. Each
+# candidate from the 2026-05 shipment — lis2dw12 (SEN0405), lis2dh
+# (SEN0224), adxl345 (SEN0140) — would be a plugin providing the SAME
+# capability, so swapping the sensing element is a plugin change with no
+# sentant change. (bma220 / SEN0168 is 6-bit — likely too coarse; see
+# docs/datasheets/README.md.)
+#
+# Canonical model: R2-ENSEMBLE / R2-SENTANT / R2-PLUGIN / R2-CAP /
+# R2-DEF §7. Narrative companion: SPEC-R2-WORKSHOP-SENTANTS.md §4.
+# B0 pattern: the per-carrier firmware hand-implements this score until
+# the r2-compile path lands (SPEC-R2-WORKSHOP-ENSEMBLE §4 phase B2).
+
+ensemble:
+  name: rocker-sensor
+  description: >
+    Sensor role-ensemble: the ESP32 sample pipeline on each rig device.
+    Reads calibrated triaxial acceleration, writes it to an SD ring,
+    streams it to the controller, and owns the on-device capture state
+    machine + event-mark sidecar. Deployment-specific in exactly two
+    places — the sensing plugin and the domain (accelerometer) sentant.
+  version: "0.2.0"
+  class: nz.ac.auckland.rocker          # shared deployment class
+  ensemble_version: "0.1"
+
+  trust_group:
+    # Sensors are enrolled MEMBERS of the production trust group
+    # (KeyHolder-signed DeviceCertificate). They are not owners.
+    roles_allowed: [member]
+
+  # Compiled ahead-of-time into firmware (R2-COMPILE). Current carriers
+  # are ESP32-S3 (DevKitC, XIAO). DFR1117 (ESP32-C6) is a candidate new
+  # carrier from the 2026-05 shipment — a future compile target.
+  compile_target: [esp32-s3]            # candidate: esp32-c6
+
+  # ─── Sentants (R2-SENTANT) ──────────────────────────────────────────
+  sentants:
+
+    # === Deployment-specific (the domain) ==============================
+
+    - name: Accelerometer
+      description: >
+        THE domain sentant. Reads x/y/z from whatever plugin provides
+        the triaxial-accel capability, applies the calibration offset
+        from the clock/calibration baseline, stamps each sample with
+        clock time, and emits it onto the bus. Falls back to a built-in
+        simulator if the sensing plugin fails to enumerate
+        (SPEC-R2-WORKSHOP-SENSOR-HEALTH). DEPLOYMENT-SPECIFIC: a sibling
+        deployment replaces this sentant with its own domain logic
+        (counting, gait, …) bound to a different sensing capability.
+      class: nz.ac.auckland.rocker.accelerometer
+      storage: durable-state
+      data:
+        cal_offset: {x: 0, y: 0, z: 0}
+        odr_hz: 100
+      plugins:
+        # Bound by CAPABILITY, not chip — see "THE SWAP LEVER" above.
+        - capability: ai.reality2.cap.accel.triaxial
+      automations:
+        - name: main
+          # emits: r2.sensor.acceleration (100 Hz), r2.sensor.acceleration.batch
+          # See SPEC-R2-WORKSHOP-SENSOR §4.
+
+    # === Substrate (reused unchanged by every sibling deployment) ======
+
+    - name: Identity
+      description: >
+        One-shot. Loads/creates the device Ed25519 keypair + persistent
+        RBID from NVS, exposes them in the hive context. Mirrors the
+        R2-HIVE device-identity contract.
+      class: ai.reality2.workshop.sensor.identity
+      storage: durable
+      plugins: [{name: nvs}]
+      automations: [{name: main}]   # populates context at boot; no events
+
+    - name: WifiProv
+      description: >
+        One-shot at boot. Reads WiFi credentials from NVS / wifi_config /
+        env (SPEC-R2-WORKSHOP-SENSOR §2.1.1) and drives the WiFi radio
+        singleton to associate. On failure, flips the LED to Advertising
+        and yields to Bootstrap.
+      class: ai.reality2.workshop.sensor.wifi-prov
+      storage: durable
+      plugins: [{name: nvs}, {name: led}]
+      automations: [{name: main}]
+
+    - name: Bootstrap
+      description: >
+        Owns the #wifi_offer listener over the BLE L2CAP CoC. On a valid
+        TG-signed offer, writes credentials to NVS and reboots. Also
+        receives the KeyHolder-signed DeviceCertificate (r2.dash.enrol)
+        during bootstrap. Per R2-BOOTSTRAP §4 + SENSOR §2.2/§3.5.
+      class: ai.reality2.workshop.sensor.bootstrap
+      storage: ephemeral
+      plugins: [{name: ble-l2cap}, {name: nvs}]
+      automations:
+        - name: main
+          # subscribes: r2.dash.enrol
+
+    - name: Beacon
+      description: >
+        Drives the R2-BEACON advertiser with the rocker class hash + RBID
+        + provisioning flag. Always running once Identity has booted.
+      class: ai.reality2.workshop.sensor.beacon
+      storage: ephemeral
+      plugins: [{name: ble-beacon}]
+      automations: [{name: main}]
+
+    - name: Battery
+      description: Polls the battery ADC; emits voltage / percent / charging.
+      class: ai.reality2.workshop.sensor.battery
+      storage: ephemeral
+      plugins: [{name: battery-adc}]
+      automations:
+        - name: main
+          # emits: r2.sensor.battery (every 30 s)
+
+    - name: Status
+      description: >
+        Emits FSM state + data_source + seq watermark + uptime; drives
+        the dashboard's virtual LED.
+      class: ai.reality2.workshop.sensor.status
+      storage: ephemeral
+      automations:
+        - name: main
+          # emits: r2.sensor.status (every 2 s)
+
+    - name: Sync
+      description: >
+        SPEC-R2-WORKSHOP-TIMESYNC §2 (Cristian's algorithm). Applies
+        set_clock_offset deltas to the clock plugin; persists via NVS.
+      class: ai.reality2.workshop.sensor.sync
+      storage: durable-state
+      plugins: [{name: clock}, {name: nvs}]
+      automations:
+        - name: main
+          # subscribes: r2.dash.sync_pulse, r2.dash.set_clock_offset
+          # emits:      r2.sensor.sync_pong
+
+    - name: Recorder
+      description: >
+        Writes every acceleration record to the SD ring (CSV per SENSOR
+        §6.2) with periodic fsync; frees segments on cumulative ack.
+        Substrate — the ring mechanism is generic; the record schema is
+        supplied by the domain sentant's sample shape.
+      class: ai.reality2.workshop.sensor.recorder
+      storage: durable-state
+      plugins: [{name: sd-card}, {name: clock}]
+      automations:
+        - name: main
+          # subscribes: r2.sensor.acceleration, r2.dash.ack
+
+    - name: Uplink
+      description: >
+        Single TCP session to the controller (port 21042). Sends the
+        announce frame on connect, then forwards subscribed events as
+        R2-WIRE compact frames; reconnects with backoff. Uses the WiFi
+        transport singleton.
+      class: ai.reality2.workshop.sensor.uplink
+      storage: ephemeral
+      plugins: [{name: led}]
+      automations:
+        - name: main
+          # emits: r2.sensor.announce (on connect), then forwards bus events
+
+    - name: Ota
+      description: >
+        Accepts firmware via the ota-tcp plugin (port 21043); verifies
+        SHA-256, swaps OTA partitions, reboots; marks valid after the
+        first frame round-trips. Per SENSOR §12.
+      class: ai.reality2.workshop.sensor.ota
+      storage: ephemeral
+      plugins: [{name: ota-tcp}]
+      automations:
+        - name: main
+          # subscribes: r2.dash.fw.update
+
+    - name: Reset
+      description: TCP listener (port 21044) implementing SENSOR-REMOTE-RESET; esp_restart().
+      class: ai.reality2.workshop.sensor.reset
+      storage: ephemeral
+      plugins: [{name: reset-tcp}]
+      automations:
+        - name: main
+          # subscribes: r2.dash.reset
+
+    - name: Health
+      description: >
+        Watches for a stuck data source and surfaces data_source = sim on
+        the next status emission (SENSOR-HEALTH §6). Substrate; the
+        stuck-detection heuristic is parameterised by the sensing plugin.
+      class: ai.reality2.workshop.sensor.health
+      storage: ephemeral
+      automations:
+        - name: main
+          # subscribes: r2.sensor.acceleration
+
+    - name: Capture
+      description: >
+        Owns the Idle / Calibrating / Recording state machine
+        (SPEC-R2-WORKSHOP-CAPTURE §2) + the event-mark sidecar writer
+        (§7.5). Substrate FSM; the calibration *content* (gravity-offset
+        baseline) is domain-parameterised.
+      class: ai.reality2.workshop.sensor.capture
+      storage: durable-state
+      data:
+        state: 0                     # 0=idle, 1=calibrating, 2=recording
+        current_capture_file: null
+      plugins: [{name: sd-card}, {name: clock}]
+      automations:
+        - name: main
+          # subscribes: r2.sensor.acceleration, r2.dash.capture.start,
+          #             r2.dash.capture.mark, r2.dash.capture.stop,
+          #             r2.dash.capture.event_mark, r2.dash.cal.sample.req,
+          #             r2.dash.identify_set
+          # emits:      r2.sensor.capture.state, r2.sensor.cal.sample.resp
+
+    - name: Presence
+      description: >
+        One-shot at boot: 5× UDP broadcast to 255.255.255.255:21044
+        carrying RBID + own IP, driving the controller's RBID-based
+        bootstrap reconciliation.
+      class: ai.reality2.workshop.sensor.presence
+      storage: ephemeral
+      automations: [{name: main}]
+
+  # ─── Ensemble-owned plugins (R2-PLUGIN §2/§12.3) ────────────────────
+  # Capability providers. Raw radios (WiFi, BLE) are HIVE-SHARED
+  # SINGLETONS (R2-ENSEMBLE §2.1.2), referenced via `requires:`, not
+  # listed as plugins. Compiled-in (AOT) on the ESP32 — the firmware IS
+  # the plugin set (R2-PLUGIN §3.3).
+  plugins:
+
+    # --- DEPLOYMENT-SPECIFIC sensing element -------------------------
+    - name: adxl355
+      description: >
+        Analog Devices ADXL355 precision triaxial accelerometer over
+        SPI. The rocker's current sensing element (20-bit, low-noise,
+        SHM-grade). Provides the GENERIC accel capability so the
+        Accelerometer sentant is chip-agnostic; swap this entry for a
+        lis2dw12 / lis2dh / adxl345 plugin to change the sensing element
+        with no sentant change (docs/datasheets/README.md).
+      kind: native
+      compile_target: [esp32-s3]
+      capabilities:
+        provides: [ai.reality2.cap.accel.triaxial]
+        requires: [r2.hw.spi]
+      events:
+        handled: []                  # method-driven by the Accelerometer sentant
+        emitted: []
+
+    # --- Substrate plugins -------------------------------------------
+    - name: sd-card
+      description: FATFS on /sdcard + the 20-byte fixed-record ring (CAPTURE §6); boot recovery.
+      kind: native
+      compile_target: [esp32-s3]
+      capabilities:
+        provides: [ai.reality2.workshop.cap.sd-ring]
+        requires: [r2.hw.sdspi]
+      events: {handled: [], emitted: []}
+
+    - name: battery-adc
+      description: Single-channel ADC + divider for the LiPo cell.
+      kind: native
+      compile_target: [esp32-s3]
+      capabilities:
+        provides: [ai.reality2.workshop.cap.battery]
+        requires: [r2.hw.adc]
+      events: {handled: [], emitted: []}
+
+    - name: led
+      description: RGB / single-colour status LED + LedState machine.
+      kind: native
+      compile_target: [esp32-s3]
+      capabilities:
+        provides: [ai.reality2.workshop.cap.status-led]
+        requires: [r2.hw.gpio]
+      events: {handled: [], emitted: []}
+
+    - name: nvs
+      description: ESP-IDF NVS — WiFi creds, RBID, clock offset, last-acked seq.
+      kind: native
+      compile_target: [esp32-s3]
+      capabilities:
+        provides: [ai.reality2.workshop.cap.nvs]
+        requires: [r2.hw.flash]
+      events: {handled: [], emitted: []}
+
+    - name: clock
+      description: Monotonic + offset clock; reads/writes NVS clock_offset_ms.
+      kind: native
+      compile_target: [esp32-s3]
+      capabilities:
+        provides: [ai.reality2.workshop.cap.clock]
+        requires: [ai.reality2.workshop.cap.nvs]
+      events: {handled: [], emitted: []}
+
+    - name: data-tcp
+      description: TCP server (port 21047) — LIST / GET / DEL / DEL_ALL over the captures dir (CAPTURE §6).
+      kind: native
+      compile_target: [esp32-s3]
+      capabilities:
+        provides: [ai.reality2.workshop.cap.data-tcp]
+        requires: [r2.net.tcp, ai.reality2.workshop.cap.sd-ring]
+      events: {handled: [], emitted: []}
+
+    - name: ota-tcp
+      description: TCP listener (port 21043); stages a firmware image to the inactive OTA partition.
+      kind: native
+      compile_target: [esp32-s3]
+      capabilities:
+        provides: [ai.reality2.deploy.ota]      # R2-DEPLOY first-plugin pattern
+        requires: [r2.net.tcp]
+      events: {handled: [], emitted: []}
+
+    - name: reset-tcp
+      description: TCP listener (port 21044); accepts a single CMD_RESET byte.
+      kind: native
+      compile_target: [esp32-s3]
+      capabilities:
+        provides: [ai.reality2.workshop.cap.reset-tcp]
+        requires: [r2.net.tcp]
+      events: {handled: [], emitted: []}
+
+    - name: log-tcp
+      description: TCP fan-out (port 21046) of the device log (SENSOR-LIVE-LOGS).
+      kind: native
+      compile_target: [esp32-s3]
+      capabilities:
+        provides: [ai.reality2.workshop.cap.log-tcp]
+        requires: [r2.net.tcp]
+      events: {handled: [], emitted: []}
+
+    - name: ble-beacon
+      description: R2-BEACON 28-byte legacy AD advertiser.
+      kind: native
+      compile_target: [esp32-s3]
+      capabilities:
+        provides: [ai.reality2.cap.beacon.advertise]
+        requires: [r2.hw.ble]
+      events: {handled: [], emitted: []}
+
+    - name: ble-l2cap
+      description: L2CAP CoC server on PSM 0x00D2 for the #wifi_offer bootstrap handshake.
+      kind: native
+      compile_target: [esp32-s3]
+      capabilities:
+        provides: [ai.reality2.cap.bootstrap.l2cap]
+        requires: [r2.hw.ble]
+      events: {handled: [], emitted: []}
+
+  # ─── Registrations with hive-shared singletons (R2-DEF §7.4) ────────
+  registrations:
+    # The sensor registers a BLE advertise (its R2-BEACON identity) with
+    # the hive's BLE radio singleton. The advertised class hash gates
+    # which controllers will adopt it during bootstrap.
+    r2-ble:
+      advertise:
+        class: nz.ac.auckland.rocker
+        payload: r2-beacon            # R2-BEACON legacy 28-byte AD
+      l2cap_listen:
+        psm: 0x00D2
+
+  # ─── Aggregate capabilities (R2-CAP §2, R2-DEF §7.5) ────────────────
+  capabilities:
+    emits:
+      - r2.sensor.announce
+      - r2.sensor.acceleration
+      - r2.sensor.acceleration.batch
+      - r2.sensor.battery
+      - r2.sensor.status
+      - r2.sensor.capture.state
+      - r2.sensor.sync_pong
+      - r2.sensor.cal.sample.resp
+      - r2.sensor.event.log
+    consumes:
+      - r2.dash.ack
+      - r2.dash.sync_pulse
+      - r2.dash.set_clock_offset
+      - r2.dash.cal.sample.req
+      - r2.dash.capture.start
+      - r2.dash.capture.mark
+      - r2.dash.capture.stop
+      - r2.dash.capture.event_mark
+      - r2.dash.identify_set
+      - r2.dash.fw.update
+      - r2.dash.reset
+      - r2.dash.enrol
+
+  signatures: []

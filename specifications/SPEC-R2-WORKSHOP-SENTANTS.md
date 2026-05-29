@@ -1,316 +1,389 @@
-# SPEC-R2-WORKSHOP-SENTANTS: Ensemble sentant + plugin catalog
+# SPEC-R2-WORKSHOP-SENTANTS: Role-ensemble, sentant + plugin catalog
 
-**Version:** 0.2 Draft
-**Date:** 2026-05-28
+**Version:** 0.3 Draft
+**Date:** 2026-05-29
 **Status:** Normative Draft
-**Depends on:** SPEC-R2-WORKSHOP-ENSEMBLE, SPEC-R2-WORKSHOP-SENSOR, SPEC-R2-WORKSHOP-DASHBOARD, SPEC-R2-WORKSHOP-WIRE, SPEC-R2-WORKSHOP-CAPTURE, SPEC-R2-WORKSHOP-TIMESYNC, SPEC-R2-WORKSHOP-ACCESS, SPEC-R2-WORKSHOP-SENSOR-HEALTH, SPEC-R2-WORKSHOP-SENSOR-REMOTE-RESET, SPEC-R2-WORKSHOP-SENSOR-LIVE-LOGS, canonical R2-ENSEMBLE / R2-SENTANT / R2-CAP / R2-DEF
+**Depends on:** SPEC-R2-WORKSHOP-ENSEMBLE, SPEC-R2-WORKSHOP-SENSOR, SPEC-R2-WORKSHOP-DASHBOARD, SPEC-R2-WORKSHOP-WIRE, SPEC-R2-WORKSHOP-CAPTURE, SPEC-R2-WORKSHOP-TIMESYNC, SPEC-R2-WORKSHOP-ACCESS, canonical **R2-ENSEMBLE / R2-SENTANT / R2-PLUGIN / R2-CAP / R2-DEF / R2-WEB / R2-COMPILE**
+**Scores (normative):** `ensemble/{sensor,controller,viewer,keyholder}.yaml`
 
 ---
 
 ## 1. Introduction
 
-The r2-workshop ensemble's sentants live across **two hive
-classes**:
+r2-workshop is delivered as a small set of **role-ensembles**. This
+spec is the human-readable companion to the four R2-DEF §7 scores under
+`ensemble/`; the scores are the normative part inventory, this document
+explains the model, the contracts, and the rules that make the parts
+composable and swappable.
 
-* **Sensor hive** — one per ESP32-S3 device. Hand-coded Rust
-  monolith at `firmware/esp32-s3/<carrier>/src/main.rs`. The
-  Sensor sentant + supporting plugins documented in §3.
-* **Dashboard hive** — one per controller laptop. Hand-coded Rust
-  binary at `dashboard/src/main.rs`. The Fleet / Capture / Sync /
-  TimeSync / Access / Bootstrap sentants + supporting plugins
-  documented in §4.
+### 1.1 A role is an ensemble
 
-This spec re-frames both monoliths in the canonical R2 vocabulary
-— **sentants** (event-driven logic) and **plugins** (hardware /
-platform shims) — so the firmware and dashboard match the same
-architectural model as r2-notekeeper and so individual building
-blocks can be reused or swapped (e.g. ADXL355 → BNO055; rocker
-analysis → people-counter detection) without restructuring the
-rest of the ensemble.
+The earlier framing of "two hive classes (sensor / dashboard)" is
+retired. Canonically (R2-ENSEMBLE), r2-workshop is **not** one ensemble
+whose parts are cherry-picked per hive. It is a set of **role-ensembles**
+that share one event vocabulary and one trust group (the
+`nz.ac.auckland.rocker` class). **A role is an ensemble** — a composite
+of many sentants + plugins — and **most hives perform a single role**:
+a hive loads the score for its role. They interoperate because R2 event
+hashes derive from the event *name* (R2-FNV), independent of class.
 
-The catalogue below is **what the runtime currently is**, named
-declaratively. The normative score is at
-[`ensemble/ensemble.yaml`](../ensemble/ensemble.yaml) per
-SPEC-R2-WORKSHOP-ENSEMBLE; this document is the human-readable
-companion.
+| Role | Score | Runs on | Trust group | `compile_target` | Tier |
+|---|---|---|---|---|---|
+| **Sensor** | `sensor.yaml` | each ESP32 rig device | production | `esp32-s3` (cand. `esp32-c6`) | **deployment-specific** |
+| **Controller** | `controller.yaml` | the fixed coordinator laptop | production | `linux` | substrate (100%) |
+| **Viewer** | `viewer.yaml` | the browser (WASM hive) | viewing (entangled) | `wasm` | substrate + UI skin |
+| **KeyHolder** | `keyholder.yaml` | usually co-loaded w/ Controller; separable | production (owner) | `linux` | substrate |
 
-### 1.1 Scope
+### 1.2 The end-state: choose → compile → flash
 
-In scope:
+Where this is heading: setting up R2 on a board should be **choose the
+board → choose the plugins → choose the sentants → compile → flash**
+(§10). The role-ensemble scores *are* that manifest — a score's
+`compile_target` is the board, its `plugins:` are the chosen plugins,
+its `sentants:` are the chosen sentants. Binding hardware by
+**capability** rather than by part number (§4.3) is what turns "choose
+the plugins" into a real menu. Today (B0) the firmware/dashboard
+hand-implement the chosen score; R2-COMPILE (B2) will consume it
+directly.
 
-* The fixed sentant ensemble that ships in every r2-workshop sensor
-  firmware build, with the events each sentant produces and
-  consumes.
-* The plugin set each sentant depends on (hardware shims +
-  cross-cutting platform services).
-* The minimal `Sentant` trait — surface only, not the full R2-HIVE
-  runtime.
+### 1.3 Substrate vs deployment — the abstraction boundary
 
-Out of scope:
+The reason to split by role is that **building a sibling deployment is a
+small, bounded diff**: ship a new **Sensor** ensemble (a sensing plugin
++ a domain sentant) and a **Viewer skin**; reuse **Controller** and
+**KeyHolder** unchanged. The boundary is encoded in the class namespace:
 
-* Dynamic sentant loading. The ensemble is fixed at build time,
-  AOT-compiled into the firmware image. Operators reconfigure by
-  re-flashing.
-* Multi-hive cohabitation on one MCU. Each sensor board hosts
-  exactly one hive (`rocker-<mac>`).
-* The dashboard- and webapp-side hives. Those are R2-HIVE-conformant
-  in their own right and are not catalogued here.
+| Namespace | Meaning |
+|---|---|
+| `ai.reality2.workshop.*` | framework **substrate** — reused unchanged by every sibling deployment |
+| `nz.ac.auckland.rocker.*` | **deployment-specific** — the swap points (the rocker domain) |
 
-The key words **MUST**, **MUST NOT**, **REQUIRED**, **SHALL**,
-**SHALL NOT**, **SHOULD**, **SHOULD NOT**, **RECOMMENDED**, **MAY**,
-and **OPTIONAL** in this document are to be interpreted as
-described in [RFC 2119](https://www.rfc-editor.org/info/rfc2119),
-when they appear in capitals.
+### 1.4 Scope
 
-### 1.2 Terminology
+In scope: the role-ensemble model; the sentant + plugin contracts as
+r2-workshop applies them; the surface-ownership ("anti-short-circuit")
+rule; per-role part summaries; the choose→compile→flash flow; per-role
+conformance.
 
-* **Sentant** — a self-contained piece of event-driven logic. Has
-  a name, declares the event hashes it consumes and produces, and
-  exposes a small lifecycle: `boot`, `tick` (called from the main
-  loop), `on_event`. Sentants do not talk to hardware directly —
-  they hold references to plugins.
-* **Plugin** — a capability shim that abstracts a hardware
-  peripheral or platform service. Has no event surface of its own;
-  exposes typed methods to sentants. Examples: `adxl355`, `nvs`,
-  `led`, `wifi_sta`. (R2-CAP §3 terminology — closely related to
-  a Capability, but rendered in the firmware as a Rust struct
-  rather than an opaque token.)
-* **Ensemble** — the ordered list of sentants + plugins composed by
-  `main()`. The ensemble for r2-workshop is fixed and defined in §3.
-* **Event hash** — FNV-1a-32 over the lowercase event name (per
-  R2-WIRE / R2-FNV). Sentants subscribe by hash, not by string.
+Out of scope: the canonical models themselves (see the upstream specs);
+the full per-part inventory (that is the four scores); per-event wire
+detail (SPEC-R2-WORKSHOP-WIRE).
+
+### 1.5 Terminology
+
+RFC 2119 key words apply when capitalised. Canonical terms (R2-ENSEMBLE
+§1.4, R2-SENTANT §1.1, R2-PLUGIN §1, R2-CAP §1.1): **ensemble, part,
+performer, score, sentant, plugin, capability, class, hive**. Defined
+here:
+
+* **Role-ensemble** — an ensemble that corresponds to one role a hive
+  performs (Sensor / Controller / Viewer / KeyHolder). A hive performing
+  that role loads that ensemble's score.
+* **Substrate part** — a sentant or plugin reused unchanged across
+  deployments (`ai.reality2.workshop.*`).
+* **Deployment part** — a sentant or plugin specific to this deployment
+  (`nz.ac.auckland.rocker.*`); the swap point for siblings.
 
 ---
 
-## 2. `Sentant` trait (minimal surface)
+## 2. The Sentant contract (R2-SENTANT, as applied)
 
-Every sentant in a conforming firmware **SHALL** implement the
-following surface. The runtime **MAY** be implemented as whatever
-`main()` builds — this spec does not mandate a separate scheduler
-crate.
+A sentant is an IPUCOD agent: event-driven FSM(s) + vars, identified by
+a reverse-DNS **class**, declaring its **public events** (its contract),
+its **storage** level, and its **plugin bindings**. Sentants do not
+touch hardware or transports directly — they go through plugins (§4).
+Everything cross-sentant and cross-hive is an event (R2-SENTANT §1.2).
+
+For r2-workshop every sentant declares, in its score entry:
+
+| Field | Meaning |
+|---|---|
+| `class` | reverse-DNS; namespace marks substrate vs deployment (§1.3) |
+| `storage` | `volatile` / `durable` / `durable-state` (R2-SENTANT §2.2.1) |
+| `plugins` | bindings — by `name` or, for swappable hardware, by `capability` (§4.3) |
+| (automation comment) | the events it subscribes to / emits; authoritative set in the ensemble `capabilities:` block |
+
+### 2.1 Minimal `Sentant` surface (firmware, pre-loader)
+
+Until the loader lands, sensor-side sentants are realised as Rust
+structs implementing this surface; the runtime is whatever `main()`
+builds. (Unchanged from v0.2.)
 
 ```rust
 pub trait Sentant {
-    /// Canonical name, e.g. `"r2.sensor.accelerometer"`. MUST be
-    /// stable across builds. Used as the log target and as the
-    /// future R2-HIVE introspection key.
     fn name(&self) -> &'static str;
-
-    /// Event hashes this sentant wants to receive. Hashes MUST
-    /// be FNV-1a-32 of the lowercase event name per R2-WIRE /
-    /// R2-FNV, computed at compile time.
-    fn subscribed_events(&self) -> &'static [u32] { &[] }
-
-    /// One-shot boot. The runtime SHALL call this exactly once
-    /// after every plugin in the ensemble has been constructed
-    /// and SHALL deliver no `on_event` callbacks before `boot`
-    /// has returned.
+    fn subscribed_events(&self) -> &'static [u32] { &[] }   // FNV-1a-32, compile-time
     fn boot(&mut self, _ctx: &mut HiveCtx) -> Result<()> { Ok(()) }
-
-    /// Cooperative tick. The runtime SHALL call this at least as
-    /// frequently as the sentant's declared cadence (see §3.2);
-    /// implementations SHOULD return promptly. A sentant that
-    /// needs its own thread (e.g. a long-running TCP listener)
-    /// MAY spawn one in `boot` and leave `tick` as a no-op.
     fn tick(&mut self, _ctx: &mut HiveCtx) -> Result<()> { Ok(()) }
-
-    /// Inbound event. The runtime SHALL deliver only events whose
-    /// hash is in `subscribed_events()`. A sentant MUST NOT
-    /// assume any ordering across event types.
     fn on_event(&mut self, _ev: &Event, _ctx: &mut HiveCtx) -> Result<()> { Ok(()) }
 }
 ```
 
-`HiveCtx` **SHALL** expose references to every plugin in §3.1 and a
-small event bus the runtime feeds back into `on_event`. A sentant
-publishes by calling `ctx.emit(hash, payload)`; the runtime
-**SHALL** then deliver the event to other subscribed sentants
-in-process and **MAY** additionally forward it onto the wire via
-the `uplink` sentant (see §3.2). Sentants **MUST NOT** access
-ESP-IDF peripherals directly; they **MUST** go through a plugin.
+`HiveCtx` exposes references to the role's plugins and the local event
+bus. A sentant publishes via `ctx.emit(hash, payload)`; the runtime
+delivers in-process to other subscribed sentants and, via the `uplink`
+sentant, onto the wire. Sentants MUST NOT access peripherals directly —
+only through a plugin.
 
 ---
 
-## 3. The r2-workshop sensor ensemble
+## 3. The Plugin contract (R2-PLUGIN, as applied)
 
-### 3.1 Plugins (hardware + platform shims)
+Per R2-PLUGIN §2 a plugin is anything that runs on a hive and provides
+capabilities; it interacts **only through events / typed method calls**,
+never plugin-to-plugin, and is **hive-local always** (R2-PLUGIN §5). For
+r2-workshop a plugin is "well-defined" when its score entry declares:
 
-| Plugin | Owns / wraps | Used by |
+| Field | Meaning (R2-PLUGIN §2 / §12.3) |
+|---|---|
+| `name` | unique within the role-ensemble |
+| `capabilities.provides` | the R2-CAP class(es) it offers (reverse-DNS) |
+| `capabilities.requires` | host capabilities it needs (buses, fs, net, radios) |
+| `events.handled` / `events.emitted` | its inbound / outbound event interface |
+| `compile_target` | tiers it builds for (R2-COMPILE) |
+| `credentials` | named secrets from the credential store (never in-repo) |
+
+### 3.1 Transports are hive singletons, not ensemble plugins
+
+Raw transports — WiFi, the BLE radio, TCP sockets, the relay — are
+**hive-shared singletons** owned by the hive (R2-ENSEMBLE §2.1.2) and
+are **never** listed as ensemble plugins. A plugin that speaks a
+*protocol* over a transport (e.g. `data-tcp`, `ota-tcp`, the
+`ble-beacon` advertiser) is an ensemble plugin that `requires:` the
+transport capability (`r2.net.tcp`, `r2.hw.ble`, …).
+
+### 3.2 User interfaces are plugins; the web UI is a registration
+
+Per R2-ENSEMBLE §2.1.1 a UI is a special class of plugin, and per
+R2-PLUGIN §13 the web UI is served by the hive's **R2-WEB singleton**
+into which an ensemble **registers** a bundle + WS channels. R2-WEB's
+server role is *exhausted by serving the bundle and forwarding `/r2`
+frames to a sentant* — it hosts no event handlers and no REST. See §6.
+
+### 3.3 Bind hardware by capability, not by part number — THE swap lever
+
+A sentant that needs hardware binds the **capability**, not the chip.
+The rocker `Accelerometer` sentant binds `ai.reality2.cap.accel.triaxial`;
+the `adxl355` plugin provides it. Any plugin providing the same
+capability is a drop-in replacement with **no sentant change** — this is
+R2-PLUGIN §10 (a sentant references a plugin by capability; placement /
+implementation is a trust-group / build concern).
+
+This is the concrete lever for the 2026-05 hardware shipment: LIS2DW12
+(SEN0405), LIS2DH (SEN0224), and ADXL345 (SEN0140) would each be a
+plugin providing `ai.reality2.cap.accel.triaxial`; choosing one is a
+build-time plugin selection (§10), not a code change.
+(BMA220/SEN0168 is 6-bit — likely too coarse; see
+`docs/datasheets/README.md`.)
+
+---
+
+## 4. The Sensor role-ensemble (`sensor.yaml`)
+
+The **deployment-specific** role: one per ESP32 rig device, compiled
+ahead-of-time into firmware (R2-COMPILE). Authoritative inventory is
+`ensemble/sensor.yaml`; summary:
+
+**Deployment-specific parts** (the swap points):
+
+| Part | Kind | Role |
 |---|---|---|
-| `nvs` | ESP-IDF NVS partition. Reads/writes WiFi creds, RBID, clock offset, last-acked seq. | `clock`, `identity`, `wifi-prov`, `recorder` |
-| `led` | WS2812 / RGB driver + state machine (`LedState`). | `health`, `uplink`, `wifi-sta`, `beacon`, `ota` |
-| `adxl355` | ADXL355 over SPI2, shared bus. | `accelerometer` |
-| `sd-card` | Mounted FATFS on `/sdcard`. | `recorder` |
-| `battery-adc` | Single-channel ADC + divider for the LiPo cell. | `battery` |
-| `wifi-sta` | esp-idf-svc WiFi station + reconnect machinery. | `uplink`, `clock`, all listeners |
-| `ble-beacon` | R2-BEACON legacy 28-byte AD advertiser. | `beacon` (sentant of the same name) |
-| `ble-l2cap` | L2CAP CoC server on PSM 0x00D2. | `bootstrap` |
-| `ota-tcp` | TCP listener on port 21043; receives a firmware image, stages to the inactive OTA partition, restarts. | `ota` |
-| `reset-tcp` | TCP listener on port 21044; accepts a single `CMD_RESET` byte. | `reset` |
-| `log-tcp` | TCP fan-out on port 21046 of the wrapping logger's records (SPEC-R2-WORKSHOP-SENSOR-LIVE-LOGS). | every sentant, transparently via `log::info!` etc. |
-| `data-tcp` | TCP listener on port 21047; LIST / GET / DEL / DEL_ALL over the captures sub-directory (SPEC-R2-WORKSHOP-CAPTURE §6). | external — dashboard's `/api/data/...` handlers. |
-| `clock` | Monotonic + offset clock. Reads/writes the NVS-persisted `clock_offset_ms`. | `accelerometer`, `uplink`, `recorder`, `health`, `sync` |
+| `Accelerometer` (`nz.ac.auckland.rocker.accelerometer`) | sentant | reads triaxial accel via the bound capability, calibrates, stamps, emits `r2.sensor.acceleration`; sim-fallback on chip failure |
+| `adxl355` | plugin | provides `ai.reality2.cap.accel.triaxial` over SPI — **the swap point** (§3.3) |
 
-### 3.2 Sentants (event-driven logic)
+**Substrate parts** (`ai.reality2.workshop.sensor.*`): `Identity`,
+`WifiProv`, `Bootstrap`, `Beacon`, `Battery`, `Status`, `Sync`,
+`Recorder`, `Uplink`, `Ota`, `Reset`, `Health`, `Capture`, `Presence`;
+plugins `sd-card`, `battery-adc`, `led`, `nvs`, `clock`, `data-tcp`,
+`ota-tcp`, `reset-tcp`, `log-tcp`, `ble-beacon`, `ble-l2cap`. The
+`Capture` FSM and `Health` heuristic are substrate, with
+domain-parameterised detail (calibration content, stuck-detection).
 
-Hashes shown in hex are FNV-1a-32 over the lowercase event name
-per R2-WIRE / R2-FNV.
-
-| Sentant | Subscribes to | Emits | Role |
-|---|---|---|---|
-| `r2.sensor.identity` | (none) | (none — populated into `HiveCtx` at boot) | One-shot. Loads device keypair from NVS (creates one if absent), loads the persistent RBID, exposes both via the context for other sentants. Mirrors R2-HIVE §4 device-identity contract. |
-| `r2.sensor.wifi-prov` | (none) | (none — drives the `wifi-sta` plugin) | One-shot at boot. Reads WiFi credentials from NVS / `wifi_config.toml` / env per SPEC-R2-WORKSHOP-SENSOR §2.1.1, and tells `wifi-sta` to associate. On association failure flips `led` to `Advertising` (blue) and yields to `bootstrap`. |
-| `r2.sensor.bootstrap` | (none — listens on the `ble-l2cap` plugin) | (none) | Owns the `#wifi_offer` listener over BLE L2CAP CoC. On a valid signed offer, writes credentials to NVS via the `nvs` plugin and triggers `esp_restart()`. Per R2-BOOTSTRAP §4 + SPEC-R2-WORKSHOP-SENSOR §2.2. |
-| `r2.sensor.beacon` | (none) | (none) | Drives the `ble-beacon` plugin with the rocker class hash + RBID + provisioning flag from `identity`. Always running once `identity` has booted. |
-| `r2.sensor.accelerometer` | (none) | `r2.sensor.acceleration` 0x94fef38f at 100 Hz | Reads x/y/z via `adxl355` plugin, stamps with `clock.ts_ms_i64()`, emits onto the bus. Falls back to a built-in simulator if the IC fails to enumerate (per SPEC-R2-WORKSHOP-SENSOR-HEALTH). |
-| `r2.sensor.battery` | (none) | `r2.sensor.battery` 0xa2751318 every 30 s | Polls `battery-adc`, emits voltage / percent / charging flag. |
-| `r2.sensor.status` | (none) | `r2.sensor.status` 0x70bd64a5 every 2 s | Emits FSM state + `data_source` + `seq` watermark + uptime. Drives the dashboard's virtual LED. |
-| `r2.sensor.sync` | `r2.dash.sync_pulse` 0x80a7… `r2.dash.set_clock_offset` 0xae40… | `r2.sensor.sync_pong` 0xccae4ebb | Implements SPEC-R2-WORKSHOP-TIMESYNC §2 (Cristian's algorithm). Applies `set_clock_offset` deltas to the `clock` plugin and persists via `nvs`. |
-| `r2.sensor.recorder` | `r2.sensor.acceleration`, `r2.dash.ack` 0xab… | (none) | Writes every acceleration record to the SD ring (CSV per SPEC-R2-WORKSHOP-SENSOR §6.2 v0.2) with periodic fsync; frees segments whose `last_seq ≤ through_seq` on each ack. |
-| `r2.sensor.uplink` | every event the dashboard cares about | (none — TCP egress) | Single TCP session to the gateway (port 21042). Sends the announce frame on connect, then forwards subscribed events as R2-WIRE compact frames. On session error, reconnects with exponential backoff; flips `led` between `WifiConnecting` and `StreamingLive`/`StreamingDegradedSim` per session state. |
-| `r2.sensor.ota` | (driven by the `ota-tcp` plugin) | (none) | TCP listener that accepts firmware via SPEC-R2-WORKSHOP-SENSOR §12. Verifies SHA-256, swaps OTA partitions, reboots. Calls `esp_ota_mark_app_valid_cancel_rollback()` after the first frame round-trips via `uplink`. |
-| `r2.sensor.reset` | (driven by the `reset-tcp` plugin) | (none) | TCP listener implementing SPEC-R2-WORKSHOP-SENSOR-REMOTE-RESET. Calls `esp_restart()`. |
-| `r2.sensor.health` | `r2.sensor.acceleration` | (none) | Watches for a stuck data source (SPEC-R2-WORKSHOP-SENSOR-HEALTH §6) and surfaces `data_source = sim` on the next `r2.sensor.status` emission. |
-| `r2.sensor.capture` | `r2.sensor.acceleration`, `r2.dash.capture.start`, `r2.dash.capture.mark`, `r2.dash.capture.stop` | `r2.sensor.capture.state` | Owns `CaptureMgr`. Implements the Idle / Calibrating / Recording state machine per SPEC-R2-WORKSHOP-CAPTURE §2. Writes calibrated CSV rows to `/sdcard/captures/<ts16>-<name>.csv` via the `sd-card` plugin while in Recording. Emits a state event on every transition. |
-| `r2.sensor.presence` | (none) | UDP burst | One-shot at boot: 5× UDP packets to `255.255.255.255:21044` carrying the persistent RBID + own IP. Drives the dashboard's RBID-based bootstrap reconciliation. |
-
-### 3.3 Required boot order
-
-The firmware **SHALL** boot the ensemble in the following order.
-Steps marked OPTIONAL are conditional on the firmware build.
-
-1. `identity` (**REQUIRED**) — populates the device keypair + RBID
-   into the context.
-2. Plugins (**REQUIRED**) — `nvs`, `led`, `adxl355`, `sd-card`,
-   `battery-adc`, `clock`, `wifi-sta`, `ble-beacon`, `ble-l2cap`,
-   `ota-tcp`, `reset-tcp`, `log-tcp` constructed and registered on
-   `HiveCtx`. A plugin's construction failure **MUST NOT** be
-   fatal if the plugin's spec allows graceful degradation
-   (e.g. `sd-card.try_mount` returning `None` per
-   SPEC-R2-WORKSHOP-SENSOR §6).
-3. `wifi-prov` (**REQUIRED**) — either `wifi-sta` succeeds or
-   control yields to `bootstrap` per
-   SPEC-R2-WORKSHOP-SENSOR §2.1.1.
-4. `beacon` (**REQUIRED**) — starts unconditionally once
-   `identity` is populated.
-5. `presence` (**REQUIRED**) — one UDP burst once `wifi-sta` is
-   associated.
-6. `clock` (**REQUIRED**) — offset loaded from NVS.
-7. All remaining sentants in §3.2 (**REQUIRED**) — `boot()`-ed in
-   any order; the runtime **MUST NOT** deliver events between
-   them until every `boot()` returns.
-8. Main loop (**REQUIRED**) — the runtime **SHALL** call each
-   sentant's `tick()` at least as frequently as its declared
-   cadence in §3.2.
-
-### 3.4 Implementation note (non-normative)
-
-For v0.2, sentants **SHOULD** be realised as Rust structs in
-`firmware/esp32-s3/<carrier>/src/sentants/*.rs` and plugins as
-Rust structs in `firmware/esp32-s3/<carrier>/src/plugins/*.rs` (or
-the shared `crates/r2-esp/`). The ensemble composer **SHOULD**
-live in `main()`. There is no dynamic registry — adding a sentant
-is a source-tree edit.
-
-A future v0.3 **MAY** move to a build-time descriptor (YAML / TOML
-listing sentants and plugins) compiled to the same Rust ensemble.
-That is consistent with the "devise the sentants and plugins, then
-compile them to working code" workflow noted in the README.
+Boot order and the per-sentant FSM detail are in SPEC-R2-WORKSHOP-SENSOR
+§4 (unchanged); the score lists every plugin's capability + event
+interface.
 
 ---
 
-## 4. The r2-workshop dashboard ensemble
+## 5. The Controller role-ensemble (`controller.yaml`)
 
-The dashboard hive runs on the controller laptop (Linux, std).
-Hand-coded today at `dashboard/src/main.rs`; the score documents
-the canonical decomposition.
+**100% framework substrate** — the fixed per-experiment coordinator
+laptop; reused unchanged by every sibling deployment. Authoritative
+inventory is `ensemble/controller.yaml`; summary
+(`ai.reality2.workshop.*`):
 
-### 4.1 Plugins (platform shims)
+| Sentant | Role |
+|---|---|
+| `Fleet` | peer metadata + aliases + online/stale state; replays cached announce to late viewers; **owns hive identity** → emits `r2.dash.hive.announce` (§9) |
+| `Capture` | fleet-wide Calibrate→Record→Stop FSM + `mark_id` |
+| `Sync` | captures-store + auto-sync engine (Recording→Idle trigger, 60 s recon) |
+| `TimeSync` | Cristian's-algorithm `sync_pulse`/`set_clock_offset` |
+| `Bootstrap` | BLE scan + L2CAP `#wifi_offer`; binds `tg-signer` local-or-remote (§7) |
+| `OTA` | firmware push + progress; `github-firmware-cache` |
+| `Reset` | remote soft reset |
+| `Identify` | identify-LED toggle |
 
-| Plugin | Owns / wraps | Used by |
+Plugins: `captures-store`, `sd-relay`, `github-firmware-cache`,
+`ble-scan`. Registrations: `r2-web` (hosts the singleton; serves the
+Viewer bundle — §6), `r2-ble` (scan subscription).
+
+---
+
+## 6. The Viewer role-ensemble (`viewer.yaml`)
+
+The **browser WASM hive**. Per R2-WEB §1.1 a browser is a real R2
+device; per §8.4/§8.5 it runs the R2 stack as a WASM hive. The running
+dashboard a user sees **is this browser hive** rendering from the `/r2`
+event stream — the controller is ~a headless event source + bundle/blob
+server.
+
+| Part | Tier | Role |
 |---|---|---|
-| `relay-tunnel` | WebSocket session to the r2-hive relay (SPEC-R2-WORKSHOP-ACCESS §5.2). Forwards R2-WIRE frames bidirectionally between LAN viewers and off-network viewers. | `access` |
-| `sd-relay` | data_tcp client. Dials sensor port 21047 to LIST / GET / DEL files on the SD ring (SPEC-R2-WORKSHOP-CAPTURE §6). | `sync`, HTTP route handlers under `/api/data/{addr}/...` |
-| `github-firmware-cache` | Periodic poll of `reality2-ai/r2-workshop` Releases + local `firmware/esp32-s3/<carrier>/releases/` fallback (DASHBOARD §13.3). | HTTP route `/api/firmware/available` |
-| `tg-signer` | Loads the KeyHolder Ed25519 keypair from `~/.config/r2-workshop/tg_signer/tg_priv.bin` (per `SECRETS-POLICY.md`); signs DeviceCertificates + `#wifi_offer` payloads. | `access`, `bootstrap` |
-| `captures-store` | XDG-rooted persistent index over `~/.local/share/r2-workshop/captures/`; provides `has`, `write_data`, `write_marks`, `list_sessions`, `clear_all` (CAPTURE §7.4). | `sync`, HTTP route handlers under `/api/data/local/...` and `/api/data/zip` |
-| `ble-scan` | bluez / btleplug scanner subscription for the workshop class hash on the R2-BEACON legacy AD payload. | `bootstrap` |
+| `Viewer` (`ai.reality2.workshop.viewer`) | substrate | mirrors the event stream into UI-facing state; emits operator-plane commands; holds no authority |
+| UI bundle (`../webapp/`) | **deployment skin** | the rocker charts/sessions/live view — the deployment-specific part |
 
-### 4.2 Sentants (event-driven logic)
-
-| Sentant | Subscribes to | Emits | Role |
-|---|---|---|---|
-| `r2.dash.fleet` | `r2.sensor.announce`, `r2.peer.disconnected`, `r2.dash.cmd.device.alias.set` | `r2.dash.device.alias.changed` | Tracks every peer's `device_pk` + operator alias + last-known online/stale/offline state. Caches the most-recent announce frame so `/r2` viewer-connects can replay the metadata to late-joining viewers without waiting for the next sensor reboot. |
-| `r2.dash.capture` | `r2.dash.cmd.capture.start`, `r2.dash.cmd.capture.mark`, `r2.dash.cmd.capture.stop`, `r2.dash.cmd.capture.event_mark` | `r2.dash.capture.start`, `r2.dash.capture.mark`, `r2.dash.capture.stop`, `r2.dash.capture.event_mark` (to sensors); `r2.dash.capture.progress`, `r2.dash.capture.event_marked`, `r2.dash.cmd.response` (to viewers) | Owns the fleet-wide Calibrate → Record → Stop state machine + the monotonic `mark_id` counter. Stamps authoritative `ts_ms` on Record and on every event_mark. Per SPEC-R2-WORKSHOP-CAPTURE §2 + §7.5. |
-| `r2.dash.sync` | `r2.sensor.capture.state` (observes Recording → Idle transitions) | `r2.dash.capture.sync_started`, `r2.dash.capture.synced` | Per-peer transition watcher + 60-second reconciliation poll + immediate single-peer recon on each announce (closes the 0-60 s blind window after a mid-experiment sensor reset). Drives the `captures-store` plugin; replays the full index to every `/r2` viewer on connect. Per SPEC-R2-WORKSHOP-CAPTURE §7.4. |
-| `r2.dash.timesync` | `r2.sensor.sync_pong` | `r2.dash.sync_pulse`, `r2.dash.set_clock_offset` | Cristian's-algorithm round per peer. 1 Hz cadence for the first 30 s after each TCP connect, then 30 s thereafter. Exponentially smooths the offset estimate; pushes `set_clock_offset` when the estimate stabilises or drifts past threshold. Per SPEC-R2-WORKSHOP-TIMESYNC §3. |
-| `r2.dash.access` | `r2.dash.cmd.access.members.query`, `…pending.query`, `…check`, `…approve`, `…deny`, `…revoke`, `…request` | `r2.dash.access.event`, `r2.dash.enrol` (to sensors), `r2.dash.cmd.response` | KeyHolder-side viewer + device enrolment. Mints DeviceCertificates via the `tg-signer` plugin; manages the pending + approved member lists; emits status events viewers consume to update their Link tab. Per SPEC-R2-WORKSHOP-ACCESS. |
-| `r2.dash.bootstrap` | `r2.dash.cmd.bootstrap` | `r2.dash.bootstrap.progress`, `r2.dash.enrol` (over L2CAP) | BLE-scan + L2CAP CoC handshake. Discovers sensors advertising the workshop class hash, signs `#wifi_offer` with the TG private key via `tg-signer`, delivers WiFi credentials so the sensor can join the hotspot. Per SPEC-R2-WORKSHOP-SENSOR §3.5 + DASHBOARD §6. |
-| `r2.dash.ota` | (driven by `POST /api/ota/{addr}` HTTP route + `r2.dash.cmd.access.approve` for bulk cases) | `r2.dash.fw.update` (to sensors), `r2.dash.ota.progress` (to viewers) | Streams firmware blobs to peers, surfaces progress. Manual OTA validation per DASHBOARD §13.4 lives client-side; this sentant is the transport. |
-| `r2.dash.reset` | `r2.dash.cmd.reset` | `r2.dash.reset.progress` | Opens a TCP session to the sensor's reset port (21044) and writes the `CMD_RESET` byte. Surfaces success/failure as a progress event. Per SPEC-R2-WORKSHOP-SENSOR-REMOTE-RESET. |
-| `r2.dash.identify` | `r2.dash.cmd.identify` | `r2.dash.identify_set` (to sensors) | Toggles the sensor's identify-LED via a single-frame fire-and-forget command. Per SPEC-R2-WORKSHOP-SENSOR-IDENTIFY. |
-
-### 4.3 R2-WEB registration
-
-The dashboard's webapp surface is **not a sentant**. Per
-R2-ENSEMBLE §2.1.1 it's a registration with the hive-shared
-R2-WEB singleton plugin — a static bundle + a `/r2` WebSocket
-channel + a set of `/api/...` HTTP routes. See
-`ensemble/ensemble.yaml` `registrations.r2-web` for the
-authoritative shape; SPEC-R2-WORKSHOP-DASHBOARD §5.1 for the
-per-route detail.
-
-### 4.4 Implementation note (non-normative)
-
-The dashboard binary today is a single Rust monolith; the sentants
-above are realised as struct + free-function clusters within
-`dashboard/src/main.rs` (plus the `dashboard/src/captures.rs`,
-`dashboard/src/access.rs`, `dashboard/src/relay.rs` modules). The
-sentant decomposition is the canonical mental model + the target
-shape for the future R2 ensemble loader; until that loader lands
-(SPEC-R2-WORKSHOP-ENSEMBLE §4 phase B3), the binary is the
-operative form.
+**Where the bundle is served (the one cross-role reference):** the
+bundle is *authored by* the Viewer ensemble but *served by* the
+Controller's R2-WEB singleton on the LAN (R2-WEB §8.5 hybrid: controller
+= gateway), or by GitHub Pages off-network. Either way the browser loads
+the bundle, boots the Viewer WASM hive, and talks to the Controller's
+sentants over `/r2` (LAN) or the relay (off-network — the relay forwards
+all `/r2` frames, so the experience is identical). A sibling deployment
+reuses the `Viewer` sentant and ships a different bundle skin.
 
 ---
 
-## 5. Conformance
+## 7. The KeyHolder role-ensemble (`keyholder.yaml`)
 
-A **sensor firmware build** conforms to this spec when ALL of the
-following hold:
+Holds the trust-group private key and is the sole authority that mints
+DeviceCertificates, signs `#wifi_offer`, and approves/revokes viewer
+access. **Usually co-loaded with the Controller**, but a separate
+ensemble because it is *separable* onto a more-trusted hive.
 
-1. Every sentant listed in §3.2 **MUST** be present in the
-   firmware image.
-2. Each sentant's emitted-event hashes **MUST** equal the FNV-1a-32
-   of the lowercase event name listed in §3.2.
-3. Every plugin in §3.1 **MUST** be reachable from sentants via
-   the `HiveCtx` (or equivalent ownership pattern). No sentant
-   **SHALL** access an ESP-IDF peripheral directly.
-4. The boot order in §3.3 **MUST** be respected.
-5. A sentant or plugin **SHOULD** be portable to a sibling
-   ensemble (e.g. people-counter) by porting the file plus its
-   declared plugin dependencies — i.e. no deployment-specific
-   globals.
+| Part | Role |
+|---|---|
+| `Access` (`ai.reality2.workshop.access`) | enrolment + viewer access (ACCESS v0.3) |
+| `tg-signer` plugin | wraps the Ed25519 TG keypair; `credentials: [tg_priv]` from the credential store — **never in-repo** (SECRETS-POLICY.md) |
 
-A **dashboard build** conforms to this spec when ALL of the
-following hold:
-
-1. Every sentant listed in §4.2 **MUST** be reachable as part of
-   the dashboard process. The decomposition need not be a literal
-   1-Rust-struct-per-sentant (pre-loader era) but the event
-   surface MUST match.
-2. Every plugin in §4.1 **MUST** be the sole code path to the
-   relevant capability (e.g. only `tg-signer` holds the
-   KeyHolder private key; only `captures-store` mutates the
-   captures dir).
-3. The R2-WEB registration's static bundle (§4.3) **MUST** be
-   served at `/` and **MUST** expose the `/r2` WebSocket per
-   SPEC-R2-WORKSHOP-DASHBOARD §5.2.
+**Separability (R2-PLUGIN §10):** the Controller's `Bootstrap` sentant
+binds `tg-signer` by name. Co-loaded → resolves locally; separate → the
+signing invocation routes to the KeyHolder hive as a trust-group plugin
+call and the signature routes back. The `Bootstrap` sentant is identical
+either way; plugin placement is a trust-group concern.
 
 ---
 
-## 6. Versioning
+## 8. Surfaces and the anti-short-circuit rule
 
-| Date       | Ver | Change                                                 |
-|------------|-----|--------------------------------------------------------|
-| 2026-05-18 | 0.1 | Initial draft — catalog of the existing firmware modules, framed as sentants + plugins. No code change yet. |
-| 2026-05-28 | 0.2 | Add §4 — dashboard-hive sentants (Fleet, Capture, Sync, TimeSync, Access, Bootstrap, OTA, Reset, Identify) + their plugins (relay-tunnel, sd-relay, github-firmware-cache, tg-signer, captures-store, ble-scan). Title + intro reframed to cover the whole ensemble across both hive classes; cross-refs the new SPEC-R2-WORKSHOP-ENSEMBLE.md + `ensemble/ensemble.yaml`. |
+A **plugin may expose a surface** (an HTTP route, a TCP port, a WS
+channel) — but a surface MUST NOT be a back door around the sentant
+model. The governing rule:
+
+> **Sentant-to-sentant exchange travels as `/r2` events.** A surface is
+> a legitimate plugin surface only if it serves (a) static assets, (b) a
+> bulk binary blob, or (c) a local binary diagnostic. All **bounded
+> structured state** and all **operator commands** are `/r2` events
+> owned by a sentant (cached + replayed on connect). A surface that
+> serves or mutates hive state with **no sentant behind it** is a
+> short-circuit and is **non-conformant**.
+
+The deciding question is the **consumer**: if a *sentant* needs the data
+to drive behaviour → `/r2` event; if the consumer is page-bootstrap
+chrome, an operator with curl, or a plugin's own served content → a
+plugin surface is fine.
+
+### 8.1 Surface → Sentant → Plugin → Capability (Controller / R2-WEB)
+
+| Surface (R2-WEB plugin) | Owning sentant | Verdict |
+|---|---|---|
+| `/` static bundle | — | pure plugin (assets) |
+| `/r2` WebSocket | the hive bus (all sentants) | the event channel itself |
+| `/api/version` | — | local diagnostic, no hive state |
+| `/api/data/.../file`, `/zip`, `/merged`, `/api/firmware/{carrier}/binary` | `Sync` / `OTA` (via plugins) | **bulk blob** → HTTP surface (justified exception) |
+| hive identity, fleet/aliases, firmware-available, capture state, marks, all commands | `Fleet` / `Capture` / `Sync` / `OTA` | **state/commands → `/r2` events**, never a route |
+
+`r2-workshop` extends the canonical R2-WEB payload with a `blob_routes:`
+list (in `controller.yaml`) for case (b) — the only non-`/r2`, non-asset
+HTTP surface. Identity (`r2.dash.hive.announce`, owned by `Fleet`) is the
+worked example: the `/api/ensemble` route, if kept, is a read-through to
+the sentant, never a const-reading orphan.
+
+---
+
+## 9. Hive identity as a worked example of the rule
+
+The dashboard's R2-ENSEMBLE identity (name/class/class-hash/version) is
+hive **state**, so by §8 it is owned by a sentant (`Fleet`) and
+announced on `/r2` as `r2.dash.hive.announce`, cached + replayed to
+late-joining viewers exactly like `r2.sensor.announce`. The viewer's
+footer renders it from that event — which is why it works identically on
+the LAN and over the relay (off-network), where no `/api/*` route is
+reachable. A read-only `/api/ensemble` convenience view MAY exist, but
+the event is the source of truth. (Tracked: WIRE row for
+`r2.dash.hive.announce`; Fleet emit + replay; viewer consume.)
+
+---
+
+## 10. Choose → compile → flash
+
+The target build flow (R2-COMPILE): **choose the board → choose the
+plugins → choose the sentants → compile → flash.** The role-ensemble
+scores are exactly that manifest:
+
+| Choice | Where it lives in the score |
+|---|---|
+| **board** | `compile_target` (`esp32-s3`, `esp32-c6`, `linux`, `wasm`) |
+| **plugins** | `plugins:` — incl. the sensing element, selected by the capability it must provide (§3.3) |
+| **sentants** | `sentants:` — substrate set + the deployment domain sentant |
+
+A new sensor build is then: pick a carrier (`esp32-s3` / the new
+`esp32-c6` DFR1117), pick the sensing plugin that provides
+`ai.reality2.cap.accel.triaxial` (adxl355 / lis2dw12 / lis2dh / adxl345),
+keep the substrate sentants, `r2-compile build --target <carrier>
+--definition sensor.yaml`, flash. No sentant edits.
+
+Maturity (R2-ENSEMBLE §5 / SPEC-R2-WORKSHOP-ENSEMBLE §4):
+
+* **B0** *(now)* — scores written; firmware/dashboard hand-implement the
+  chosen score.
+* **B1** — loader / dispatch crate consumes the score's automation form.
+* **B2** — sensor firmware built via `r2-compile` from `sensor.yaml`;
+  the picker (choose board/plugins/sentants) becomes real.
+* **B3** — controller moves to the loader; scores replace hand-coded
+  dispatch.
+
+---
+
+## 11. Conformance
+
+A **role-ensemble score** conforms when:
+
+1. It validates against R2-DEF §7 and declares `name`, `class`
+   (= `nz.ac.auckland.rocker`, byte-for-byte with
+   `trust_keys/sensor_class.txt`), `version`, `ensemble_version`,
+   `compile_target`, `trust_group.roles_allowed`.
+2. Every sentant declares `class` (correctly namespaced per §1.3) and
+   `storage`; every plugin declares `capabilities.{provides,requires}`
+   and `events.{handled,emitted}` (§3).
+3. Hardware-bearing sentants bind by **capability** where a swap is
+   intended (§3.3), not by chip name.
+4. No raw transport is listed as an ensemble plugin (§3.1); UIs are
+   R2-WEB registrations (§3.2).
+5. **Every surface maps to an owning sentant** except pure
+   assets/blobs/diagnostics (§8). No state-or-command surface lacks a
+   sentant behind it.
+
+A **build** (firmware or dashboard) conforms when its hand-coded
+(B0) or compiled (B2+) form realises exactly the chosen role-ensemble
+score's sentant + plugin set and event interface, and bakes the class
+string at compile time.
+
+---
+
+## 12. Versioning
+
+| Date | Ver | Change |
+|------|-----|--------|
+| 2026-05-18 | 0.1 | Initial draft — firmware modules framed as sentants + plugins. |
+| 2026-05-28 | 0.2 | Added §4 dashboard-hive sentants + plugins; reframed to cover both hive classes; cross-ref SPEC-R2-WORKSHOP-ENSEMBLE + the single `ensemble/ensemble.yaml`. |
+| 2026-05-29 | 0.3 | **Restructured around role-ensembles.** A role is an ensemble; `ensemble.yaml` split into per-role scores `{sensor,controller,viewer,keyholder}.yaml`. Added the R2-PLUGIN plugin contract (capabilities + event interface), bind-by-capability swap lever (§3.3), transports-as-singletons (§3.1), web-UI-as-registration (§3.2), the anti-short-circuit surface rule + Surface→Sentant→Plugin→Capability map (§8), hive-identity worked example (§9), and the choose→compile→flash build flow (§10). Substrate-vs-deployment boundary encoded in the class namespace. |

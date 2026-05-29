@@ -1,0 +1,347 @@
+# rocker — CONTROLLER role-ensemble.
+#
+# One of four role-ensembles that make up the rocker deployment of the
+# r2-workshop template (see ensemble/README.md). A role IS an ensemble:
+# most hives perform a single role, and a hive loads the score for its
+# role. The four scores share one event vocabulary + trust group (the
+# `nz.ac.auckland.rocker` class); they interoperate because R2 event
+# hashes derive from the event NAME, independent of class.
+#
+# This is the CONTROLLER role — the fixed per-experiment coordinator
+# laptop. It is **100% framework substrate**: every r2-workshop sibling
+# deployment (people-counter, pet-gait, …) reuses this score UNCHANGED.
+# Nothing here is rocker-specific. The substrate/deployment boundary is
+# visible in the class namespace: substrate parts are
+# `ai.reality2.workshop.*`; deployment-specific parts (none here) would
+# be `nz.ac.auckland.rocker.*`.
+#
+# Canonical model: R2-ENSEMBLE (parts), R2-SENTANT (sentant contract),
+# R2-PLUGIN (plugin contract + §13 web plugins), R2-CAP (capabilities),
+# R2-DEF §7 (this score schema). Narrative companion:
+# SPEC-R2-WORKSHOP-SENTANTS.md §5.
+#
+# B0 pattern (R2-ENSEMBLE §5 / SPEC-R2-WORKSHOP-ENSEMBLE §4): until the
+# R2 ensemble loader lands, the Rust dashboard binary hand-implements
+# what this score describes. The score is documentation in declarative
+# form; phases B1–B3 move the loader toward consuming it directly.
+
+ensemble:
+  name: rocker-controller
+  description: >
+    Controller role-ensemble: the fixed per-experiment coordinator
+    laptop. Tracks the sensor fleet, owns the fleet-wide capture state
+    machine, time-syncs sensors, auto-syncs capture files to local
+    storage, and drives OTA / reset / identify. Hosts the R2-WEB
+    singleton that serves the viewer bundle. Framework substrate —
+    reused unchanged by every r2-workshop sibling deployment.
+  version: "0.2.0"
+  class: nz.ac.auckland.rocker        # shared deployment class — wire + TG identity
+  ensemble_version: "0.1"
+
+  # ─── Trust-group load constraints (R2-DEF §7.6) ─────────────────────
+  trust_group:
+    # The controller is a full member of the PRODUCTION trust group
+    # (sensors + controller). It is chosen at experiment setup and is
+    # fixed for the experiment's duration; if it dies, the experiment
+    # restarts (it is not designed for seamless failover).
+    roles_allowed: [owner, member]
+
+  # ─── Compile target (R2-DEF §7.7) ───────────────────────────────────
+  compile_target: [linux]
+
+  # ─── Sentants (R2-SENTANT) ──────────────────────────────────────────
+  # All substrate. Per-sentant emits/subscribes are summarised in
+  # comments; the authoritative aggregate is the `capabilities:` block.
+  # `r2.dash.*` ←→ sensor / viewer traffic rides the /r2 event bus.
+  sentants:
+
+    - name: Fleet
+      description: >
+        Tracks every peer's device_pk + operator alias + online/stale/
+        offline state. Caches the most-recent announce so /r2
+        viewer-connects replay fleet metadata to late joiners. ALSO
+        owns the controller hive's own R2-ENSEMBLE identity and
+        announces it on connect (r2.dash.hive.announce), replayed like
+        any other cached state — this is the sentant-owned source of
+        truth behind the /api/ensemble convenience view
+        (SPEC-R2-WORKSHOP-SENTANTS §8 anti-short-circuit rule).
+      class: ai.reality2.workshop.fleet
+      storage: durable-state
+      data:
+        peers: {}                 # SocketAddr → {device_pk, hostname, fw_ver, state, …}
+        aliases: {}               # device_pk → operator-assigned name
+      automations:
+        - name: main
+          # subscribes: r2.sensor.announce, r2.peer.disconnected,
+          #             r2.dash.cmd.device.alias.set
+          # emits:      r2.dash.device.alias.changed, r2.dash.hive.announce
+          # See SPEC-R2-WORKSHOP-DASHBOARD §3 (state persistence).
+
+    - name: Capture
+      description: >
+        Fleet-wide Calibrate → Record → Stop state machine. Stamps
+        authoritative ts_ms on Record; assigns a monotonic mark_id on
+        each event_mark; fans out r2.dash.capture.* to every sensor.
+      class: ai.reality2.workshop.capture
+      storage: ephemeral
+      data:
+        next_mark_id: 1
+      automations:
+        - name: main
+          # subscribes: r2.dash.cmd.capture.{start,mark,stop,event_mark}
+          # emits (→sensors): r2.dash.capture.{start,mark,stop,event_mark}
+          # emits (→viewers): r2.dash.capture.progress,
+          #             r2.dash.capture.event_marked, r2.dash.cmd.response
+          # See SPEC-R2-WORKSHOP-CAPTURE §2 + §7.5.
+
+    - name: Sync
+      description: >
+        Captures store + auto-sync engine. On each Recording → Idle
+        transition observed for a peer, fetches the finalised file (and
+        its event-mark sidecar) via the sd-relay plugin, writes it to
+        the captures-store, and emits a synced status. 60 s
+        reconciliation poll + immediate single-peer recon on each
+        announce close the gaps. Replays the full index to every /r2
+        viewer on connect.
+      class: ai.reality2.workshop.sync
+      storage: durable-state
+      data:
+        index: {}                 # (device_pk, sensor_filename) → CaptureEntry
+      plugins:
+        - name: captures-store
+        - name: sd-relay
+      automations:
+        - name: main
+          # subscribes: r2.sensor.capture.state (observes Recording→Idle)
+          # emits:      r2.dash.capture.sync_started, r2.dash.capture.synced
+          # See SPEC-R2-WORKSHOP-CAPTURE §7.4.
+
+    - name: TimeSync
+      description: >
+        Per-peer Cristian's-algorithm sync_pulse / sync_pong loop. 1 Hz
+        for the first 30 s after each connect, 30 s thereafter.
+        Exponentially smooths the offset; pushes set_clock_offset when
+        the estimate stabilises or drifts past threshold.
+      class: ai.reality2.workshop.timesync
+      storage: ephemeral
+      data:
+        per_peer: {}
+      automations:
+        - name: main
+          # subscribes: r2.sensor.sync_pong
+          # emits:      r2.dash.sync_pulse, r2.dash.set_clock_offset
+          # See SPEC-R2-WORKSHOP-TIMESYNC §3.
+
+    - name: Bootstrap
+      description: >
+        BLE scan + L2CAP CoC handshake. Discovers sensors advertising
+        the rocker class via the ble-scan plugin, signs #wifi_offer,
+        delivers WiFi credentials. Signing is done by the `tg-signer`
+        plugin — resolved LOCALLY when this hive also holds the
+        KeyHolder role, else routed to the KeyHolder hive as a
+        trust-group plugin invocation (R2-PLUGIN §10). The Bootstrap
+        sentant is identical either way; placement of tg-signer is a
+        trust-group concern, not a sentant concern.
+      class: ai.reality2.workshop.bootstrap
+      storage: ephemeral
+      plugins:
+        - name: ble-scan
+        - name: tg-signer         # resolved local or remote (R2-PLUGIN §10)
+      automations:
+        - name: main
+          # subscribes: r2.dash.cmd.bootstrap
+          # emits:      r2.dash.bootstrap.progress
+          # See SPEC-R2-WORKSHOP-SENSOR §3.5 + DASHBOARD §6.
+
+    - name: OTA
+      description: >
+        Streams firmware blobs to peers and surfaces progress. Pulls
+        candidate builds via the github-firmware-cache plugin. The
+        manual (class, carrier) validation gate is a viewer-side
+        concern (DASHBOARD §13.4); this sentant is the transport.
+      class: ai.reality2.workshop.ota
+      storage: ephemeral
+      plugins:
+        - name: github-firmware-cache
+      automations:
+        - name: main
+          # subscribes: r2.dash.cmd.ota.push
+          # emits (→sensors): r2.dash.fw.update
+          # emits (→viewers): r2.dash.ota.progress
+          # See SPEC-R2-WORKSHOP-DASHBOARD §13.
+
+    - name: Reset
+      description: >
+        Opens a TCP session to a sensor's reset port (21044) and writes
+        the CMD_RESET byte; surfaces the outcome as progress.
+      class: ai.reality2.workshop.reset
+      storage: ephemeral
+      automations:
+        - name: main
+          # subscribes: r2.dash.cmd.reset
+          # emits:      r2.dash.reset.progress
+          # See SPEC-R2-WORKSHOP-SENSOR-REMOTE-RESET.
+
+    - name: Identify
+      description: >
+        Toggles a sensor's identify LED via a single fire-and-forget
+        frame on its streaming channel.
+      class: ai.reality2.workshop.identify
+      storage: ephemeral
+      automations:
+        - name: main
+          # subscribes: r2.dash.cmd.identify
+          # emits:      r2.dash.identify_set (→sensor)
+          # See SPEC-R2-WORKSHOP-SENSOR-IDENTIFY.
+
+  # ─── Ensemble-owned plugins (R2-PLUGIN §2/§12.3) ────────────────────
+  # Capability providers. Each declares the R2-CAP classes it provides /
+  # requires and its inbound/outbound event interface. Raw transports
+  # (WiFi, the BLE radio, the relay) are HIVE-SHARED SINGLETONS owned by
+  # the hive (R2-ENSEMBLE §2.1.2) and are NOT listed here.
+  plugins:
+
+    - name: captures-store
+      description: >
+        XDG-rooted persistent index over the controller-local captures
+        dir; provides has / write_data / write_marks / list_sessions /
+        clear_all (SPEC-R2-WORKSHOP-CAPTURE §7.4).
+      kind: native
+      compile_target: [linux]
+      capabilities:
+        provides: [ai.reality2.workshop.cap.capture-store]
+        requires: [r2.hw.fs]                 # local filesystem (hive singleton)
+      events:
+        handled: []                          # driven by the Sync sentant via method calls
+        emitted: [r2.dash.capture.synced, r2.dash.capture.sync_started]
+
+    - name: sd-relay
+      description: >
+        data_tcp client. Dials a sensor's port 21047 to LIST / GET /
+        DEL files on its SD ring (SPEC-R2-WORKSHOP-CAPTURE §6). Uses the
+        hive's TCP/WiFi transport.
+      kind: native
+      compile_target: [linux]
+      capabilities:
+        provides: [ai.reality2.workshop.cap.sd-relay]
+        requires: [r2.net.tcp]
+      events:
+        handled: []                          # invoked by Sync + blob routes
+        emitted: []
+
+    - name: github-firmware-cache
+      description: >
+        Periodic poll of reality2-ai/r2-workshop GitHub Releases with a
+        local releases/ fallback; filtered by (class, carrier)
+        (DASHBOARD §13.3).
+      kind: native
+      compile_target: [linux]
+      capabilities:
+        provides: [ai.reality2.workshop.cap.firmware-cache]
+        requires: [r2.net.http]
+      events:
+        handled: []                          # invoked by the OTA sentant
+        emitted: []
+
+    - name: ble-scan
+      description: >
+        Host Bluetooth scanner subscription for the rocker class hash on
+        the R2-BEACON legacy AD payload (+ accepted legacy classes).
+        Feeds the Bootstrap sentant. Uses the hive's BLE radio singleton.
+      kind: native
+      compile_target: [linux]
+      capabilities:
+        provides: [ai.reality2.workshop.cap.ble-scan]
+        requires: [r2.hw.ble]
+      events:
+        handled: []                          # invoked by the Bootstrap sentant
+        emitted: []
+
+  # ─── Registrations with hive-shared singleton plugins (R2-DEF §7.4) ─
+  registrations:
+
+    # R2-WEB (R2-PLUGIN §13 web plugin). The controller hosts the single
+    # R2-WEB singleton; the Viewer role-ensemble's UI registers its
+    # bundle here. Per §13, R2-WEB's server role is exhausted by serving
+    # the bundle + forwarding the /r2 WS channel to sentants. The blob
+    # download routes (capture files, zip, firmware binaries) are the
+    # ONLY non-WS HTTP surface, justified by the anti-short-circuit rule
+    # (SPEC-R2-WORKSHOP-SENTANTS §8): bulk binary blobs MAY be HTTP
+    # surfaces; all bounded state + commands ride /r2 events.
+    r2-web:
+      route_prefix: /
+      static_bundle: ../webapp/
+      channels:
+        - name: r2
+          target_sentant: Fleet          # /r2 frame ingress; fanned to all sentants on the bus
+          max_frame_bytes: 65536
+      blob_routes:                        # bulk-binary HTTP surfaces (NOT events)
+        - /api/data/{addr}/file/...       #   live sensor file pull (via sd-relay)
+        - /api/data/local/file/...        #   controller-local capture file
+        - /api/data/zip                   #   end-of-day bundle
+        - /api/data/merged                #   wide-format multi-sensor merge
+        - /api/firmware/{carrier}/binary  #   OTA image blob
+      diagnostics:                        # pure-local, no hive state
+        - /api/version
+
+    # R2-BLE singleton — the controller registers a scan subscription
+    # for the rocker class so the Bootstrap sentant sees sensors.
+    r2-ble:
+      scan_subscriptions:
+        - class_filter: nz.ac.auckland.rocker
+        # Accepted legacy classes during a class rotation are added from
+        # trust_keys/legacy_classes.txt at build time.
+
+  # ─── Aggregate capabilities (R2-CAP §2, R2-DEF §7.5) ────────────────
+  capabilities:
+    emits:
+      # → sensors (production TG)
+      - r2.dash.ack
+      - r2.dash.sync_pulse
+      - r2.dash.set_clock_offset
+      - r2.dash.cal.sample.req
+      - r2.dash.capture.start
+      - r2.dash.capture.mark
+      - r2.dash.capture.stop
+      - r2.dash.capture.event_mark
+      - r2.dash.identify_set
+      - r2.dash.fw.update
+      - r2.dash.reset
+      # → viewers (status / progress)
+      - r2.dash.hive.announce
+      - r2.peer.disconnected
+      - r2.dash.capture.progress
+      - r2.dash.capture.synced
+      - r2.dash.capture.sync_started
+      - r2.dash.capture.event_marked
+      - r2.dash.ota.progress
+      - r2.dash.reset.progress
+      - r2.dash.bootstrap.progress
+      - r2.dash.device.alias.changed
+      - r2.dash.cmd.response
+    consumes:
+      # ← sensors
+      - r2.sensor.announce
+      - r2.sensor.acceleration
+      - r2.sensor.acceleration.batch
+      - r2.sensor.battery
+      - r2.sensor.status
+      - r2.sensor.capture.state
+      - r2.sensor.sync_pong
+      - r2.sensor.cal.sample.resp
+      - r2.sensor.event.log
+      # ← viewers (operator-plane commands)
+      - r2.dash.cmd.capture.start
+      - r2.dash.cmd.capture.mark
+      - r2.dash.cmd.capture.stop
+      - r2.dash.cmd.capture.event_mark
+      - r2.dash.cmd.ota.push
+      - r2.dash.cmd.reset
+      - r2.dash.cmd.identify
+      - r2.dash.cmd.bootstrap
+      - r2.dash.cmd.device.alias.set
+
+  # ─── Signatures (R2-DEF §7.8) ───────────────────────────────────────
+  # Local-dev form — unsigned. For trust-group distribution the
+  # KeyHolder signs this score with Ed25519.
+  signatures: []

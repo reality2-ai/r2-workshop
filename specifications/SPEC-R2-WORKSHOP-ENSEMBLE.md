@@ -32,11 +32,15 @@ fleet).
    monitoring structural shear in actuator joints of a tyre-wear
    test rig. Class string: `nz.ac.auckland.rocker`.
 
-The two roles are conflated in this repo today. Future deployments
-(people-counter, pet-gait, etc.) are anticipated as siblings:
-sibling repos forked from this template, swapping the sentant code
-+ class string + dashboard UI specialisation, sharing the substrate
-crates.
+The deployment is delivered as a set of **role-ensembles** (a role is
+an ensemble; most hives perform one role): `rocker-sensor`,
+`rocker-controller`, `rocker-viewer`, `rocker-keyholder`, sharing the
+one `nz.ac.auckland.rocker` class + trust group. Each has its own
+R2-DEF §7 score under `ensemble/`. See SPEC-R2-WORKSHOP-SENTANTS for the
+role catalog and the substrate-vs-deployment boundary. Future
+deployments (people-counter, pet-gait, etc.) reuse the Controller +
+KeyHolder + Viewer-sentant substrate and ship only a new Sensor
+role-ensemble + a Viewer UI skin + a new class string.
 
 This spec defines:
 
@@ -46,8 +50,8 @@ This spec defines:
   default; `ai.reality2.ensemble.*` reserved for Reality2's own
   forks of this template.
 * The relationship to the canonical R2-ENSEMBLE concept upstream.
-* Where the score lives (`ensemble/ensemble.yaml`) and what it
-  documents.
+* Where the scores live (`ensemble/{sensor,controller,viewer,keyholder}.yaml`,
+  one per role-ensemble) and what they document.
 * The roadmap from the current pre-loader pattern to the
   R2-COMPILE-driven world.
 
@@ -68,7 +72,8 @@ Out of scope:
 * Compilation pipeline for sentant YAML → firmware — see upstream
   `R2-COMPILE.md`.
 * Specific sentant + plugin enumeration — see
-  `SPEC-R2-WORKSHOP-SENTANTS.md` and `ensemble/ensemble.yaml`.
+  `SPEC-R2-WORKSHOP-SENTANTS.md` and the per-role scores under
+  `ensemble/`.
 
 ### 1.2 Terminology
 
@@ -106,7 +111,7 @@ Defined here:
 | **class** | `nz.ac.auckland.rocker` |
 | **class hash (FNV-1a-32)** | `0x624c47bc` |
 | **ensemble_version** | `0.1` (per R2-DEF §7 schema) |
-| **version** (the ensemble's own semver) | tracked at `ensemble/ensemble.yaml` `ensemble.version` |
+| **version** (the ensemble's own semver) | tracked at each role score's `ensemble.version` (the four roles version together) |
 
 The class string is the canonical R2-ENSEMBLE class per R2-ENSEMBLE
 §2.2 and the value emitted on every `r2.sensor.announce` per
@@ -167,40 +172,25 @@ wire-breaking schema migration; never do it mid-experiment.
 
 ## 3. Composition
 
-### 3.1 Parts inventory
+### 3.1 Parts inventory — by role-ensemble
 
-The rocker ensemble's parts are enumerated normatively in
-**`ensemble/ensemble.yaml`** (the R2-DEF §7 score) and described
-narratively in **`SPEC-R2-WORKSHOP-SENTANTS.md`**. This section is
-informative — a top-level summary.
+The parts are enumerated normatively across **four R2-DEF §7 scores**
+under `ensemble/` (one per role) and described narratively in
+**`SPEC-R2-WORKSHOP-SENTANTS.md`**. This section is informative — a
+top-level map. A role *is* an ensemble; a hive performs one role.
 
-**Sentants** (the "what does the data mean" tier, R2-SENTANT):
+| Role-ensemble (score) | Sentants | Notable plugins / registrations | Tier |
+|---|---|---|---|
+| **`sensor.yaml`** | `Accelerometer` (domain) + substrate (`Identity`, `WifiProv`, `Bootstrap`, `Beacon`, `Battery`, `Status`, `Sync`, `Recorder`, `Uplink`, `Ota`, `Reset`, `Health`, `Capture`, `Presence`) | `adxl355` (sensing — swap point), `sd-card`, `data-tcp`, `ota-tcp`, …; `r2-ble` advertise | **deployment-specific** |
+| **`controller.yaml`** | `Fleet`, `Capture`, `Sync`, `TimeSync`, `Bootstrap`, `OTA`, `Reset`, `Identify` | `captures-store`, `sd-relay`, `github-firmware-cache`, `ble-scan`; **R2-WEB** + `r2-ble` registrations | substrate (100%) |
+| **`viewer.yaml`** | `Viewer` (substrate) | R2-WEB UI registration (bundle = deployment skin) | substrate + skin |
+| **`keyholder.yaml`** | `Access` | `tg-signer` (TG private key, credential store) | substrate |
 
-| Sentant | Hosted on | Role |
-|---|---|---|
-| Fleet sentant | Dashboard hive | Tracks per-peer announce metadata + alive/stale/offline state. |
-| Capture sentant | Dashboard hive | Owns the Calibrate→Record→Stop state machine; fans out start/mark/stop/event_mark to sensors. |
-| Sync sentant | Dashboard hive | Operates the CapturesStore + sync engine (Recording→Idle trigger, reconciliation poll). |
-| TimeSync sentant | Dashboard hive | Runs the Cristian's-algorithm sync_pulse loop + pushes set_clock_offset. |
-| Access sentant | Dashboard hive | Manages KeyHolder enrolment + viewer access. |
-| Bootstrap sentant | Dashboard hive | BLE scan + L2CAP `#wifi_offer` per SPEC-R2-WORKSHOP-SENSOR §3.5. |
-| Sensor sentant | Each sensor hive | The sample/SD-ring/announce loop on the ESP32-S3. The bulk of the firmware. Compiles ahead-of-time per R2-COMPILE. |
-
-**Ensemble-owned plugins** (R2-ENSEMBLE §2.1.2):
-
-| Plugin | Role |
-|---|---|
-| `sd-relay` | data_tcp client on the dashboard, fetching files from sensor SDs (SPEC-R2-WORKSHOP-CAPTURE §6). |
-| `relay-tunnel` | Off-network viewer leg over the r2-hive relay (SPEC-R2-WORKSHOP-ACCESS §5.2). |
-| `github-firmware-cache` | Per-(class, carrier) firmware-available lookup (SPEC-R2-WORKSHOP-DASHBOARD §13.3). |
-
-**Hive-shared singleton plugin registrations** (R2-ENSEMBLE §2.1.2):
-
-| Singleton | Registration |
-|---|---|
-| **R2-WEB** | Static webapp bundle at `/`, the `/r2` WebSocket channel for R2-WIRE frames, plus the `/api/...` operational routes (DASHBOARD §5.1). |
-| **TCP listener** | Port 21042 for sensor connections. |
-| **BLE scan** | Bootstrap discovery subscription (DASHBOARD §6.3). |
+The sensing element is bound by **capability**
+(`ai.reality2.cap.accel.triaxial`), not by chip, so it is a swap point
+(R2-PLUGIN §10; SPEC-R2-WORKSHOP-SENTANTS §3.3). Raw transports (WiFi,
+BLE radio, TCP, relay) are hive-shared singletons, never ensemble
+plugins (R2-ENSEMBLE §2.1.2).
 
 ### 3.2 What the dashboard actually is
 
@@ -227,18 +217,21 @@ ensemble score is drafted and the runtime is a hand-coded
 approximation of what the score describes. The phases ahead:
 
 * **B0** *(this spec)* — ensemble score schema defined; rocker
-  score drafted as `ensemble/ensemble.yaml`. Class string fixed
-  at `nz.ac.auckland.rocker`.
+  scores drafted as the four per-role files under `ensemble/`
+  (`sensor`, `controller`, `viewer`, `keyholder`). Class string
+  fixed at `nz.ac.auckland.rocker`.
 * **B1** — substrate crates (r2-dispatch / r2-loader equivalent)
   landed in the workspace, accepting the score's automation
   format.
 * **B2** — sensor firmware migrates from hand-coded Rust to
-  `r2-compile build --target esp32 --definition ensemble.yaml`
-  output (per R2-COMPILE §7). Dashboard remains hand-coded for
-  now — its hosting tier (Linux) supports a runtime loader.
-* **B3** — dashboard migrates to the loader. R2-WEB registration
+  `r2-compile build --target <carrier> --definition sensor.yaml`
+  output (per R2-COMPILE §7); the choose-board/plugins/sentants
+  picker becomes real (SPEC-R2-WORKSHOP-SENTANTS §10). Controller
+  remains hand-coded for now — its Linux tier supports a runtime
+  loader.
+* **B3** — controller migrates to the loader. R2-WEB registration
   becomes the operative path; the Rust binary becomes a thin
-  loader that consumes `ensemble.yaml` at startup.
+  loader that consumes `controller.yaml` at startup.
 * **B4** — sibling ensembles (people-counter, pet-gait, …) become
   fork repos OR live alongside in a mono-repo, each with its own
   `ensemble.yaml` + class string. r2-workshop's role shifts from
@@ -259,12 +252,14 @@ distinguishes ensembles regardless of which runtime hosts them.
 A repository conforms to "r2-workshop ensemble template" semantics
 when:
 
-1. The score lives at `ensemble/ensemble.yaml` and validates
-   against the R2-DEF §7 schema (until the BEAM loader lands,
-   schema validation is manual per
-   `r2-notekeeper/ensemble/README.md`).
-2. The class string declared in the score matches the contents of
-   `trust_keys/sensor_class.txt` byte-for-byte.
+1. The role-ensemble scores live at
+   `ensemble/{sensor,controller,viewer,keyholder}.yaml` and each
+   validates against the R2-DEF §7 schema (until the loader lands,
+   schema validation is manual). A role is an ensemble; a hive
+   performs one role (SPEC-R2-WORKSHOP-SENTANTS §1).
+2. Every score's `class` matches the contents of
+   `trust_keys/sensor_class.txt` byte-for-byte (the four roles share
+   the one deployment class).
 3. Every binary the repo builds (sensor firmware × N carriers +
    dashboard) bakes that same class string at compile time, and
    emits it on every `r2.sensor.announce` (firmware) /
@@ -281,3 +276,4 @@ when:
 | Date | Version | Change |
 |---|---|---|
 | 2026-05-28 | 0.1 | Initial draft. r2-workshop declared as both template + the rocker deployment. Rocker class set to `nz.ac.auckland.rocker` (FNV 0x624c47bc). Class-namespace policy: institutional reverse-DNS by default; `ai.reality2.ensemble.*` reserved for Reality2's own forks. Roadmap B0-B5 mapped to notekeeper's lifecycle pattern. |
+| 2026-05-29 | 0.2 | **Role-ensemble model.** A role is an ensemble; the single `ensemble/ensemble.yaml` split into four per-role scores `{sensor,controller,viewer,keyholder}.yaml` sharing the one class. §1 + §3.1 reframed by role; §5 conformance points to the four scores. Substrate (Controller/KeyHolder/Viewer-sentant) vs deployment (Sensor + Viewer skin) boundary; sensing bound by capability (swap lever); choose→compile→flash build flow (SPEC-R2-WORKSHOP-SENTANTS §10). |

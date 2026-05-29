@@ -1,69 +1,87 @@
-# r2-workshop — rocker ensemble
+# r2-workshop — rocker ensemble scores
 
-This directory holds the R2-ENSEMBLE score for the rocker
-deployment of r2-workshop. Pattern is borrowed directly from
-`r2-notekeeper/ensemble/README.md`.
+R2-ENSEMBLE / R2-DEF §7 scores for the **rocker** deployment of the
+r2-workshop template.
 
-## Files
+## A role is an ensemble
 
-- `ensemble.yaml` — the normative ensemble score (R2-DEF §7 schema).
-  Declares identity (`name: rocker`, `class: nz.ac.auckland.rocker`,
-  `version: 0.2.0`), the 7 sentants, ensemble-owned plugins, and
-  the single R2-WEB singleton registration.
-- (this README)
+r2-workshop is **not** one ensemble whose parts are cherry-picked per
+hive. It is a small set of **role-ensembles** that share one event
+vocabulary + one trust group (the `nz.ac.auckland.rocker` class). Most
+hives perform a **single role** — and a hive loads the score for its
+role. The roles interoperate because R2 event hashes derive from the
+event *name* (R2-FNV), independent of class.
 
-## Relationship to the current runtime
+| Score | Role | Runs on | Tier |
+|---|---|---|---|
+| [`sensor.yaml`](sensor.yaml) | **Sensor** | each ESP32 rig device | **deployment-specific** (the swap points) |
+| [`controller.yaml`](controller.yaml) | **Controller** | the fixed coordinator laptop | framework substrate (100%) |
+| [`viewer.yaml`](viewer.yaml) | **Viewer** | the browser (WASM hive) | substrate sentant + deployment skin |
+| [`keyholder.yaml`](keyholder.yaml) | **KeyHolder** | usually co-loaded with Controller; separable | framework substrate |
 
-The Rust dashboard (`dashboard/`) and the per-carrier firmware
-(`firmware/esp32-s3/devkitc/`, `firmware/esp32-s3/xiao/`) are the
-**hand-coded** form of what the score above describes. This is
-notekeeper's "B0" pattern (R2-ENSEMBLE §5, repeated in
-SPEC-R2-WORKSHOP-ENSEMBLE §4):
+## Substrate vs deployment — the abstraction boundary
 
-* B0 *(current)* — Score written, runtime hand-implemented.
-* B1 — r2-loader / r2-dispatch crate landed.
-* B2 — Sensor firmware moves to `r2-compile build` against this
-  YAML (R2-COMPILE §7).
-* B3 — Dashboard moves to the loader; the score replaces the
-  hand-coded Rust dispatch.
+The point of splitting by role is that **building a new application is a
+small, bounded diff**: ship a new **Sensor** ensemble (a new sensing
+plugin + domain sentant) and a new **Viewer skin**, and reuse the
+**Controller** and **KeyHolder** ensembles unchanged.
 
-Until B2/B3, this file is documentation in declarative form.
-Conformance is verified by reading R2-ENSEMBLE.md + R2-DEF.md and
-checking the score field-by-field; no automated validator yet.
+The boundary is visible in the class namespace inside each score:
 
-## Quick reference
+- `ai.reality2.workshop.*` — framework substrate, reused unchanged.
+- `nz.ac.auckland.rocker.*` — rocker-specific (the swap points).
 
-* **Identity** — see `ensemble.yaml` `ensemble:` block.
-* **Sentant inventory** — `sentants:` array; narrative descriptions
-  in `SPEC-R2-WORKSHOP-SENTANTS.md`.
-* **Wire events the ensemble emits / consumes** — `capabilities:`
-  block at the bottom of `ensemble.yaml`; per-event details in
-  `SPEC-R2-WORKSHOP-WIRE.md`.
-* **R2-WEB registration** (the dashboard UI) — `registrations.r2-web`
-  block in `ensemble.yaml`; HTTP-route details in
-  `SPEC-R2-WORKSHOP-DASHBOARD.md` §5.1.
+The sensing element is bound by **capability**
+(`ai.reality2.cap.accel.triaxial`), not by chip — so the candidate
+sensors from the 2026-05 shipment (LIS2DW12 / LIS2DH / ADXL345; see
+`../docs/datasheets/README.md`) are drop-in plugin swaps with no sentant
+change. DFR1117 (ESP32-C6) would be a new `compile_target` / carrier.
+
+## How the four scores relate at runtime
+
+- **Controller** hosts the one R2-WEB singleton and serves the
+  **Viewer**'s UI bundle (R2-WEB §8.5 hybrid: controller = gateway), or
+  GitHub Pages serves it off-network. The browser boots the **Viewer**
+  WASM hive and talks to the Controller's sentants over `/r2`.
+- **Sensor** ↔ **Controller** is the production-TG event traffic
+  (`r2.sensor.*` / `r2.dash.*`).
+- **Controller** ↔ **Viewer** is bilateral entanglement between the
+  production and viewing trust groups (relay-forwarded off-network).
+- **KeyHolder** mints the certs + signs `#wifi_offer`; the Controller's
+  Bootstrap binds its `tg-signer` locally (co-loaded) or remotely
+  (separate) via trust-group plugin routing (R2-PLUGIN §10).
 
 ## Building your own deployment from this template
 
-To fork r2-workshop as a starting point for a new ensemble (e.g.
-people-counter, pet-gait):
-
 1. Fork the repo.
-2. Edit `trust_keys/sensor_class.txt` to your new class string
-   (e.g. `nz.ac.auckland.people-counter`). Class-namespace policy
-   in `SPEC-R2-WORKSHOP-ENSEMBLE.md` §2.2.
-3. Edit `ensemble/ensemble.yaml`: change `ensemble.name`,
-   `ensemble.class`, `ensemble.version`, and the sentant /
-   plugin set to match your deployment.
-4. Swap the sensor-side automation logic (firmware-level) to suit
-   your sensor IC + analysis. Substrate crates (r2-wire, r2-fnv,
-   r2-trust, r2-bootstrap, r2-cbor, r2-esp, r2-bootstrap) stay
-   put.
-5. Rebuild the dashboard + per-carrier firmware. Both bake the
-   new class string at compile time, so the FNV event-hash table
-   rotates and your fleet won't accidentally talk to ours.
+2. Set `trust_keys/sensor_class.txt` to your class (e.g.
+   `nz.ac.auckland.people-counter`; namespace policy in
+   `SPEC-R2-WORKSHOP-ENSEMBLE.md` §2.2). Every score's `class:` + the
+   baked firmware/dashboard class follow from this one file.
+3. Author a new **`sensor.yaml`**: a sensing plugin providing
+   `ai.reality2.cap.accel.*` (or your domain capability) + a domain
+   sentant under `nz.<your-org>.<deployment>.*`.
+4. Skin **`viewer.yaml`**'s `static_bundle` for your domain.
+5. Reuse **`controller.yaml`** and **`keyholder.yaml`** unchanged.
 
-Per-deployment customisation is currently a per-fork concern.
-Once the BEAM/Rust ensemble loader lands (B2/B3), the runtime
-consumes `ensemble.yaml` directly and the fork becomes a
-configuration-only change for many ensembles.
+Until the ensemble loader lands (B2/B3) this is a per-fork edit + a
+rebuild; afterwards the runtime consumes the scores directly.
+
+## Relationship to the current runtime (B0 pattern)
+
+The Rust dashboard (`../dashboard/`) and the per-carrier firmware
+(`../firmware/esp32-s3/{devkitc,xiao}/`) are the **hand-coded** form of
+what these scores describe — notekeeper's "B0" pattern (R2-ENSEMBLE §5,
+SPEC-R2-WORKSHOP-ENSEMBLE §4):
+
+- **B0** *(current)* — scores written, runtime hand-implemented.
+- **B1** — r2-loader / r2-dispatch crate lands.
+- **B2** — Sensor firmware moves to `r2-compile build` against
+  `sensor.yaml` (R2-COMPILE §7).
+- **B3** — Controller moves to the loader; scores replace the
+  hand-coded Rust dispatch.
+
+Until B2/B3 these files are documentation in declarative form. The
+human-readable companion is
+`../specifications/SPEC-R2-WORKSHOP-SENTANTS.md`; per-event wire detail
+is in `SPEC-R2-WORKSHOP-WIRE.md`.

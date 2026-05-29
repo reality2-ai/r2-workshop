@@ -137,7 +137,7 @@ TCP) — vendored self-contained for university handoff.
 1. `README.md` — repo layout & quick start.
 2. `PROCESS.md` — the five working rules (spec-first, etc.).
 3. `specifications/SPEC-R2-WORKSHOP-ENSEMBLE.md` — **identity-defining**. What this project IS in canonical R2 vocabulary; class string; namespace policy; cross-refs upstream R2-ENSEMBLE / R2-COMPILE / R2-DEF.
-4. `ensemble/ensemble.yaml` — the R2-DEF §7 score for the rocker deployment. Notekeeper's B0 pattern: documents the runtime declaratively even though no loader yet consumes it.
+4. `ensemble/{sensor,controller,viewer,keyholder}.yaml` — the four per-role R2-DEF §7 scores (a role is an ensemble; a hive performs one role). Notekeeper's B0 pattern: documents the runtime declaratively even though no loader yet consumes it. Companion: `specifications/SPEC-R2-WORKSHOP-SENTANTS.md`.
 5. `plan/PLAN.md` *(if it exists yet)* — current phasing & status.
 6. The latest file in `conversation/` — most recent design rationale.
 7. `specifications/HARDWARE-WIRING.md` — physical sensor build.

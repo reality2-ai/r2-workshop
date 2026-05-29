@@ -1,0 +1,139 @@
+# rocker — VIEWER role-ensemble.
+#
+# One of four role-ensembles of the rocker deployment (see
+# ensemble/README.md). A role IS an ensemble; a hive performs one role.
+#
+# This is the VIEWER role — the browser. Per R2-WEB §1.1 a browser is a
+# real R2 device/hive: it holds a TG credential, signs every frame, and
+# runs the R2 stack as a **WASM hive** (R2-WEB §8.4 serverless / §8.5
+# hybrid). The running dashboard a user sees IS this browser hive
+# rendering from the /r2 event stream — NOT a page the controller
+# renders. The controller is ~a headless event source + bundle/blob
+# server.
+#
+# Substrate vs deployment:
+#   - The Viewer SENTANT (mirrors events, holds UI-facing state, emits
+#     operator-plane commands) is framework substrate.
+#   - The UI BUNDLE (the rocker charts / sessions / live skin in
+#     ../webapp/) is the deployment-specific part — a sibling deployment
+#     ships its own skin and reuses the Viewer sentant + Controller.
+#
+# WHERE THE BUNDLE IS SERVED (the one cross-role cross-reference): the
+# UI bundle is AUTHORED by this ensemble but SERVED by the Controller's
+# R2-WEB singleton on the LAN (R2-WEB §8.5 hybrid: controller = gateway),
+# or by GitHub Pages off-network. Either way the browser loads the
+# bundle, boots this WASM hive, and talks to the Controller's sentants
+# over the /r2 WS channel (LAN) or the relay (off-network — the relay
+# forwards all /r2 frames, so the experience is identical).
+#
+# Canonical model: R2-ENSEMBLE / R2-SENTANT / R2-WEB §8.4-§8.5 /
+# R2-DEF §7. Narrative companion: SPEC-R2-WORKSHOP-SENTANTS.md §6.
+
+ensemble:
+  name: rocker-viewer
+  description: >
+    Viewer role-ensemble: the browser WASM hive that renders the rocker
+    dashboard from the /r2 event stream and emits operator-plane
+    commands. Substrate Viewer sentant + a deployment-specific UI skin
+    (the ../webapp/ bundle). Many viewers may run at once; each is its
+    own hive.
+  version: "0.2.0"
+  class: nz.ac.auckland.rocker          # shared deployment class
+  ensemble_version: "0.1"
+
+  trust_group:
+    # Viewers live in the VIEWING trust group, bilaterally entangled
+    # with the production TG (sensors + controller) per the two-TG
+    # topology. A viewer may be a full member (operator) or a read-only
+    # guest.
+    roles_allowed: [member, guest]
+
+  # The browser WASM hive (R2-WEB §8.4). `wasm` is the browser-hosted
+  # R2 stack target; not one of the MCU/Linux tiers in R2-DEF §7.7.
+  compile_target: [wasm]
+
+  # ─── Sentants (R2-SENTANT) ──────────────────────────────────────────
+  sentants:
+
+    - name: Viewer
+      description: >
+        Substrate. Subscribes to the fleet/capture/data/identity event
+        stream and maintains the UI-facing mirror state the bundle
+        renders (peers, capture progress, synced-file index, marks,
+        deployment identity). Translates operator gestures from the
+        bundle into operator-plane command events. Holds no authority of
+        its own — it is a faithful event mirror + command emitter. A
+        sibling deployment reuses this sentant unchanged and ships a
+        different bundle skin.
+      class: ai.reality2.workshop.viewer
+      storage: durable-state
+      data:
+        peers: {}
+        sessions: {}
+        identity: {}              # populated from r2.dash.hive.announce
+      automations:
+        - name: main
+          # subscribes: every r2.sensor.* + r2.dash.* status/progress
+          #   event the UI renders (see capabilities.consumes), incl.
+          #   r2.dash.hive.announce + r2.dash.cmd.response.
+          # emits: operator-plane commands (see capabilities.emits).
+          # See SPEC-R2-WORKSHOP-DASHBOARD (webapp behaviour).
+
+  # ─── No ensemble-owned plugins ──────────────────────────────────────
+  # The viewer hive's transports (the /r2 WebSocket, the relay leg,
+  # browser crypto, localStorage) are hive-shared singletons provided by
+  # the WASM R2 stack (R2-WEB §8.4 / R2-TRUST browser-device). Nothing
+  # ensemble-owned to declare here.
+
+  # ─── Registrations with hive-shared singleton plugins (R2-DEF §7.4) ─
+  registrations:
+    # The UI bundle. Authored here; served by the Controller's R2-WEB
+    # singleton (LAN / hybrid) or GitHub Pages (off-network). The `/r2`
+    # channel carries R2-WIRE frames between this browser hive and the
+    # controller's sentants. Per R2-PLUGIN §13, R2-WEB's server role is
+    # exhausted by serving the bundle + forwarding the /r2 frames; it
+    # hosts NO event handlers. The deployment-specific skin lives in the
+    # bundle's JS, not in any server-side route.
+    r2-web:
+      route_prefix: /
+      static_bundle: ../webapp/         # the deployment-specific UI skin
+      channels:
+        - name: r2
+          target_sentant: Viewer        # in-browser; or the controller's bus over LAN/relay
+          max_frame_bytes: 65536
+
+  # ─── Aggregate capabilities (R2-CAP §2, R2-DEF §7.5) ────────────────
+  capabilities:
+    emits:
+      # operator-plane commands → controller
+      - r2.dash.cmd.capture.start
+      - r2.dash.cmd.capture.mark
+      - r2.dash.cmd.capture.stop
+      - r2.dash.cmd.capture.event_mark
+      - r2.dash.cmd.ota.push
+      - r2.dash.cmd.reset
+      - r2.dash.cmd.identify
+      - r2.dash.cmd.bootstrap
+      - r2.dash.cmd.device.alias.set
+    consumes:
+      # everything the UI renders
+      - r2.dash.hive.announce
+      - r2.sensor.announce
+      - r2.sensor.acceleration
+      - r2.sensor.acceleration.batch
+      - r2.sensor.battery
+      - r2.sensor.status
+      - r2.sensor.capture.state
+      - r2.sensor.event.log
+      - r2.peer.disconnected
+      - r2.dash.capture.progress
+      - r2.dash.capture.synced
+      - r2.dash.capture.sync_started
+      - r2.dash.capture.event_marked
+      - r2.dash.ota.progress
+      - r2.dash.reset.progress
+      - r2.dash.bootstrap.progress
+      - r2.dash.device.alias.changed
+      - r2.dash.cmd.response
+
+  signatures: []

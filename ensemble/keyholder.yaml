@@ -1,0 +1,110 @@
+# rocker — KEYHOLDER role-ensemble.
+#
+# One of four role-ensembles of the rocker deployment (see
+# ensemble/README.md). A role IS an ensemble; a hive performs one role —
+# but KeyHolder is the role most often CO-LOADED with another: normally
+# the controller laptop holds both the Controller and KeyHolder roles.
+# It is a separate ensemble because it is *separable* — the two-TG
+# topology allows the KeyHolder (the TG private key + enrolment
+# authority) to live on a different, more-trusted hive than the
+# controller.
+#
+# Framework substrate — every r2-workshop sibling deployment reuses this
+# role unchanged. The TG private key it wraps is per-deployment, but the
+# code/structure is generic.
+#
+# HOW SEPARABILITY WORKS (R2-PLUGIN §10): the Controller's Bootstrap
+# sentant binds the `tg-signer` plugin by name. When the controller hive
+# ALSO holds KeyHolder, that binding resolves locally. When KeyHolder is
+# a separate hive, the signing invocation routes to it as a trust-group
+# plugin call and the signature routes back — the Bootstrap sentant is
+# identical either way. Plugin placement is a trust-group concern, not a
+# sentant concern.
+#
+# Canonical model: R2-ENSEMBLE / R2-SENTANT / R2-PLUGIN / R2-TRUST §6
+# (KeyHolder + credential store). Narrative companion:
+# SPEC-R2-WORKSHOP-SENTANTS.md §7.
+
+ensemble:
+  name: rocker-keyholder
+  description: >
+    KeyHolder role-ensemble: holds the trust-group private key and is
+    the sole authority that mints DeviceCertificates (sensor enrolment)
+    and signs #wifi_offer bootstrap payloads, and approves/revokes
+    viewer access. Usually co-loaded with the Controller; separable onto
+    a more-trusted hive.
+  version: "0.2.0"
+  class: nz.ac.auckland.rocker          # shared deployment class
+  ensemble_version: "0.1"
+
+  trust_group:
+    # The KeyHolder is the trust-group OWNER (holds the private key).
+    roles_allowed: [owner]
+
+  compile_target: [linux]
+
+  # ─── Sentants (R2-SENTANT) ──────────────────────────────────────────
+  sentants:
+
+    - name: Access
+      description: >
+        KeyHolder-side enrolment + viewer access. Mints DeviceCertificates
+        for sensors (over the TCP post-announce path or BLE L2CAP) via
+        the tg-signer plugin; manages the pending + approved member
+        lists; handles the request → approve/deny flow (ACCESS v0.3).
+        Emits status events viewers consume to update their Link tab.
+      class: ai.reality2.workshop.access
+      storage: durable-state
+      data:
+        tg_pk: ""                  # TG PUBLIC key (the private key lives in tg-signer's credential store)
+        members: []
+        pending: []
+      plugins:
+        - name: tg-signer
+      automations:
+        - name: main
+          # subscribes: r2.dash.cmd.access.{members.query, pending.query,
+          #             check, approve, deny, revoke, request}
+          # emits:      r2.dash.access.event, r2.dash.enrol (→sensors),
+          #             r2.dash.cmd.response
+          # See SPEC-R2-WORKSHOP-ACCESS.
+
+  # ─── Ensemble-owned plugins (R2-PLUGIN §2/§12.3) ────────────────────
+  plugins:
+
+    - name: tg-signer
+      description: >
+        Wraps the trust-group Ed25519 keypair. Signs DeviceCertificates
+        and #wifi_offer payloads. The private key is loaded from the
+        hive credential store (R2-TRUST §2.3 / §6) at
+        ~/.config/r2-workshop/tg_signer/tg_priv.bin — it NEVER enters the
+        repo working tree (see SECRETS-POLICY.md). Bound locally by the
+        Access sentant and (when KeyHolder is co-loaded) by the
+        Controller's Bootstrap sentant; bound remotely via trust-group
+        plugin routing (R2-PLUGIN §10) when KeyHolder is separate.
+      kind: native
+      compile_target: [linux]
+      capabilities:
+        provides: [ai.reality2.workshop.cap.tg-signer]
+        requires: []
+      credentials: [tg_priv]       # Ed25519 TG private key — from the credential store, never in-repo
+      events:
+        handled: []                # method-driven (sign/mint) by the Access + Bootstrap sentants
+        emitted: []
+
+  # ─── Aggregate capabilities (R2-CAP §2, R2-DEF §7.5) ────────────────
+  capabilities:
+    emits:
+      - r2.dash.access.event
+      - r2.dash.enrol               # → sensors (the signed DeviceCertificate)
+      - r2.dash.cmd.response
+    consumes:
+      - r2.dash.cmd.access.members.query
+      - r2.dash.cmd.access.pending.query
+      - r2.dash.cmd.access.check
+      - r2.dash.cmd.access.approve
+      - r2.dash.cmd.access.deny
+      - r2.dash.cmd.access.revoke
+      - r2.dash.cmd.access.request
+
+  signatures: []

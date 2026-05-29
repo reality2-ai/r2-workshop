@@ -24,10 +24,11 @@ bundle + `/r2` WebSocket + `/api/...` HTTP routes — see §5.1).
 The current Rust binary (`dashboard/src/main.rs`) is the
 pre-loader-era approximation of all of that: the sentants are
 realised as struct + free-function clusters, the R2-WEB
-registration is built into the binary, and the ensemble's score
-at `ensemble/ensemble.yaml` is documentation rather than the
-operative input. Phase B3 of the SPEC-R2-WORKSHOP-ENSEMBLE
-roadmap will move that score from documentation to operative.
+registration is built into the binary, and the Controller
+role-ensemble score at `ensemble/controller.yaml` is documentation
+rather than the operative input. Phase B3 of the
+SPEC-R2-WORKSHOP-ENSEMBLE roadmap will move that score from
+documentation to operative.
 
 What the dashboard hive currently does, named:
 
@@ -379,6 +380,7 @@ whichever occurs first (per WIRE §4.1).
 | `/api/data/zip` | GET | End-of-day "grab everything" bundle. v0.2 sources from the controller-local store (was: per-sensor round-trip in v0.1) — much faster and works while sensors are offline. Sensors that haven't synced their latest file yet are simply absent from the zip; operator can trigger a fresh sync round and re-zip. |
 | `/api/devices/aliases` | GET | Bulk-fetch the operator-assigned alias map on webapp boot. Per-sensor mutations ride `r2.dash.cmd.device.alias.set` on `/r2`. |
 | `/api/version` | GET | `{name, version, git_sha, built}` introspection. |
+| `/api/ensemble` | GET | The running deployment's R2-ENSEMBLE identity (SPEC-R2-WORKSHOP-ENSEMBLE §2.1): `{ensemble, class, class_hash, ensemble_version, build, built_at}`. `ensemble` is the class-string leaf (`nz.ac.auckland.rocker` → `rocker`); `class_hash` is the compile-time FNV-1a-32 of the class (`0x624c47bc`); `build` is `<semver>+<git_sha>`. The webapp reads this to render its identity footer. |
 | `/api/keyholder/tg-pub` | GET | TG public key bytes for QR-code generation. |
 | `/api/access/onboard` | GET | KeyHolder-only operator UI helper — pair of QR payloads for the "Onboard a visitor" modal (ACCESS v0.3 §8). |
 | `/api/access/whoami/{device_pk}` | GET | Self-heal — a paired viewer calls this on every load to confirm membership; 404 → stale cert → webapp wipes IndexedDB. |
