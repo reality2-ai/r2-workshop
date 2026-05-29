@@ -21,7 +21,7 @@ use std::net::{SocketAddr, TcpStream};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::adxl355::Adxl355;
+use crate::lis2dh::Lis2dh;
 use crate::clock::Clock;
 use crate::identity::Identity;
 use crate::led::LedHandle;
@@ -82,7 +82,7 @@ pub struct Sender {
     /// clear succeeded; samples come from this. None means the driver
     /// failed at boot and we fall back to `accel_sim` so the wire path
     /// still works for further debug.
-    adxl: Option<Adxl355>,
+    adxl: Option<Lis2dh>,
     /// Fallback / always-available simulator. Used when `adxl` is None
     /// OR when an individual sample read errors (logged + skipped).
     accel_sim: AccelSim,
@@ -134,7 +134,7 @@ impl Sender {
         hostname: String,
         identity: Arc<Identity>,
         led: LedHandle,
-        adxl: Option<Adxl355>,
+        adxl: Option<Lis2dh>,
         clock: Arc<Clock>,
         ring: Option<Ring>,
         capture: Option<crate::capture::CaptureMgr>,

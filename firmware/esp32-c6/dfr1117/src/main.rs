@@ -8,7 +8,7 @@
 //!      L2CAP PSM 0xD2 for `#wifi_offer` events from the controller.
 //!   4. On a valid offer: persist creds to NVS and reboot to apply.
 
-mod adxl355;
+mod lis2dh;
 mod battery;
 mod capture;
 mod clock;
@@ -82,22 +82,25 @@ fn main() -> Result<()> {
     .context("LED init")?;
     led_handle.set(led::LedState::Boot);
 
-    // DFR1117 (Beetle ESP32-C6) SPI wiring. PROVISIONAL boot-test pins —
-    // the ADXL355 + SD card holder are not soldered yet; update these to
-    // the actual wiring before a sensor build. Broken-out header GPIOs
-    // are 4,5,6,7,16,17,19,20,21,22,23 (GPIO8/9 are strapping; GPIO0 =
-    // BOOT). The ADXL355 + SD share the bus on separate CS lines.
-    //   SCK = GPIO19   MOSI = GPIO20   MISO = GPIO21
-    //   ADXL355 CS = GPIO22            SD CS = GPIO23
+    // DFR1117 (Beetle ESP32-C6) wiring — HARDWARE-WIRING-DFR1117.md.
+    // Two buses: the SD on SPI, and the SEN0224 (LIS2DH) accelerometer
+    // on I²C (it's I²C-only via its Gravity connector). Broken-out
+    // header GPIOs: 4,5,6,7,16,17,19,20,21,22,23 (GPIO8/9 strapping;
+    // GPIO0 = BOOT; GPIO15 = on-board LED; GPIO4 = battery ADC).
+    //   SPI (SD):  SCK=GPIO19  MOSI=GPIO20  MISO=GPIO21  SD CS=GPIO23
+    //   I²C (accel): SDA=GPIO5  SCL=GPIO6        (GPIO22 now spare)
     let modem = peripherals.modem;
     let spi2  = peripherals.spi2;
     let sclk    = peripherals.pins.gpio19.downgrade();
     let mosi    = peripherals.pins.gpio20.downgrade();
     let miso    = peripherals.pins.gpio21.downgrade();
-    let cs_adxl = peripherals.pins.gpio22.downgrade();
     // SD card CS — broken-out GPIO23. With no SD wired the mount fails
     // gracefully in sd::try_mount and the sensor streams as before.
     let cs_sd   = peripherals.pins.gpio23.downgrade();
+    // SEN0224 (LIS2DH) on I²C0 — Gravity SDA=GPIO5, SCL=GPIO6.
+    let i2c0  = peripherals.i2c0;
+    let sda     = peripherals.pins.gpio5.downgrade();
+    let scl     = peripherals.pins.gpio6.downgrade();
 
     // Top-level error trap — anything below sets the LED red long
     // enough for the operator to see, then resets the chip. The
@@ -105,7 +108,7 @@ fn main() -> Result<()> {
     // point: a buggy new image whose sender never reaches its first
     // successful frame round-trip never marks itself valid, and the
     // next reset rolls back to the previous slot.
-    if let Err(e) = run(led_handle.clone(), modem, sysloop, nvs, spi2, sclk, mosi, miso, cs_adxl, cs_sd) {
+    if let Err(e) = run(led_handle.clone(), modem, sysloop, nvs, spi2, sclk, mosi, miso, cs_sd, i2c0, sda, scl) {
         error!("[FATAL] init/runtime error: {e:?}");
         led_handle.set(led::LedState::Error);
         FreeRtos::delay_ms(10_000);
@@ -127,8 +130,10 @@ fn run(
     sclk: esp_idf_svc::hal::gpio::AnyIOPin,
     mosi: esp_idf_svc::hal::gpio::AnyIOPin,
     miso: esp_idf_svc::hal::gpio::AnyIOPin,
-    cs_adxl: esp_idf_svc::hal::gpio::AnyIOPin,
     cs_sd:   esp_idf_svc::hal::gpio::AnyIOPin,
+    i2c0: esp_idf_svc::hal::i2c::I2C0,
+    sda: esp_idf_svc::hal::gpio::AnyIOPin,
+    scl: esp_idf_svc::hal::gpio::AnyIOPin,
 ) -> Result<()> {
     // ── Identity (§3.1) — Ed25519 keypair, persisted to NVS. ──────────
     let identity = std::sync::Arc::new(
@@ -293,26 +298,37 @@ fn run(
             .name("sender".into())
             .spawn(move || {
                 use esp_idf_svc::hal::spi::{config::DriverConfig as SpiDriverConfig, Dma, SpiDriver};
+                use esp_idf_svc::hal::i2c::{config::Config as I2cConfig, I2cDriver};
+                use esp_idf_svc::hal::units::FromValueType;
                 use std::sync::Arc;
-                let bus = match SpiDriver::new(
+                // SD on its own SPI bus — best-effort; no SD ⇒ streaming-only.
+                // (On the C6 the accelerometer is on I²C, not this bus, so a
+                // SPI failure no longer blocks streaming.)
+                let _sd = match SpiDriver::new(
                     spi2, sclk, mosi, Some(miso),
                     &SpiDriverConfig::new().dma(Dma::Auto(4096)),
                 ) {
-                    Ok(b) => Arc::new(b),
+                    Ok(b) => sd::SdCard::try_mount(Arc::new(b), cs_sd),
                     Err(e) => {
-                        warn!("[SPI2] bus init failed: {e:?} — sensor cannot stream");
-                        return;
+                        warn!("[SPI2] bus init failed: {e:?} — no SD this boot");
+                        None
                     }
                 };
-                // SD first so its CS line is driven high before the
-                // ADXL355 attach generates SCK pulses on the shared bus.
-                // See the equivalent block in devkitc/src/main.rs for the
-                // full rationale.
-                let _sd = sd::SdCard::try_mount(bus.clone(), cs_sd);
-                let adxl = match adxl355::Adxl355::new(bus.clone(), cs_adxl) {
-                    Ok(a) => Some(a),
+                // Accelerometer: SEN0224 (LIS2DH) on I²C. On failure the
+                // sender falls back to the simulator (degraded-sim LED).
+                let adxl = match I2cDriver::new(
+                    i2c0, sda, scl,
+                    &I2cConfig::new().baudrate(400u32.kHz().into()),
+                ) {
+                    Ok(i2c) => match lis2dh::Lis2dh::new(i2c) {
+                        Ok(a) => Some(a),
+                        Err(e) => {
+                            warn!("[LIS2DH] init failed in sender thread: {e:?} — falling back to simulator");
+                            None
+                        }
+                    },
                     Err(e) => {
-                        warn!("[ADXL355] init failed in sender thread: {e:?} — falling back to simulator");
+                        warn!("[I2C0] bus init failed: {e:?} — falling back to simulator");
                         None
                     }
                 };
@@ -370,40 +386,41 @@ fn run(
             .stack_size(8192)
             .name("adxl-diag".into())
             .spawn(move || {
-                use esp_idf_svc::hal::spi::{config::DriverConfig as SpiDriverConfig, Dma, SpiDriver};
-                use std::sync::Arc;
-                let _ = cs_sd; // unused in diagnostic mode — drop the pin
-                let bus = match SpiDriver::new(
-                    spi2, sclk, mosi, Some(miso),
-                    &SpiDriverConfig::new().dma(Dma::Auto(4096)),
+                use esp_idf_svc::hal::i2c::{config::Config as I2cConfig, I2cDriver};
+                use esp_idf_svc::hal::units::FromValueType;
+                // SPI/SD peripherals are unused in BLE-only diagnostic mode.
+                let _ = (spi2, sclk, mosi, miso, cs_sd);
+                let i2c = match I2cDriver::new(
+                    i2c0, sda, scl,
+                    &I2cConfig::new().baudrate(400u32.kHz().into()),
                 ) {
-                    Ok(b) => Arc::new(b),
+                    Ok(i) => i,
                     Err(e) => {
-                        warn!("[ADXL355-DIAG] SPI2 bus init failed: {e:?}");
+                        warn!("[LIS2DH-DIAG] I²C bus init failed: {e:?}");
                         return;
                     }
                 };
-                match adxl355::Adxl355::new(bus, cs_adxl) {
-                    Ok(mut adxl) => {
-                        info!("[ADXL355-DIAG] BLE-only mode — sensor enumerated; sampling 1 Hz to console");
+                match lis2dh::Lis2dh::new(i2c) {
+                    Ok(mut accel) => {
+                        info!("[LIS2DH-DIAG] BLE-only mode — sensor enumerated; sampling 1 Hz to console");
                         led_for_diag.set(led::LedState::StreamingLive);
                         const LSB_PER_G: f64 = 256_000.0;
                         loop {
-                            match adxl.read_xyz_lsb() {
+                            match accel.read_xyz_lsb() {
                                 Ok((x, y, z)) => info!(
-                                    "[ADXL355-DIAG] x={:+.3}g y={:+.3}g z={:+.3}g  (raw lsb {}/{}/{})",
+                                    "[LIS2DH-DIAG] x={:+.3}g y={:+.3}g z={:+.3}g  (raw lsb {}/{}/{})",
                                     x as f64 / LSB_PER_G,
                                     y as f64 / LSB_PER_G,
                                     z as f64 / LSB_PER_G,
                                     x, y, z,
                                 ),
-                                Err(e) => warn!("[ADXL355-DIAG] read failed: {e:?}"),
+                                Err(e) => warn!("[LIS2DH-DIAG] read failed: {e:?}"),
                             }
                             FreeRtos::delay_ms(1000);
                         }
                     }
                     Err(e) => {
-                        warn!("[ADXL355-DIAG] init failed: {e:?} — sensor not usable in this boot");
+                        warn!("[LIS2DH-DIAG] init failed: {e:?} — sensor not usable in this boot");
                     }
                 }
             })
