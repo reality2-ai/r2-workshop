@@ -87,20 +87,26 @@ fn main() -> Result<()> {
     // on I²C (it's I²C-only via its Gravity connector). Broken-out
     // header GPIOs: 4,5,6,7,16,17,19,20,21,22,23 (GPIO8/9 strapping;
     // GPIO0 = BOOT; GPIO15 = on-board LED; GPIO4 = battery ADC).
-    //   SPI (SD):  SCK=GPIO19  MOSI=GPIO20  MISO=GPIO21  SD CS=GPIO23
-    //   I²C (accel): SDA=GPIO5  SCL=GPIO6        (GPIO22 now spare)
+    // Pins match the board's silk labels (verified against the
+    // dfrobot_beetle_esp32c6 Arduino variant) so peripherals wire pad-to-
+    // label: SPI device → SCK/MO/MI, I²C device → SDA/SCL.
+    //   SPI (SD):  SCK=GPIO23(`SCK`)  MOSI=GPIO22(`MO`)  MISO=GPIO21(`MI`)
+    //              SD CS=GPIO7(`LP_SCL`, free pad next to `MI`)
+    //   I²C (accel): SDA=GPIO19(`SDA`)  SCL=GPIO20(`SCL`)
     let modem = peripherals.modem;
     let spi2  = peripherals.spi2;
-    let sclk    = peripherals.pins.gpio19.downgrade();
-    let mosi    = peripherals.pins.gpio20.downgrade();
+    let sclk    = peripherals.pins.gpio23.downgrade();
+    let mosi    = peripherals.pins.gpio22.downgrade();
     let miso    = peripherals.pins.gpio21.downgrade();
-    // SD card CS — broken-out GPIO23. With no SD wired the mount fails
-    // gracefully in sd::try_mount and the sensor streams as before.
-    let cs_sd   = peripherals.pins.gpio23.downgrade();
-    // SEN0224 (LIS2DH) on I²C0 — Gravity SDA=GPIO5, SCL=GPIO6.
+    // SD card CS — `LP_SCL` pad (GPIO7), a free pad adjacent to `MI`.
+    // With no SD wired the mount fails gracefully in sd::try_mount and
+    // the sensor streams as before.
+    let cs_sd   = peripherals.pins.gpio7.downgrade();
+    // SEN0224 (LIS2DH) on I²C0 — wire its Gravity SDA→`SDA` pad (GPIO19),
+    // SCL→`SCL` pad (GPIO20).
     let i2c0  = peripherals.i2c0;
-    let sda     = peripherals.pins.gpio5.downgrade();
-    let scl     = peripherals.pins.gpio6.downgrade();
+    let sda     = peripherals.pins.gpio19.downgrade();
+    let scl     = peripherals.pins.gpio20.downgrade();
 
     // Top-level error trap — anything below sets the LED red long
     // enough for the operator to see, then resets the chip. The

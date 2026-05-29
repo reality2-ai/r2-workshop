@@ -7,8 +7,9 @@
 //! — which is exactly why the sensor is a swappable plugin: it provides
 //! the same `accel.triaxial` capability behind a different driver.
 //!
-//! Wiring per `HARDWARE-WIRING-DFR1117.md` §3 (Gravity I²C):
-//!   VCC→3V3  GND→GND  SCL→GPIO6  SDA→GPIO5   (INT unused; firmware polls)
+//! Wiring per `HARDWARE-WIRING-DFR1117.md` §3 (Gravity I²C) — pads match
+//! the board silk: VCC→`3V3`  GND→`GND`  SCL→`SCL`(GPIO20)  SDA→`SDA`(GPIO19)
+//! (INT unused; firmware polls).
 //!
 //! **Units.** `read_xyz_lsb()` returns values in the *same* convention
 //! the wire + dashboard assume for the ADXL355: **1 g = 256_000 LSB**
