@@ -255,6 +255,28 @@ const DASHBOARD_VERSION: &str = concat!(
     env!("R2_GIT_SHA"),
 );
 
+/// The ensemble class this dashboard belongs to (SPEC-R2-WORKSHOP-ENSEMBLE
+/// §2.1). Same string the firmware bakes in and the BLE scan filters on —
+/// `trust_keys/sensor_class.txt`, surfaced at build time by build.rs.
+/// Class strings are lowercase-canonical, so the FNV hash below matches the
+/// value the firmware advertises in its R2-BEACON payload.
+const ENSEMBLE_CLASS: &str = env!("R2_SENSOR_CLASS");
+
+/// FNV-1a-32 of the class string — the ensemble's wire identity, computed at
+/// compile time (e.g. `nz.ac.auckland.rocker` → 0x624c47bc).
+const ENSEMBLE_CLASS_HASH: u32 = r2_fnv::fnv1a_32(ENSEMBLE_CLASS.as_bytes());
+
+/// R2-DEF §7 score-schema version this deployment's `ensemble/ensemble.yaml`
+/// conforms to. Distinct from the ensemble's own semver (= CARGO_PKG_VERSION).
+const ENSEMBLE_SCHEMA_VERSION: &str = "0.1";
+
+/// The ensemble's user-facing name: the leaf segment of the class string
+/// (`nz.ac.auckland.rocker` → `rocker`). Derived rather than hard-coded so a
+/// re-class keeps a single source of truth (SPEC-R2-WORKSHOP-ENSEMBLE §2.2).
+fn ensemble_name() -> &'static str {
+    ENSEMBLE_CLASS.rsplit('.').next().unwrap_or(ENSEMBLE_CLASS)
+}
+
 /// JSON for /api/version.
 #[derive(Serialize)]
 struct VersionInfo {
@@ -270,6 +292,30 @@ async fn version_handler() -> axum::Json<VersionInfo> {
         git_sha:   env!("R2_GIT_SHA"),
         built_at:  env!("R2_BUILD_TIMESTAMP"),
         component: "r2-workshop-dashboard",
+    })
+}
+
+/// JSON for /api/ensemble — the dashboard's R2-ENSEMBLE identity
+/// (SPEC-R2-WORKSHOP-ENSEMBLE §2.1). Lets the webapp + any tooling read the
+/// running deployment's class/version without recompiling assumptions in.
+#[derive(Serialize)]
+struct EnsembleInfo {
+    ensemble:         &'static str,
+    class:            &'static str,
+    class_hash:       String,
+    ensemble_version: &'static str,
+    build:            &'static str,
+    built_at:         &'static str,
+}
+
+async fn ensemble_handler() -> axum::Json<EnsembleInfo> {
+    axum::Json(EnsembleInfo {
+        ensemble:         ensemble_name(),
+        class:            ENSEMBLE_CLASS,
+        class_hash:       format!("0x{ENSEMBLE_CLASS_HASH:08x}"),
+        ensemble_version: ENSEMBLE_SCHEMA_VERSION,
+        build:            DASHBOARD_VERSION,
+        built_at:         env!("R2_BUILD_TIMESTAMP"),
     })
 }
 
@@ -937,7 +983,8 @@ async fn main() {
         // was migrated to r2.dash.cmd.device.alias.set in Track C;
         // only the bulk-fetch GET stays.
         .route("/api/devices/aliases",         get(device_aliases_get_handler))
-        .route("/api/version", get(version_handler));
+        .route("/api/version", get(version_handler))
+        .route("/api/ensemble", get(ensemble_handler));
         // v0.2 cleanup: the following legacy /api/* routes were
         // dropped now that their cmd-event equivalents on /r2 have
         // been bench-validated (capture / reset / identify /
@@ -978,6 +1025,8 @@ async fn main() {
     eprintln!("╔══════════════════════════════════════════════════════════════╗");
     eprintln!("║              r2-workshop dashboard                              ║");
     eprintln!("╠══════════════════════════════════════════════════════════════╣");
+    eprintln!("║  ensemble:   {:<48}║",
+        format!("{} · {} (0x{:08x})", ensemble_name(), ENSEMBLE_CLASS, ENSEMBLE_CLASS_HASH));
     eprintln!("║  version:    {:<48}║", DASHBOARD_VERSION);
     eprintln!("║  built:      {:<48}║", env!("R2_BUILD_TIMESTAMP"));
     eprintln!("║  R2 port:    {:<48}║", format!("{} (raw R2-WIRE TCP + HTTP/WS)", bind_addr));

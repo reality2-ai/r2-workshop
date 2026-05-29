@@ -1137,6 +1137,21 @@
   .theme-toggle { background: transparent; border: 1px solid currentColor; color: inherit;
     border-radius: 6px; padding: 4px 8px; cursor: pointer; margin-right: 8px; font-size: 14px; }
   .theme-toggle:hover { background: rgba(127,127,127,0.15); }
+
+  /* Ensemble-identity footer — the running deployment's R2-ENSEMBLE
+     identity (SPEC-R2-WORKSHOP-ENSEMBLE §2.1), populated from
+     /api/ensemble. Calm-tech: muted, unobtrusive, hidden until known. */
+  .app-footer {
+    padding: 8px 24px;
+    text-align: center;
+    font-size: 11px;
+    letter-spacing: 0.02em;
+    color: var(--text-secondary, #64748b);
+    border-top: 1px solid var(--header-border, rgba(127,127,127,0.18));
+    opacity: 0.75;
+  }
+  .app-footer .ens-class { font-variant-numeric: tabular-nums; opacity: 0.85; }
+  .app-footer .ens-sep { margin: 0 8px; opacity: 0.5; }
 </style>
 </head>
 <body>
@@ -1358,6 +1373,9 @@
     <div class="bootstrap-log-entries" id="bootstrap-log"></div>
   </div>
 </div>
+
+<footer class="app-footer" id="appFooter" hidden
+        title="This deployment's R2 ensemble identity"></footer>
 
 <script>
 // Service-worker registration is currently DISABLED — an earlier
@@ -2581,6 +2599,38 @@ function remapPayload(eventName, raw) {
 }
 
 bootstrapHive();
+
+/// Populate the deployment-identity footer from /api/ensemble
+/// (SPEC-R2-WORKSHOP-ENSEMBLE §2.1). Only the controller serves this
+/// route; on the off-network github.io host the fetch fails and the
+/// footer stays hidden — identity there arrives via the relayed
+/// announce stream instead. Built with textContent (no innerHTML) so
+/// the class/build strings can't inject markup.
+async function loadEnsembleIdentity() {
+  const el = document.getElementById('appFooter');
+  if (!el) return;
+  try {
+    const r = await fetch('/api/ensemble', { cache: 'no-store' });
+    if (!r.ok) return;
+    const e = await r.json();
+    const semver = (e.build || '').split('+')[0] || '?';
+    const sha    = (e.build || '').split('+')[1] || '';
+    const mk = (txt, cls) => {
+      const s = document.createElement('span');
+      if (cls) s.className = cls;
+      s.textContent = txt;
+      return s;
+    };
+    const sep = () => mk('·', 'ens-sep');
+    el.replaceChildren();
+    const name = document.createElement('strong');
+    name.textContent = e.ensemble || '?';
+    el.append(name, sep(), mk(e.class || '?', 'ens-class'), sep(), mk('v' + semver));
+    if (sha) el.append(sep(), mk('build ' + sha));
+    el.hidden = false;
+  } catch { /* off-network / controller offline — leave the footer hidden */ }
+}
+loadEnsembleIdentity();
 
 function handleEvent(msg) {
   totalEvents++;
