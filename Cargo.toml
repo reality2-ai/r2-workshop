@@ -1,7 +1,7 @@
 # r2-workshop workspace.
-# firmware/esp32-s3 is excluded — it has its own xtensa target and
-# rust-toolchain (esp), and integrating it into the host workspace
-# breaks `cargo build` for non-firmware crates.
+# The firmware trees (esp32-s3 = xtensa, esp32-c6 = riscv) are excluded —
+# each has its own embedded target + rust-toolchain (esp), and integrating
+# them into the host workspace breaks `cargo build` for non-firmware crates.
 
 [workspace]
 resolver = "2"
@@ -24,9 +24,10 @@ members = [
 ]
 exclude = [
     "firmware/esp32-s3",
+    "firmware/esp32-c6",
     "crates/r2-wasm",
-    # r2-esp depends on esp-idf-svc + esp32-nimble — both
-    # xtensa-esp32*-espidf only. Built by firmware/esp32-s3 via path dep.
+    # r2-esp depends on esp-idf-svc + esp32-nimble — both embedded-espidf
+    # only. Built by the firmware crates via path dep.
     "crates/r2-esp",
 ]
 

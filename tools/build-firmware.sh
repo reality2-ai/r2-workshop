@@ -11,8 +11,9 @@
 #
 # Usage:
 #   tools/build-firmware.sh                # defaults to devkitc
-#   tools/build-firmware.sh devkitc
-#   tools/build-firmware.sh xiao
+#   tools/build-firmware.sh devkitc        # esp32-s3 (xtensa)
+#   tools/build-firmware.sh xiao           # esp32-s3 (xtensa)
+#   tools/build-firmware.sh dfr1117        # esp32-c6 (riscv) — Beetle
 #
 # After this completes:
 # * Latest build artifact (overwritten on each run) is at
@@ -29,14 +30,24 @@ set -euo pipefail
 
 CARRIER="${1:-devkitc}"
 
+# Carrier → (architecture dir, Rust target triple, espflash chip).
+# devkitc + xiao are xtensa ESP32-S3; dfr1117 is a RISC-V ESP32-C6.
+case "${CARRIER}" in
+    devkitc|xiao) ARCH_DIR="esp32-s3"; TARGET="xtensa-esp32s3-espidf";  CHIP="esp32s3" ;;
+    dfr1117)      ARCH_DIR="esp32-c6"; TARGET="riscv32imac-esp-espidf"; CHIP="esp32c6" ;;
+    *)
+        echo "ERROR: unknown carrier '${CARRIER}'" >&2
+        echo "Known carriers: devkitc, xiao (esp32-s3); dfr1117 (esp32-c6)" >&2
+        exit 1
+        ;;
+esac
+
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-FW_DIR="${REPO_ROOT}/firmware/esp32-s3/${CARRIER}"
+FW_DIR="${REPO_ROOT}/firmware/${ARCH_DIR}/${CARRIER}"
 REL_DIR="${FW_DIR}/releases"
 
 if [[ ! -f "${FW_DIR}/Cargo.toml" ]]; then
     echo "ERROR: no Cargo.toml at ${FW_DIR}" >&2
-    echo "Available carriers:" >&2
-    ls -1 "${REPO_ROOT}/firmware/esp32-s3" | grep -v -E '^(README|releases)' | sed 's/^/  /' >&2
     exit 1
 fi
 
@@ -158,14 +169,14 @@ fi
 
 cd "${FW_DIR}"
 
-echo "==> cargo build --release (xtensa-esp32s3-espidf) — carrier=${CARRIER}"
+echo "==> cargo build --release (${TARGET}) — carrier=${CARRIER}"
 cargo build --release
 
-ELF="target/xtensa-esp32s3-espidf/release/r2-workshop-firmware"
+ELF="target/${TARGET}/release/r2-workshop-firmware"
 BIN="${ELF}.bin"
 
 echo "==> espflash save-image  →  ${BIN}"
-espflash save-image --chip esp32s3 "${ELF}" "${BIN}"
+espflash save-image --chip "${CHIP}" "${ELF}" "${BIN}"
 
 # Compute the same FW_VER string the firmware bakes in via build.rs:
 #   <semver>-<YYYY-MM-DD-HH:MM>+<git-short-sha>[-dirty]

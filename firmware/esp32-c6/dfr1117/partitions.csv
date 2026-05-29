@@ -1,0 +1,21 @@
+# r2-workshop partition table — 4 MB flash (DFRobot Beetle ESP32-C6-FH4 /
+# DFR1117), two OTA slots, no factory.
+#
+# Unlike the 8 MB ESP32-S3 layout (3 MB slots + 1.875 MB internal FAT
+# storage), the C6 has only 4 MB, so each OTA slot is 1.875 MB and there
+# is NO internal FAT `storage` partition — capture data lives on the
+# external microSD card (SPI), not internal flash. 1.875 MB is enough
+# for a release-profile esp-idf-svc firmware (WiFi + NimBLE + R2 stack);
+# the build will fail loudly at link/flash time if the image overflows,
+# in which case fall back to a single-slot (factory) layout and accept
+# no-OTA on the C6.
+#
+# OTA still needs the FIRST install to be a full USB flash (espflash
+# flash) to write this table + both slots; OTA updates only work after.
+#
+# # Name,    Type, SubType, Offset,   Size,      Flags
+nvs,         data, nvs,     0x9000,   0x6000,
+otadata,     data, ota,     0xf000,   0x2000,
+phy_init,    data, phy,     0x11000,  0x1000,
+ota_0,       app,  ota_0,   0x20000,  0x1E0000,
+ota_1,       app,  ota_1,   0x200000, 0x1E0000,

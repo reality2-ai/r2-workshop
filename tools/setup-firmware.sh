@@ -25,40 +25,45 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-FW_BASE="${REPO_ROOT}/firmware/esp32-s3"
 
-if [[ ! -d "${FW_BASE}" ]]; then
-    echo "FATAL: ${FW_BASE} not found." >&2
+# Carrier trees live under firmware/<arch>/<carrier>/ — esp32-s3 (xtensa)
+# and esp32-c6 (riscv). The esp-idf-sys build dir's target triple differs
+# per arch, so glob `target/*-espidf/...` to catch both.
+shopt -s nullglob
+arch_dirs=("${REPO_ROOT}"/firmware/esp32-*/)
+if (( ${#arch_dirs[@]} == 0 )); then
+    echo "FATAL: no firmware/esp32-* trees found." >&2
     exit 1
 fi
 
-shopt -s nullglob
 total_staged=0
 
-for carrier_dir in "${FW_BASE}"/*/; do
-    carrier="$(basename "${carrier_dir}")"
-    src="${carrier_dir}partitions.csv"
+for arch_dir in "${arch_dirs[@]}"; do
+    for carrier_dir in "${arch_dir}"*/; do
+        carrier="$(basename "${carrier_dir}")"
+        src="${carrier_dir}partitions.csv"
 
-    # Skip non-carrier directories (releases/, etc.) — must have a
-    # partitions.csv at the carrier root to be a valid build target.
-    if [[ ! -f "${src}" ]]; then
-        continue
-    fi
+        # Skip non-carrier directories (releases/, etc.) — must have a
+        # partitions.csv at the carrier root to be a valid build target.
+        if [[ ! -f "${src}" ]]; then
+            continue
+        fi
 
-    echo "Carrier: ${carrier}"
+        echo "Carrier: $(basename "${arch_dir}")/${carrier}"
 
-    carrier_staged=0
-    for d in "${carrier_dir}"target/xtensa-esp32s3-espidf/*/build/esp-idf-sys-*/out; do
-        cp -f "${src}" "${d}/partitions.csv"
-        echo "  staged → ${d#${REPO_ROOT}/}/partitions.csv"
-        carrier_staged=$((carrier_staged + 1))
+        carrier_staged=0
+        for d in "${carrier_dir}"target/*-espidf/*/build/esp-idf-sys-*/out; do
+            cp -f "${src}" "${d}/partitions.csv"
+            echo "  staged → ${d#${REPO_ROOT}/}/partitions.csv"
+            carrier_staged=$((carrier_staged + 1))
+        done
+
+        if (( carrier_staged == 0 )); then
+            echo "  (no esp-idf-sys build dirs yet — run 'cargo build --release' once first)"
+        fi
+
+        total_staged=$((total_staged + carrier_staged))
     done
-
-    if (( carrier_staged == 0 )); then
-        echo "  (no esp-idf-sys build dirs yet — run 'cargo build --release' once first)"
-    fi
-
-    total_staged=$((total_staged + carrier_staged))
 done
 
 shopt -u nullglob
