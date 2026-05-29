@@ -24,6 +24,7 @@ parallel implementations of the same sensor specification.**
 |---|---|---|---|---|
 | **ESP32-S3-DevKitC-1** | [`HARDWARE-WIRING-DEVKITC.md`](HARDWARE-WIRING-DEVKITC.md) | **Current default** per ADR-002 | 45 GPIO pins (lots of expansion); on-board WS2812 RGB LED; 16 MB flash (N16R8 variant); discrete and diagnosable power chain | No on-board LiPo charging; requires external buck-boost regulator for LiPo operation; ~52 × 27 mm footprint |
 | **Seeed XIAO ESP32-S3** (Pre-Soldered) | [`HARDWARE-WIRING-XIAO.md`](HARDWARE-WIRING-XIAO.md) | Alternative — fully supported (was current default under ADR-001) | On-board LiPo charger + buck regulator + USB-C; tiny 21 × 17.5 mm footprint; ~14 µA deep sleep | 11 GPIO pins (tight if adding hats); 8 MB flash; no on-board RGB LED (external WS2812 required); integrated power IC harder to diagnose if a fault develops |
+| **DFRobot Beetle ESP32-C6** (DFR1117) | [`HARDWARE-WIRING-DFR1117.md`](HARDWARE-WIRING-DFR1117.md) | Alternative — **RISC-V**; built + flashed + streaming (2026-05-29); ADR-003 pending | On-board LiPo charge + USB-C; on-board (mono) status LED; coin-sized; Wi-Fi 6 / Thread / Matter | **Different SoC family (RISC-V — separate toolchain)**; 4 MB flash / no PSRAM; on-board LED is single-colour; 13 broken-out GPIO; the 5 V SD module is marginal at 3.3 V (§4 of its doc) |
 
 ## How to choose
 
@@ -81,15 +82,20 @@ The firmware tree mirrors this same alternative-carrier pattern:
 ```
 firmware/
   esp32-s3/
-    devkitc/     ← firmware for HARDWARE-WIRING-DEVKITC.md
-    xiao/       ← firmware for HARDWARE-WIRING-XIAO.md
-    common/     (future: shared library crate, once worth doing)
+    devkitc/     ← firmware for HARDWARE-WIRING-DEVKITC.md (xtensa)
+    xiao/       ← firmware for HARDWARE-WIRING-XIAO.md (xtensa)
+  esp32-c6/
+    dfr1117/    ← firmware for HARDWARE-WIRING-DFR1117.md (RISC-V)
 ```
 
-Both firmware variants build against the same `xtensa-esp32s3-espidf`
-Rust target and the same ESP-IDF version, sharing the R2 protocol
-stack, the ADXL355 driver, and the FSM logic. Only the pin
-assignments and partition table differ.
+The two ESP32-S3 variants build against `xtensa-esp32s3-espidf`; the
+DFR1117 builds against `riscv32imac-esp-espidf` (same ESP-IDF version,
+`esp` toolchain). All three share the R2 protocol stack and the FSM
+logic. The S3 carriers share the ADXL355 SPI driver; the C6 carrier
+uses a different sensing element (a `lis2dh` I²C driver — its own
+sensing plugin) and a single-colour LED backend. Pin assignments,
+partition table (4 MB two-OTA), and sensing driver differ per carrier.
+`tools/build-firmware.sh <carrier>` is carrier-aware.
 
 ## See also
 
