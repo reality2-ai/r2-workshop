@@ -67,13 +67,19 @@ fn main() -> Result<()> {
     let sysloop = EspSystemEventLoop::take()?;
     let nvs = EspDefaultNvsPartition::take()?;
 
-    // ── RGB LED (Phase 5L) ───────────────────────────────────────────
-    // External WS2812 cell on GPIO6 (a broken-out header pin). The
-    // DFR1117 Beetle ESP32-C6 has only a plain on-board LED, not an
-    // addressable RGB, so the status LED is wired externally.
-    // Bring this up FIRST so any error after this point can show ERROR.
-    let led_handle = led::start(peripherals.rmt.channel0, peripherals.pins.gpio6)
-        .context("LED init")?;
+    // ── Status LED (Phase 5L) ─────────────────────────────────────────
+    // The DFR1117's on-board user LED (LED1, GPIO15) is a plain
+    // single-colour LED — driven here via LEDC PWM so it flashes with
+    // the SAME state patterns/timing as the WS2812 carriers, just
+    // without the colour channel (see led.rs). LED4 (LiPo charge status)
+    // is driven by the charger chip, not us. Bring the LED up FIRST so
+    // any error after this point can show ERROR.
+    let led_handle = led::start(
+        peripherals.ledc.timer0,
+        peripherals.ledc.channel0,
+        peripherals.pins.gpio15,
+    )
+    .context("LED init")?;
     led_handle.set(led::LedState::Boot);
 
     // DFR1117 (Beetle ESP32-C6) SPI wiring. PROVISIONAL boot-test pins —
