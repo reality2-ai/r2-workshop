@@ -122,15 +122,43 @@ Wire the SEN0224's 4-pin Gravity lead to:
 
 ## 4. microSD (SPI)
 
-> **⚠ Battery deployment → use a 3.3 V-native microSD breakout.** The
-> `VIN` pad is the **USB 5 V rail** (Type-C VBUS) — it is **dead when
-> running on battery** (the C6 itself runs off the LiPo via the on-board
-> 3.3 V buck, but nothing re-creates 5 V). A **5 V** SD module (DFR0229
-> and the "MicroSD Module V1.0" — both `Working Voltage: 5V`) needs that
-> 5 V for its LDO + level dividers, so it only works **tethered to USB**.
-> For the battery sensor, fit a **3.3 V-native microSD breakout** (bare
-> socket + pull-ups, no level-shifter) powered from the **`3V3`** pad,
-> which is regulated and present on both USB and battery.
+**Decision: use a 3.3 V-native microSD board, powered from `3V3`.** It is
+the only option that works in *every* power mode, because of which rails
+are live when:
+
+| Rail | Live when… |
+|---|---|
+| `VIN` | USB plugged **only** (it's the USB 5 V) |
+| `BAT` | a battery is **connected** (USB + no battery → just the charger's unloaded output, not a dependable rail) |
+| `3V3` | **always** — regulated buck output that runs the MCU, fed from USB *or* battery automatically |
+
+A 3.3 V-native board runs off `3V3`, so it works tethered, on battery,
+or both. A 5 V module can't: its BL8555 LDO needs **≥~3.5 V**, so it can
+*only* take `VIN` (USB-only) or `BAT` (battery-only) — there is no single
+rail that powers it in all modes.
+
+> **⚠ Powering the SD on battery.** The `VIN` pad is the **USB 5 V rail**
+> (Type-C VBUS) — **dead on battery** (the C6 runs off the LiPo via its
+> on-board 3.3 V buck, but nothing re-creates 5 V). So never power a
+> battery-build SD module from `VIN`. Two workable options:
+>
+> 1. **Cleanest — a 3.3 V-native microSD breakout** (bare socket +
+>    pull-ups, no LDO, no level-shifter) powered from the **`3V3`** pad
+>    (regulated, present on USB *and* battery). Avoids both gotchas below.
+> 2. **The 5 V DFR0229 / "MicroSD Module V1.0" can run on battery via
+>    `BAT`.** Its regulator is a **BL8555-33** (datasheet-verified):
+>    dropout **0.22 V typ / 0.35 V max @ 120 mA**, so from a LiPo on `BAT`
+>    (4.2→~3.5 V) it holds a clean 3.3 V to the card across essentially
+>    the whole discharge (sagging gracefully, still in the card's
+>    2.7–3.6 V spec, near empty). Wire `VCC`→**`BAT`** (not `VIN`). Two
+>    caveats remain: the BL8555 is only a **150 mA** LDO (SD write spikes
+>    can brush that → brownout/write-error risk; add a bulk cap + modest
+>    SPI clock), and the input **dividers** still drop SCK/MOSI/CS to
+>    ~2.27 V (marginal). Confirm the module's regulator really is a
+>    BL8555 (an AMS1117 needs ~4.5 V and won't hold 3.3 V from a LiPo).
+>
+> The SD is the on-device ring/capture store only — the sensor streams
+> over Wi-Fi regardless, so it is **not** required for live data.
 
 The SPI logic pins are the same for any microSD module. A typical
 breakout labels its data pins `SO` (= card data-out = MISO) and `SI`
@@ -145,24 +173,27 @@ breakout labels its data pins `SO` (= card data-out = MISO) and `SI`
 | `SO` (MISO) | `MI` | GPIO21 | |
 | `CS` | `LP_SCL` | GPIO7 | free pad adjacent to `MI` |
 
-Keep the `SCK`/`MO`/`MI` stubs short. The SD is the on-device ring /
-capture store only — the sensor streams over Wi-Fi regardless, so the
-SD is **not** required to get live data.
+Keep the `SCK`/`MO`/`MI` stubs short.
 
-> **Bench-only fallback (USB tethered):** if you only have a 5 V module
-> on hand and are on USB, you *can* wire `VCC`→`VIN` (5 V).
-> Schematic-verified (`docs/datasheets/DFR0229-microsd-module-schematics.pdf`,
-> titled *"MicroSD Module V1.0"* — same board): the `+5` pin feeds a
-> **BL8555-33 LDO** that powers the card at 3.3 V (card supply is internal,
-> not exposed), and `SCK`/`MOSI`/`CS` each pass through a **1 kΩ series +
-> 2.2 kΩ-to-GND divider** (×0.69). From 5 V that's 3.44 V at the card;
-> from the C6's 3.3 V it's **~2.27 V** — just above the ~2.06 V threshold:
-> likely works, little margin, may be flaky at high SPI clock (lower the
-> clock if so). `MISO` passes straight through (card drives 3.3 V — fine).
-> This will **not** survive going to battery (`VIN` is USB-only, and
-> feeding the LDO from `BAT`/`3V3` under-volts the card while the dividers
-> still drop the logic). Third-party "works at 3.3 V–5 V" listings for
-> this module are over-stated — there is no clean 3.3 V supply path.
+> **Where to feed VCC — depends on the module:**
+> * **5 V module *with* its own LDO (DFR0229 / "MicroSD Module V1.0"):**
+>   `VCC`→**`BAT`** (raw LiPo) for battery, or `VIN` on USB. Its BL8555-33
+>   LDO needs **≥~3.5 V in** to make 3.3 V, so a flat `3V3` supply would
+>   under-volt the card — feed it the raw battery, not `3V3`.
+> * **3.3 V-native breakout (no regulator):** `VCC`→**`3V3`** only.
+>   **Never** feed it raw `BAT` (4.2 V over-volts and can kill the card).
+>
+> **Schematic detail (DFR0229 / V1.0)**, verified from
+> `docs/datasheets/DFR0229-microsd-module-schematics.pdf` (titled
+> *"MicroSD Module V1.0"*): `VCC` feeds the **BL8555-33 LDO** (card supply
+> is internal, not exposed); `SCK`/`MOSI`/`CS` each pass through a
+> **1 kΩ series + 2.2 kΩ-to-GND divider** (×0.69). From 5 V that's 3.44 V
+> at the card; from the C6's 3.3 V logic it's **~2.27 V** — just over the
+> ~2.06 V threshold (marginal; lower the SPI clock if flaky). This divider
+> behaviour is independent of how `VCC` is powered. `MISO` passes straight
+> through. (So third-party "3.3 V–5 V" listings mean *via the LDO* — it
+> still needs ≥~3.5 V in, which a LiPo on `BAT` provides but a flat 3.3 V
+> does not.)
 
 ## 5. Status LED + battery
 
