@@ -5449,12 +5449,21 @@ class R2DataCard extends HTMLElement {
     r.card.className = `device-card ${classifyOnline(s)}`;
     r.led.className = `virt-led ${ledClassFor(s)}`;
     syncVirtLedPhase(r.led);
-    // SD presence is inferred from `captureSdAvailable` set by file
-    // list responses. If list returned a 5xx with a "no SD" message
-    // we mark it false. Until then assume present.
-    const sdOk = s.captureSdAvailable !== false;
-    r.sd.textContent = sdOk ? 'present' : 'not detected';
-    r.sd.style.color = sdOk ? '#cbd5e1' : '#f87171';
+    // SD presence is inferred from `captureSdAvailable`, set by the
+    // file-list call in `refresh()`: `true` once a list call has
+    // succeeded, `false` if the call returned 5xx / network-erred.
+    // Until *either* path has set it (never listed yet, or list
+    // returned 200 with empty files from a sensor whose SD is in
+    // fact absent), the honest answer is "we don't know yet" — show
+    // an em dash rather than defaulting to "present".
+    const sdAvail = s.captureSdAvailable;
+    const sdText  = sdAvail === true ? 'present'
+                  : sdAvail === false ? 'not detected'
+                  : '—';
+    r.sd.textContent = sdText;
+    r.sd.style.color = sdAvail === false ? '#f87171'
+                     : sdAvail === true  ? 'var(--text-link)'
+                     : 'var(--text-muted)';
 
     // File list — rebuild only when the signature changed (same idea
     // as R2DeviceCard's `_last` cache). Operators look for the most
