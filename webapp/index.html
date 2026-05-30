@@ -2561,7 +2561,7 @@ function remapPayload(eventName, raw) {
   }
   const SCHEMA = {
     'r2.sensor.battery':     [['0','voltage_mv'],['1','percent'],['2','charging'],['3','ts_ms'],['10','temp_c']],
-    'r2.sensor.announce':    [['0','device_pk'],['1','hostname'],['2','fw_ver'],['3','last_seq'],['4','boot_ts_ms'],['5','nonce'],['6','sig'],['8','device_cert'],['10','mounting_role']],
+    'r2.sensor.announce':    [['0','device_pk'],['1','hostname'],['2','fw_ver'],['3','last_seq'],['4','boot_ts_ms'],['5','nonce'],['6','sig'],['8','device_cert'],['10','mounting_role'],['11','class'],['12','carrier'],['13','sd_mounted']],
     'r2.sensor.status':      [['0','state'],['1','uptime_ms'],['2','samples_total'],['3','samples_acked'],['4','sd_pct_used'],['5','rate_hz_active'],['6','range_active'],['7','data_source'],['10','error_code']],
     'r2.sensor.capture.state': [['0','state'],['1','file']],
     // Controller-synthesised events — payload shapes per
@@ -2783,6 +2783,12 @@ function handleEvent(msg) {
         if (msg.payload.fw_ver)    sensor.fwVer    = msg.payload.fw_ver;
         if (msg.payload.device_pk) sensor.devicePk = msg.payload.device_pk;
         if (msg.payload.boot_ts_ms != null) sensor.bootTsMs = msg.payload.boot_ts_ms;
+        // v0.3+ announce identity tuple — keys 11/12/13 per WIRE §3.1.
+        // Older firmware omits these; the receiver must treat absent
+        // values as "unknown" (don't blank a previously-known value).
+        if (msg.payload.class    != null) sensor.class      = msg.payload.class;
+        if (msg.payload.carrier  != null) sensor.carrier    = msg.payload.carrier;
+        if (msg.payload.sd_mounted != null) sensor.sdMounted = msg.payload.sd_mounted;
         sensor.online = true;
         sensor.lastSeen = Date.now();
         renderDevicesIfVisible();
@@ -5014,9 +5020,12 @@ class R2DeviceCard extends HTMLElement {
         </div>
         <div class="health-row-host"></div>
         <div class="device-row"><span class="label">addr</span><span class="value device-addr"></span></div>
+        <div class="device-row"><span class="label">class</span><span class="value device-class"></span></div>
+        <div class="device-row"><span class="label">carrier</span><span class="value device-carrier"></span></div>
         <div class="device-row"><span class="label">firmware</span><span class="value device-fw"></span></div>
         <div class="device-row"><span class="label">last seen</span><span class="value device-lastseen"></span></div>
         <div class="device-row"><span class="label">battery</span><span class="value device-battery"></span></div>
+        <div class="device-row"><span class="label">SD card</span><span class="value device-sd"></span></div>
         <div class="battery-bar-host"></div>
         <div class="device-actions">
           <button class="btn-update">⬆ Update Firmware</button>
@@ -5033,10 +5042,13 @@ class R2DeviceCard extends HTMLElement {
       name:        this.querySelector('.device-name'),
       healthHost:  this.querySelector('.health-row-host'),
       addr:        this.querySelector('.device-addr'),
+      class_:      this.querySelector('.device-class'),
+      carrier:     this.querySelector('.device-carrier'),
       fw:          this.querySelector('.device-fw'),
       lastSeen:    this.querySelector('.device-lastseen'),
       battery:     this.querySelector('.device-battery'),
       battBarHost: this.querySelector('.battery-bar-host'),
+      sd:          this.querySelector('.device-sd'),
       btnUpdate:   this.querySelector('.btn-update'),
       btnReset:    this.querySelector('.btn-reset'),
       btnIdentify: this.querySelector('.btn-identify'),
@@ -5269,6 +5281,20 @@ class R2DeviceCard extends HTMLElement {
       last.key = key;
     }
 
+    // Identity tuple — populated from r2.sensor.announce keys 11/12
+    // (WIRE §3.1 v0.3+). Older firmware omits these; show em dash.
+    const classText = s.class ?? '—';
+    if (last.classText !== classText) {
+      r.class_.textContent = classText;
+      r.class_.title = classText;        // full string on hover, in case the cell ellipses
+      last.classText = classText;
+    }
+    const carrierText = s.carrier ?? '—';
+    if (last.carrierText !== carrierText) {
+      r.carrier.textContent = carrierText;
+      last.carrierText = carrierText;
+    }
+
     const status = classifyOnline(s);
     const cardClass = `device-card ${status}`;
     if (last.cardClass !== cardClass) {
@@ -5333,6 +5359,21 @@ class R2DeviceCard extends HTMLElement {
         r.battBarHost.innerHTML = '';
       }
       last.battSig = battSig;
+    }
+
+    // SD card row — authoritative from r2.sensor.announce key 13
+    // (WIRE §3.1 v0.3.1+). Older firmware omits the field and we
+    // show "—" (don't guess; the prior list-call inference lied).
+    const sdMounted = s.sdMounted;
+    const sdText = sdMounted === true ? 'present'
+                 : sdMounted === false ? 'not detected'
+                 : '—';
+    if (last.sdText !== sdText) {
+      r.sd.textContent = sdText;
+      r.sd.style.color = sdMounted === false ? '#f87171'
+                       : sdMounted === true  ? 'var(--text-link)'
+                       : 'var(--text-muted)';
+      last.sdText = sdText;
     }
 
     // Health row (sensor health: real / sim / unknown).
@@ -5449,14 +5490,12 @@ class R2DataCard extends HTMLElement {
     r.card.className = `device-card ${classifyOnline(s)}`;
     r.led.className = `virt-led ${ledClassFor(s)}`;
     syncVirtLedPhase(r.led);
-    // SD presence is inferred from `captureSdAvailable`, set by the
-    // file-list call in `refresh()`: `true` once a list call has
-    // succeeded, `false` if the call returned 5xx / network-erred.
-    // Until *either* path has set it (never listed yet, or list
-    // returned 200 with empty files from a sensor whose SD is in
-    // fact absent), the honest answer is "we don't know yet" — show
-    // an em dash rather than defaulting to "present".
-    const sdAvail = s.captureSdAvailable;
+    // SD presence: prefer the authoritative `sensor.sdMounted` from
+    // the announce (WIRE §3.1 key 13, v0.3.1+ firmware). Fall back to
+    // the older `captureSdAvailable` listing-call inference for
+    // pre-v0.3.1 firmware. Either way: until *something* tells us
+    // yes/no, show "—" — never default to "present".
+    const sdAvail = s.sdMounted ?? s.captureSdAvailable;
     const sdText  = sdAvail === true ? 'present'
                   : sdAvail === false ? 'not detected'
                   : '—';
