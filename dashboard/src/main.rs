@@ -3512,8 +3512,18 @@ async fn github_firmware_snapshot() -> Option<(String, i64, Vec<FirmwareAsset>)>
             let url = a.get("browser_download_url").and_then(|v| v.as_str()).unwrap_or("");
             let size = a.get("size").and_then(|v| v.as_u64());
             if !name.ends_with(".bin") { continue; }
+            // Match the carrier slug in the asset filename. Order
+            // matters: try the longest/most-specific slug first so
+            // a future "xiao-plus" doesn't get swallowed by the
+            // generic "xiao" substring (today's slugs are
+            // sufficiently distinct, but the pattern keeps us
+            // honest). The proper #90 implementation will drive
+            // this off the meta sidecar's `carrier` field instead
+            // of substring matching.
             let carrier = if name.contains("devkitc") {
                 "devkitc"
+            } else if name.contains("dfr1117") {
+                "dfr1117"
             } else if name.contains("xiao") {
                 "xiao"
             } else {

@@ -6224,23 +6224,72 @@ async function requestUpdateAllFromLatest() {
     alert('All connected sensors are already on the latest firmware.');
     return;
   }
-  const targetVer = availableFirmware.version;
-  const srcLabel  = availableFirmware.source === 'github' ? 'GitHub Release' : 'local build';
-  if (!confirm(`Pull ${targetVer} from the ${srcLabel} and push to ${outdatedCards.length} sensor(s)?`)) return;
 
-  // Fetch the .bin once via the dashboard, re-use the blob across cards.
-  const carrier = 'devkitc';
-  let blob;
-  try {
-    const res = await fetch(`/api/firmware/${carrier}/binary`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    blob = await res.blob();
-  } catch (err) {
-    alert(`Failed to fetch firmware: ${err}`);
+  // Group the outdated cards by their *announced* carrier (WIRE §3.1
+  // key 12). We MUST NOT push a binary built for the wrong carrier:
+  // a devkitc image flashed to a C6 (or vice versa) is the wrong
+  // architecture entirely. Pre-v0.3 firmware doesn't announce a
+  // carrier — those cards get held back with a clear message rather
+  // than guessed at.
+  const byCarrier = new Map();
+  const noCarrier = [];
+  for (const c of outdatedCards) {
+    const carrier = c.sensor?.carrier;
+    if (!carrier) { noCarrier.push(c); continue; }
+    if (!byCarrier.has(carrier)) byCarrier.set(carrier, []);
+    byCarrier.get(carrier).push(c);
+  }
+
+  // Only carriers we actually have an asset for can be updated.
+  const availableCarriers = new Set((availableFirmware.assets ?? []).map((a) => a.carrier));
+  const skipNoAsset = [];
+  for (const carrier of [...byCarrier.keys()]) {
+    if (!availableCarriers.has(carrier)) {
+      skipNoAsset.push({ carrier, count: byCarrier.get(carrier).length });
+      byCarrier.delete(carrier);
+    }
+  }
+
+  const updatableCount = [...byCarrier.values()].reduce((n, arr) => n + arr.length, 0);
+  if (updatableCount === 0) {
+    let msg = 'No sensors can be safely updated.';
+    if (noCarrier.length) msg += `\n• ${noCarrier.length} on pre-v0.3 firmware (no announced carrier)`;
+    for (const s of skipNoAsset) msg += `\n• ${s.count} on "${s.carrier}" — no matching asset published`;
+    alert(msg);
     return;
   }
 
-  await Promise.allSettled(outdatedCards.map((c) => c.updateFirmware(blob)));
+  const targetVer = availableFirmware.version;
+  const srcLabel  = availableFirmware.source === 'github' ? 'GitHub Release' : 'local build';
+  const carriers  = [...byCarrier.keys()].sort();
+  const summary   = carriers.map((c) => `${byCarrier.get(c).length} × ${c}`).join(', ');
+  let extras = '';
+  if (noCarrier.length) extras += `\n(${noCarrier.length} sensor(s) skipped: pre-v0.3 firmware, no carrier in announce)`;
+  for (const s of skipNoAsset) extras += `\n(${s.count} sensor(s) skipped: no "${s.carrier}" asset in this release)`;
+  if (!confirm(`Pull ${targetVer} from the ${srcLabel} and push to ${updatableCount} sensor(s)?\n  ${summary}${extras}`)) return;
+
+  // Fetch each carrier's blob once, then push that blob to every
+  // sensor of that carrier in parallel.
+  const tasks = [];
+  for (const [carrier, cards] of byCarrier.entries()) {
+    tasks.push((async () => {
+      let blob;
+      try {
+        const res = await fetch(`/api/firmware/${carrier}/binary`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        blob = await res.blob();
+      } catch (err) {
+        return { carrier, error: err.message ?? String(err), cards };
+      }
+      await Promise.allSettled(cards.map((c) => c.updateFirmware(blob)));
+      return { carrier, ok: cards.length };
+    })());
+  }
+  const results = await Promise.all(tasks);
+  const failures = results.filter((r) => r.error);
+  if (failures.length) {
+    alert(`Some carriers failed to fetch:\n${failures.map((f) => `  ${f.carrier}: ${f.error}`).join('\n')}`);
+  }
 }
 
 // Rolling buffer cap for the per-card log tail. Logic itself lives
