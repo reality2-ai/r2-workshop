@@ -1,14 +1,22 @@
 //! Real battery telemetry — ADC1_CHn on the carrier's battery-sense
 //! pin, divider-fed.
 //!
-//! **The pin is carrier-specific.** This is the dfr1117 (Beetle
-//! ESP32-C6) copy, wired to **GPIO 4** = the **`LP_RX`** pad per
-//! HARDWARE-WIRING-DFR1117.md §5. Other carriers have their own copy
-//! of `battery.rs` with their own pin (DevKitC: GPIO 4 as well, per
-//! HARDWARE-WIRING-DEVKITC §4.2 — same number, different chip; the
-//! XIAO has no battery-sense pin allocated yet). If a future carrier
-//! uses a different GPIO, edit *that* carrier's `battery.rs` —
-//! changing this file affects only the C6.
+//! **The pin is carrier-specific.** Each supported carrier keeps its
+//! own copy of `battery.rs` with its own pin:
+//!   * **dfr1117 (this file, Beetle ESP32-C6):** GPIO 4 = the `LP_RX`
+//!     pad per HARDWARE-WIRING-DFR1117.md §5 — wired + verified on the
+//!     bench 2026-05-31.
+//!   * **DevKitC (ESP32-S3):** GPIO 4 per HARDWARE-WIRING-DEVKITC.md
+//!     §4.2 — wired and running in production. Same number,
+//!     different chip / different `battery.rs` copy.
+//!   * **XIAO (ESP32-S3):** no battery-sense pin allocated yet
+//!     (HARDWARE-WIRING-XIAO.md TBD); its `battery.rs` calls
+//!     `Battery::sim_only()` until a divider is wired.
+//!
+//! If a future carrier uses a different GPIO, edit *that* carrier's
+//! `battery.rs` (the `Channel` type alias + the `new()` signature) and
+//! its `main.rs` (the `bat_pin = peripherals.pins.gpioN` line) together
+//! — changing this file affects only the C6.
 //!
 //! Per SPEC-R2-WORKSHOP-SENSOR §8 and the carrier wiring doc:
 //!   * Two 100 kΩ resistors form a 0.5 divider from VBATT to GND.
