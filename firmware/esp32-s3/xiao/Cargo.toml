@@ -1,6 +1,6 @@
 [package]
 name        = "r2-workshop-firmware"
-version     = "0.2.0"
+version     = "0.3.0"
 edition     = "2021"
 description = "r2-workshop sensor firmware (Seeed XIAO ESP32-S3)"
 license     = "MIT OR Apache-2.0"
