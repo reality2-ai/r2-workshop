@@ -107,6 +107,12 @@ fn main() -> Result<()> {
     let i2c0  = peripherals.i2c0;
     let sda     = peripherals.pins.gpio19.downgrade();
     let scl     = peripherals.pins.gpio20.downgrade();
+    // Battery telemetry — ADC1_CH3 on GPIO4 (`LP_RX` pad), with the
+    // 100k/100k + 100nF divider per §5 of HARDWARE-WIRING-DFR1117.md.
+    // With no divider fitted, battery.rs's plausibility gate trips and
+    // it falls back to BatterySim transparently.
+    let adc1    = peripherals.adc1;
+    let bat_pin = peripherals.pins.gpio4;
 
     // Top-level error trap — anything below sets the LED red long
     // enough for the operator to see, then resets the chip. The
@@ -114,7 +120,7 @@ fn main() -> Result<()> {
     // point: a buggy new image whose sender never reaches its first
     // successful frame round-trip never marks itself valid, and the
     // next reset rolls back to the previous slot.
-    if let Err(e) = run(led_handle.clone(), modem, sysloop, nvs, spi2, sclk, mosi, miso, cs_sd, i2c0, sda, scl) {
+    if let Err(e) = run(led_handle.clone(), modem, sysloop, nvs, spi2, sclk, mosi, miso, cs_sd, i2c0, sda, scl, adc1, bat_pin) {
         error!("[FATAL] init/runtime error: {e:?}");
         led_handle.set(led::LedState::Error);
         FreeRtos::delay_ms(10_000);
@@ -140,6 +146,8 @@ fn run(
     i2c0: esp_idf_svc::hal::i2c::I2C0,
     sda: esp_idf_svc::hal::gpio::AnyIOPin,
     scl: esp_idf_svc::hal::gpio::AnyIOPin,
+    adc1:    esp_idf_svc::hal::adc::ADC1,
+    bat_pin: esp_idf_svc::hal::gpio::Gpio4,
 ) -> Result<()> {
     // ── Identity (§3.1) — Ed25519 keypair, persisted to NVS. ──────────
     let identity = std::sync::Arc::new(
@@ -360,11 +368,12 @@ fn run(
                     sd::MOUNT_POINT,
                     current_recording_for_sender,
                 ));
-                // XIAO has no battery-sense divider allocated in its
-                // wiring spec yet (HARDWARE-WIRING-XIAO.md). Until that
-                // ships, the battery feed comes from BatterySim — same
+                // Battery telemetry via the §5 100k/100k + 100nF divider
+                // on GPIO4 (`LP_RX` pad). If the divider isn't fitted,
+                // battery.rs's plausibility/spread gates trip and it
+                // falls back to BatterySim transparently — same
                 // wire-event shape, simulated numbers.
-                let battery = battery::Battery::sim_only();
+                let battery = battery::Battery::new(adc1, bat_pin);
                 led_for_sender.set(if adxl.is_some() {
                     led::LedState::StreamingLive
                 } else {
