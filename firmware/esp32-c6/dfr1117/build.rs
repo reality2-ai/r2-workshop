@@ -25,8 +25,19 @@ fn main() {
     load_wifi_config(&manifest_dir);
     stamp_build_metadata();
     stamp_sensor_class(&manifest_dir);
+    stamp_sensor_carrier();
 
     embuild::espidf::sysenv::output();
+}
+
+/// Emit the carrier-board slug as `R2_SENSOR_CARRIER` per
+/// SPEC-R2-WORKSHOP-WIRE §3.1 row 12. Hardcoded per carrier crate —
+/// the slug matches this crate's directory name (`firmware/esp32-c6/
+/// dfr1117/`), which is the canonical mapping per
+/// SPEC-R2-WORKSHOP-DASHBOARD §13.3 (the dashboard scans
+/// `firmware/<soc-family>/<carrier>/releases/` by this slug).
+fn stamp_sensor_carrier() {
+    println!("cargo:rustc-env=R2_SENSOR_CARRIER=dfr1117");
 }
 
 /// Read `trust_keys/sensor_class.txt` from the repo root and emit it

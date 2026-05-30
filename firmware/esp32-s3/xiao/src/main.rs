@@ -42,6 +42,13 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 /// dashboard match without sharing on-air identity with other labs.
 const SENSOR_CLASS: &str = env!("R2_SENSOR_CLASS");
 
+/// Carrier-board slug — emitted as `r2.sensor.announce` CBOR key 12
+/// (SPEC-R2-WORKSHOP-WIRE §3.1, v0.3+). Hardcoded per crate in
+/// `build.rs::stamp_sensor_carrier`; matches this crate's directory
+/// name. The (class, carrier) tuple drives the dashboard's OTA match
+/// (SPEC-R2-WORKSHOP-DASHBOARD §13.3).
+const SENSOR_CARRIER: &str = env!("R2_SENSOR_CARRIER");
+
 const GATEWAY_IP:   &str = env!("R2_GATEWAY_IP");
 const GATEWAY_PORT: u16  = 21042;
 /// UDP presence port — matches `r2-bootstrap`'s `PRESENCE_PORT`. Sent
@@ -308,6 +315,10 @@ fn run(
                 // See the equivalent block in devkitc/src/main.rs for the
                 // full rationale.
                 let _sd = sd::SdCard::try_mount(bus.clone(), cs_sd);
+                // Boot-time SD-mount fact for the announce (WIRE §3.1
+                // key 13 `sd_mounted`). Captured here, before any
+                // downstream consumer that might move `_sd`.
+                let sd_mounted = _sd.is_some();
                 let adxl = match adxl355::Adxl355::new(bus.clone(), cs_adxl) {
                     Ok(a) => Some(a),
                     Err(e) => {
@@ -349,6 +360,7 @@ fn run(
                 });
                 let mut s = sender::Sender::new(
                     gateway, hostname, id_for_sender, led_for_sender, adxl, clock_for_sender, ring, capture, battery,
+                    SENSOR_CLASS, SENSOR_CARRIER, sd_mounted,
                 );
                 s.run();
             })

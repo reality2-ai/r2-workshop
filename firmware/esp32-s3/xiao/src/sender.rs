@@ -126,6 +126,14 @@ pub struct Sender {
     /// the runtime ADXL355 path: includes `-sim` only when we fell back
     /// to the synthetic accelerometer.
     fw_ver: String,
+    /// Reverse-DNS class string (WIRE §3.1 key 11). Together with
+    /// `carrier` it forms the (class, carrier) OTA-matching tuple.
+    class: &'static str,
+    /// Carrier-board slug from `R2_SENSOR_CARRIER` (WIRE §3.1 key 12).
+    carrier: &'static str,
+    /// Boot-time SD-mount fact (WIRE §3.1 key 13). Authoritative for
+    /// the webapp's SD-presence display.
+    sd_mounted: bool,
 }
 
 impl Sender {
@@ -139,6 +147,9 @@ impl Sender {
         ring: Option<Ring>,
         capture: Option<crate::capture::CaptureMgr>,
         battery: crate::battery::Battery,
+        class: &'static str,
+        carrier: &'static str,
+        sd_mounted: bool,
     ) -> Self {
         let fw_ver = build_fw_ver(adxl.is_some());
         Self {
@@ -156,6 +167,9 @@ impl Sender {
             boot_instant: Instant::now(),
             app_validated: false,
             fw_ver,
+            class,
+            carrier,
+            sd_mounted,
         }
     }
 
@@ -552,27 +566,36 @@ impl Sender {
         //    mode the dashboard verifies the cert chain under
         //    TG_PUB_KEY; absent cert drops to TOFU mode.
         let device_cert = self.identity.device_cert();
-        let n_keys_full = if device_cert.is_some() { 8 } else { 7 };
+        // 7 base (keys 0..5 + sig=6) + 1 cert (key 8) + 3 identity
+        // (keys 11/12/13 — class+carrier+sd_mounted; always emitted).
+        let cert_keys = if device_cert.is_some() { 1 } else { 0 };
+        let n_keys_full = 7 + cert_keys + 3;
 
         // 4. Encode full payload (keys 0..6 always; key 8 when cert
         //    present). Payload buffer sized for the 147-byte cert plus
         //    the existing ~250-byte head.
-        let mut payload = [0u8; 512];
+        let mut payload = [0u8; 640];
         let mut w = CborWriter::new(&mut payload);
         write_keys_0_to_5(&mut w, n_keys_full);
         w.key(6); w.bytes(&sig);
         if let Some(ref cert_bytes) = device_cert {
             w.key(8); w.bytes(cert_bytes);
         }
+        // Identity tuple (WIRE §3.1) — outside the sig, like the cert.
+        // Pre-v0.3 receivers ignore unknown keys.
+        w.key(11); w.text(self.class);
+        w.key(12); w.text(self.carrier);
+        w.key(13); w.bool(self.sd_mounted);
         let used = w.pos();
 
-        let mut frame = [0u8; 576];
+        let mut frame = [0u8; 768];
         let n = frame_for_tcp(&mut frame, self.random_msg_id(), EVT_SENSOR_ANNOUNCE, &payload[..used]);
         stream.write_all(&frame[..n])?;
         info!(
-            "sender: sent ANNOUNCE ({} bytes payload, signed, cert={}; device_pk first 8 bytes = {:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}…)",
+            "sender: sent ANNOUNCE ({} bytes payload, signed, cert={}, class={}, carrier={}, sd_mounted={}; device_pk first 8 bytes = {:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}…)",
             used,
             if device_cert.is_some() { "present" } else { "absent (TOFU)" },
+            self.class, self.carrier, self.sd_mounted,
             device_pk[0], device_pk[1], device_pk[2], device_pk[3],
             device_pk[4], device_pk[5], device_pk[6], device_pk[7],
         );
