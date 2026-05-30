@@ -107,9 +107,15 @@ fn main() -> Result<()> {
     let i2c0  = peripherals.i2c0;
     let sda     = peripherals.pins.gpio19.downgrade();
     let scl     = peripherals.pins.gpio20.downgrade();
-    // Battery telemetry — ADC1_CH3 on GPIO4 (`LP_RX` pad), with the
-    // 100k/100k + 100nF divider per §5 of HARDWARE-WIRING-DFR1117.md.
-    // With no divider fitted, battery.rs's plausibility gate trips and
+    // Battery telemetry — carrier-specific pin. On the dfr1117 (Beetle
+    // ESP32-C6) the divider goes to GPIO4 = the **`LP_RX`** pad
+    // (HARDWARE-WIRING-DFR1117.md §5: 100k/100k + 100nF on the
+    // midpoint). Other carriers pick their own pin (DevKitC also uses
+    // GPIO4 but as a different chip; the XIAO has none allocated yet)
+    // — see each carrier's HARDWARE-WIRING-*.md §battery for the
+    // authoritative choice, and adjust the local `bat_pin` + the type
+    // alias inside that carrier's `battery.rs` accordingly. With no
+    // divider fitted, battery.rs's plausibility/spread gates trip and
     // it falls back to BatterySim transparently.
     let adc1    = peripherals.adc1;
     let bat_pin = peripherals.pins.gpio4;

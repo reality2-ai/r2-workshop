@@ -1,8 +1,18 @@
-//! Real battery telemetry — ADC1_CH3 on GPIO 4, divider-fed.
+//! Real battery telemetry — ADC1_CHn on the carrier's battery-sense
+//! pin, divider-fed.
 //!
-//! Per SPEC-R2-WORKSHOP-SENSOR §8 and HARDWARE-WIRING-DEVKITC §4.2:
+//! **The pin is carrier-specific.** This is the dfr1117 (Beetle
+//! ESP32-C6) copy, wired to **GPIO 4** = the **`LP_RX`** pad per
+//! HARDWARE-WIRING-DFR1117.md §5. Other carriers have their own copy
+//! of `battery.rs` with their own pin (DevKitC: GPIO 4 as well, per
+//! HARDWARE-WIRING-DEVKITC §4.2 — same number, different chip; the
+//! XIAO has no battery-sense pin allocated yet). If a future carrier
+//! uses a different GPIO, edit *that* carrier's `battery.rs` —
+//! changing this file affects only the C6.
+//!
+//! Per SPEC-R2-WORKSHOP-SENSOR §8 and the carrier wiring doc:
 //!   * Two 100 kΩ resistors form a 0.5 divider from VBATT to GND.
-//!   * The midpoint goes to GPIO 4 (ADC1_CH3).
+//!   * The midpoint goes to GPIO 4 (ADC1_CH3) on this carrier.
 //!   * Sample at 12-bit / 12 dB attenuation (esp-idf v5 spelling
 //!     `DB_11` is the same value — the chip's full-scale on this
 //!     attenuation setting is ~3.1 V).
