@@ -25,9 +25,14 @@ This specification is **carrier-agnostic**: it refers to logical pins
 the active carrier's wiring document for the physical GPIO numbers.
 A new carrier may be added by writing a `HARDWARE-WIRING-<NAME>.md`
 file and updating the carrier index — no changes to this
-specification are required so long as the carrier's SoC is ESP32-S3.
-A different SoC family (ESP32-C6, RP2040, etc.) would require a new
-ADR documenting the toolchain and protocol-stack implications.
+specification are required so long as the carrier's SoC is supported
+by the firmware tree's existing toolchains. As of 2026-05-31 those
+are **ESP32-S3** (xtensa, used by `devkitc` and `xiao`) and
+**ESP32-C6** (RISC-V, used by `dfr1117`). A new SoC family
+(RP2040, ESP32-P4, …) requires a new ADR documenting the toolchain
+and protocol-stack implications — ADR-001 covers the S3 carrier
+choice; an ADR-003 covering the C6 bring-up is the outstanding
+follow-up tracked in `HARDWARE-WIRING-DFR1117.md` §7.
 
 ### 1.1 Scope
 

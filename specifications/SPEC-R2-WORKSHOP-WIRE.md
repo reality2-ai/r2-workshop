@@ -231,7 +231,7 @@ session.
 | 8 | bytes(147) | (optional, present iff cert-issued) `device_cert` — KeyHolder-signed `DeviceCertificate` serialised per `r2-trust::types::DEVICE_CERT_LEN`. When present, the dashboard verifies the cert chain under `TG_PUB_KEY` and verifies `sig` against the cert's `device_public_key`. When absent, the dashboard falls back to TOFU (legacy firmware compatibility for one release; see SPEC-R2-WORKSHOP-SENSOR §3.4). |
 | 10 | uint8 | (optional) `mounting_role` — 0 = unset, 1 = rocker, 2 = bed, 3 = other |
 | 11 | text | `class` — reverse-DNS ensemble-class string baked into the firmware at compile time (e.g. `"nz.ac.auckland.rocker"` for the rocker deployment of this template). Same string whose FNV-1a-32 hash is embedded in every event hash in this spec — emitting it readably lets the dashboard *display* the class on a foreign-class device (vs silently dropping unrecognised frames). ≤ 64 ASCII bytes; `[A-Za-z0-9._-]` charset. Required from firmware v0.3+. |
-| 12 | text | `carrier` — physical carrier-board slug (e.g. `"devkitc"`, `"xiao"`). Identifies the hardware variant for OTA matching: the dashboard MUST refuse to push a firmware whose carrier differs from this value (SPEC-R2-WORKSHOP-DASHBOARD §13.4). ≤ 32 ASCII bytes; `[a-z0-9-]` charset. Required from firmware v0.3+. |
+| 12 | text | `carrier` — physical carrier-board slug (e.g. `"devkitc"`, `"xiao"`, `"dfr1117"`). **Open enumeration**: every supported carrier under `firmware/<soc-family>/<carrier>/` is a valid value; new carriers extend the set without a spec bump. Identifies the hardware variant for OTA matching: the dashboard MUST refuse to push a firmware whose carrier differs from this value (SPEC-R2-WORKSHOP-DASHBOARD §13.4). ≤ 32 ASCII bytes; `[a-z0-9-]` charset. Required from firmware v0.3+. |
 
 The `class` and `carrier` fields together form the **identity tuple**
 used for OTA matching. The dashboard:
@@ -702,6 +702,7 @@ applies uniformly.
 | 2026-05-07 | 0.1.1 | §3.4 clarified: `charging` field reserved but unused in v0.1 (no on-board charger); always emitted as `false`. |
 | 2026-05-26 | 0.2 | Auto-sync + event marks: add rows 44 `r2.dash.capture.synced`, 45 `r2.dash.capture.event_mark`, 46 `r2.dash.capture.event_marked`, 47 `r2.dash.cmd.capture.event_mark`, with per-event detail sections §4.9–§4.12. |
 | 2026-05-28 | 0.3 | Heterogeneous-fleet identity: `r2.sensor.announce` payload extended with key 11 `class` (reverse-DNS) and key 12 `carrier` (board slug) — together the OTA-matching tuple. Required from firmware v0.3+. |
+| 2026-05-31 | 0.3.1 | Heterogeneous-SoC support: §3.1 row 12 carrier enumeration clarified as an **open** set mirroring `firmware/<soc-family>/<carrier>/`; examples extended with `"dfr1117"` (ESP32-C6 / RISC-V) alongside the S3 carriers. On-the-wire payload unchanged — the strings were already valid; the spec text catches up to the bench-deployed C6 carrier. SENSOR §1 and DASHBOARD §13.3 updated in tandem to generalise the SoC family. |
 
 ## Appendix A — Event-name to FNV-1a-32 hashes
 

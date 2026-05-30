@@ -922,11 +922,15 @@ breaking the match.
    convention above, then fetches the sidecar for each survivor
    (or parses the filename when the sidecar is missing, for
    pre-v0.3 releases).
-2. **Local `firmware/esp32-s3/<carrier>/releases/` directory** — the
-   highest-mtime `.bin` whose `class-slug` matches the dashboard's
-   configured class. Used when the GitHub query fails (no internet,
-   repo private, rate-limit) so the operator is never stuck without
-   the dot working.
+2. **Local `firmware/<soc-family>/<carrier>/releases/` directories** —
+   the dashboard walks every `firmware/<soc-family>/<carrier>/releases/`
+   tree under the repo (as of 2026-05-31 those are `esp32-s3/devkitc`,
+   `esp32-s3/xiao`, and `esp32-c6/dfr1117`) and picks the highest-mtime
+   `.bin` per `(class-slug, carrier)` tuple. The sensor's announced
+   `carrier` (WIRE §3.1 row 12) selects which entry it's matched
+   against. Used when the GitHub query fails (no internet, repo
+   private, rate-limit) so the operator is never stuck without the
+   dot working.
 
 **Endpoint:**
 
