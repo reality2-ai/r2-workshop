@@ -6186,25 +6186,74 @@ async function requestUpdateAll() {
     picker.remove();
     if (!file) return;
 
-    // Filename convention: r2-workshop-firmware-<fw_ver>.bin. If it
-    // parses, skip any peer already on that version. Otherwise push
-    // to every peer.
-    const match = file.name.match(/^r2-workshop-firmware-(.+)\.bin$/);
-    const targetFwVer = match ? match[1] : null;
-    const targets = targetFwVer
-      ? cards.filter((c) => c.sensor?.fwVer !== targetFwVer)
-      : cards;
+    // Filename conventions:
+    //   v0.3+ spec: r2-workshop-firmware-<class-slug>-<carrier>-<version>.bin
+    //   legacy:     r2-workshop-firmware-<version>.bin
+    // The new form embeds the carrier slug so we can refuse to push
+    // a wrong-arch image to sensors of a different carrier; the
+    // legacy form has no carrier marker and we can only fall back to
+    // a loud "all sensors regardless of carrier" warning.
+    const KNOWN_CARRIERS = ['dfr1117', 'devkitc', 'xiao'];
+    const carrierRe = new RegExp('-(' + KNOWN_CARRIERS.join('|') + ')-');
+    const carrierMatch = file.name.match(carrierRe);
+    const fileCarrier = carrierMatch ? carrierMatch[1] : null;
+    // Version: trailing `-vX.Y.Z[.bin]` after the carrier in the new
+    // form, or the whole tail in legacy.
+    let targetFwVer = null;
+    const newVerRe = new RegExp('^r2-workshop-firmware-.+-(?:' + KNOWN_CARRIERS.join('|') + ')-(.+)\\.bin$');
+    const legacyVerRe = /^r2-workshop-firmware-(.+)\.bin$/;
+    const newMatch = file.name.match(newVerRe);
+    const legacyMatch = file.name.match(legacyVerRe);
+    if (newMatch)        targetFwVer = newMatch[1];
+    else if (legacyMatch) targetFwVer = legacyMatch[1];
+
+    // Filter targets:
+    //   carrier-stamped filename → only sensors with matching announced carrier;
+    //   sensors with no announced carrier (pre-v0.3 firmware) are skipped — we
+    //   can't verify safety. Operator falls back to the per-sensor button for those.
+    //   No carrier in filename → fall back to legacy "all peers" with a loud warning.
+    const wrongCarrier = [];
+    const noCarrier    = [];
+    const sameVersion  = [];
+    let targets;
+    if (fileCarrier) {
+      targets = cards.filter((c) => {
+        const sc = c.sensor?.carrier;
+        if (!sc)               { noCarrier.push(c);    return false; }
+        if (sc !== fileCarrier) { wrongCarrier.push(c); return false; }
+        if (targetFwVer && c.sensor?.fwVer === targetFwVer) { sameVersion.push(c); return false; }
+        return true;
+      });
+    } else {
+      // Legacy filename. Operator is asserting "single-carrier fleet".
+      targets = cards.filter((c) => {
+        if (targetFwVer && c.sensor?.fwVer === targetFwVer) { sameVersion.push(c); return false; }
+        return true;
+      });
+    }
 
     if (targets.length === 0) {
-      alert(`All ${cards.length} sensor(s) already on ${targetFwVer}.`);
+      let why = 'No sensors to push to:';
+      if (sameVersion.length)  why += `\n• ${sameVersion.length} already on ${targetFwVer || 'this version'}`;
+      if (wrongCarrier.length) why += `\n• ${wrongCarrier.length} on a different carrier than the file (file=${fileCarrier})`;
+      if (noCarrier.length)    why += `\n• ${noCarrier.length} on pre-v0.3 firmware (no announced carrier — use per-sensor button)`;
+      alert(why);
       return;
     }
-    const skipped = cards.length - targets.length;
-    const msg = targetFwVer
-      ? (skipped > 0
-          ? `Push ${targetFwVer} to ${targets.length} sensor(s)? (${skipped} already on this version)`
-          : `Push ${targetFwVer} to ${targets.length} sensor(s)?`)
-      : `Push this firmware to ${targets.length} sensor(s)? (filename doesn't carry a version stamp; pushing to every peer)`;
+
+    const verLabel = targetFwVer || '(unversioned firmware)';
+    let msg;
+    if (fileCarrier) {
+      msg = `Push ${verLabel} to ${targets.length} ${fileCarrier} sensor(s)?`;
+      if (sameVersion.length)  msg += `\n• ${sameVersion.length} already on this version`;
+      if (wrongCarrier.length) msg += `\n• ${wrongCarrier.length} skipped (different carrier)`;
+      if (noCarrier.length)    msg += `\n• ${noCarrier.length} skipped (pre-v0.3 firmware, no announced carrier)`;
+    } else {
+      msg = `⚠ This filename has no carrier slug — pushing the same .bin to ALL ${targets.length} connected sensor(s) regardless of carrier. ` +
+            `If your fleet is mixed-carrier, CANCEL and rename the file to the ` +
+            `r2-workshop-firmware-<class>-<carrier>-<version>.bin form so the puller can target safely.`;
+      if (sameVersion.length) msg += `\n(${sameVersion.length} already on ${targetFwVer} — skipped.)`;
+    }
     if (!confirm(msg)) return;
 
     await Promise.allSettled(targets.map((c) => c.updateFirmware(file)));
