@@ -277,6 +277,14 @@ fn ensemble_name() -> &'static str {
     ENSEMBLE_CLASS.rsplit('.').next().unwrap_or(ENSEMBLE_CLASS)
 }
 
+/// The class-slug used in firmware release filenames: the reverse-DNS class
+/// string with dots replaced by hyphens (`nz.ac.auckland.rocker` →
+/// `nz-ac-auckland-rocker`). Per SPEC-R2-WORKSHOP-DASHBOARD §13.3 this is the
+/// `<class-slug>` segment of `r2-workshop-firmware-<class-slug>-<carrier>-…`.
+fn class_slug() -> String {
+    ENSEMBLE_CLASS.replace('.', "-")
+}
+
 /// JSON for /api/version.
 #[derive(Serialize)]
 struct VersionInfo {
@@ -787,9 +795,18 @@ const GITHUB_OWNER_REPO: &str = "reality2-ai/r2-workshop";
 
 #[derive(Clone, serde::Serialize)]
 struct FirmwareAsset {
-    carrier: String,    // "devkitc" or "xiao"
+    /// Reverse-DNS class string the binary targets (sidecar-authoritative;
+    /// filename-parsed when the sidecar is absent). Always equal to the
+    /// dashboard's own `ENSEMBLE_CLASS` — foreign-class assets are filtered
+    /// out before they reach this list (SPEC-R2-WORKSHOP-DASHBOARD §13.3).
+    class: String,
+    carrier: String,    // "devkitc", "xiao", "dfr1117", …
     version: String,    // exact fw_ver string baked in the .bin
     url: String,        // proxy URL the webapp fetches from (/api/firmware/...)
+    /// SHA-256 hex of the `.bin`, lifted from the meta sidecar. `None` for
+    /// pre-v0.3 releases that shipped no sidecar. Feeds the (future) signed-
+    /// OTA verify path (Phase 9-secure).
+    sha256: Option<String>,
     size: Option<u64>,
 }
 
@@ -798,6 +815,9 @@ struct FirmwareAvailable {
     /// "github" if the GitHub query succeeded; "local" if only the
     /// on-disk releases directory had hits; "none" if neither.
     source: String,
+    /// The dashboard's own configured class — every asset is matched to
+    /// (this class, carrier). Echoed so the webapp can show what it filtered to.
+    class: String,
     /// Common version string across the assets — typically the
     /// GitHub release tag, or the highest-mtime fw_ver in the local
     /// releases dir.
@@ -808,6 +828,46 @@ struct FirmwareAvailable {
     note: Option<String>,
     /// Unix-ms when this snapshot was taken, for cache age display.
     fetched_at_ms: u64,
+}
+
+/// Authoritative `(class, carrier, version, sha256)` tuple parsed from a
+/// firmware meta sidecar (`*.bin.meta.json`), per SPEC-R2-WORKSHOP-DASHBOARD
+/// §13.3. The sidecar wins over the filename on any disagreement.
+#[derive(Clone)]
+struct FirmwareMeta {
+    class: String,
+    carrier: String,
+    version: String,
+    sha256: Option<String>,
+}
+
+/// Parse the canonical release filename
+/// `r2-workshop-firmware-<class-slug>-<carrier>-<version>+<git>.bin` into
+/// `(class-slug, carrier, version)`. Returns `None` if the name doesn't fit
+/// the convention. The class-slug itself contains hyphens, so we anchor on
+/// *this dashboard's* slug as a known prefix — which doubles as the
+/// class filter (foreign-class binaries simply don't match).
+fn parse_release_filename(name: &str, slug: &str) -> Option<(String, String, String)> {
+    let stem = name.strip_suffix(".bin")?;
+    let prefix = format!("r2-workshop-firmware-{}-", slug);
+    let rest = stem.strip_prefix(&prefix)?; // "<carrier>-<version>+<git>"
+    let (carrier, ver_git) = rest.split_once('-')?;
+    if carrier.is_empty() { return None; }
+    // Drop the "+<git>" build-metadata suffix if present.
+    let version = ver_git.split('+').next().unwrap_or(ver_git);
+    if version.is_empty() { return None; }
+    Some((slug.to_string(), carrier.to_string(), version.to_string()))
+}
+
+/// Decode a meta-sidecar JSON body into a `FirmwareMeta`. Tolerant of the
+/// pre-v0.3 absence of `sha256`.
+fn parse_meta_json(body: &str) -> Option<FirmwareMeta> {
+    let v: serde_json::Value = serde_json::from_str(body).ok()?;
+    let class = v.get("class").and_then(|x| x.as_str())?.to_string();
+    let carrier = v.get("carrier").and_then(|x| x.as_str())?.to_string();
+    let version = v.get("version").and_then(|x| x.as_str())?.to_string();
+    let sha256 = v.get("sha256").and_then(|x| x.as_str()).map(|s| s.to_string());
+    Some(FirmwareMeta { class, carrier, version, sha256 })
 }
 
 #[tokio::main]
@@ -3390,6 +3450,7 @@ async fn build_firmware_snapshot(now_ms: u64) -> FirmwareAvailable {
         (None,    Some(_)) => false,
         (None, None) => return FirmwareAvailable {
             source: "none".to_string(),
+            class: ENSEMBLE_CLASS.to_string(),
             version: String::new(),
             assets: Vec::new(),
             note: Some("No firmware found on GitHub or in local releases/".to_string()),
@@ -3401,6 +3462,7 @@ async fn build_firmware_snapshot(now_ms: u64) -> FirmwareAvailable {
         let (assets, _, latest_version) = local.expect("checked above");
         FirmwareAvailable {
             source: "local".to_string(),
+            class: ENSEMBLE_CLASS.to_string(),
             version: latest_version,
             assets,
             note: github.as_ref().map(|(tag, _, _)| {
@@ -3412,6 +3474,7 @@ async fn build_firmware_snapshot(now_ms: u64) -> FirmwareAvailable {
         let (tag, _, assets) = github.expect("checked above");
         FirmwareAvailable {
             source: "github".to_string(),
+            class: ENSEMBLE_CLASS.to_string(),
             version: tag,
             assets,
             note: None,
@@ -3420,19 +3483,33 @@ async fn build_firmware_snapshot(now_ms: u64) -> FirmwareAvailable {
     }
 }
 
+/// `firmware/<soc-family>/<carrier>/releases/` trees the local fallback
+/// walks (SPEC-R2-WORKSHOP-DASHBOARD §13.3, source 2). One entry per known
+/// carrier; the carrier is fixed by the directory, not parsed from the file.
+const LOCAL_CARRIER_DIRS: &[(&str, &str)] = &[
+    ("esp32-s3", "devkitc"),
+    ("esp32-s3", "xiao"),
+    ("esp32-c6", "dfr1117"),
+];
+
 /// Pick the newest `.bin` per carrier under
-/// `firmware/esp32-s3/<carrier>/releases/`. Returns
-/// `(assets, max_mtime_unix_secs, version_string)` or `None` if
-/// neither carrier has any local builds.
+/// `firmware/<soc-family>/<carrier>/releases/`. The carrier comes from the
+/// directory; class + version + sha256 come from the `<bin>.meta.json`
+/// sidecar when present (authoritative, SPEC §13.3) and fall back to the
+/// dashboard's own class + a filename-parsed version otherwise (pre-v0.3
+/// local archives carry no sidecar). Foreign-class sidecars are skipped —
+/// the operator's dashboard never offers a foreign-class binary. Returns
+/// `(assets, max_mtime_unix_secs, version_string)` or `None` if no carrier
+/// has a local build.
 fn local_firmware_snapshot() -> Option<(Vec<FirmwareAsset>, i64, String)> {
     let mut assets = Vec::new();
     let mut latest_version = String::new();
     let mut max_mtime_secs: i64 = i64::MIN;
 
-    for carrier in &["devkitc", "xiao"] {
+    for (soc, carrier) in LOCAL_CARRIER_DIRS {
         let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()
-            .map(|p| p.join("firmware/esp32-s3").join(carrier).join("releases"));
+            .map(|p| p.join("firmware").join(soc).join(carrier).join("releases"));
         let Some(dir) = dir else { continue };
         if !dir.is_dir() { continue; }
 
@@ -3451,26 +3528,53 @@ fn local_firmware_snapshot() -> Option<(Vec<FirmwareAsset>, i64, String)> {
                 if pick { best = Some((mtime, path, size)); }
             }
         }
-        if let Some((mtime, path, size)) = best {
-            let fname = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
-            let version = fname
-                .strip_prefix("r2-workshop-firmware-")
-                .and_then(|s| s.strip_suffix(".bin"))
-                .unwrap_or(fname)
-                .to_string();
-            if version > latest_version { latest_version = version.clone(); }
-            let mtime_secs = mtime
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs() as i64)
-                .unwrap_or(0);
-            if mtime_secs > max_mtime_secs { max_mtime_secs = mtime_secs; }
-            assets.push(FirmwareAsset {
-                carrier: carrier.to_string(),
-                version,
-                url: path.to_string_lossy().into_owned(),
-                size: Some(size),
-            });
-        }
+        let Some((mtime, path, size)) = best else { continue };
+
+        // Sidecar is authoritative when present. Read it synchronously —
+        // it sits next to the .bin on local disk, so no network cost.
+        let sidecar = path.with_extension("bin.meta.json");
+        let meta = std::fs::read_to_string(&sidecar).ok()
+            .and_then(|s| parse_meta_json(&s));
+
+        let (class, carrier_out, version, sha256) = match meta {
+            Some(m) => {
+                // Skip foreign-class local archives outright.
+                if m.class != ENSEMBLE_CLASS { continue; }
+                if m.carrier != *carrier {
+                    eprintln!(
+                        "[firmware] WARN: sidecar {:?} declares carrier '{}' but lives in the '{}' dir — trusting sidecar",
+                        sidecar, m.carrier, carrier
+                    );
+                }
+                (m.class, m.carrier, m.version, m.sha256)
+            }
+            None => {
+                // No sidecar (pre-v0.3 archive). Carrier = directory;
+                // class = ours; version best-effort from the filename.
+                let fname = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+                let version = fname
+                    .strip_prefix("r2-workshop-firmware-")
+                    .and_then(|s| s.strip_suffix(".bin"))
+                    .unwrap_or(fname)
+                    .to_string();
+                (ENSEMBLE_CLASS.to_string(), carrier.to_string(), version, None)
+            }
+        };
+
+        if version > latest_version { latest_version = version.clone(); }
+        let mtime_secs = mtime
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        if mtime_secs > max_mtime_secs { max_mtime_secs = mtime_secs; }
+        assets.push(FirmwareAsset {
+            class,
+            carrier: carrier_out,
+            version,
+            url: path.to_string_lossy().into_owned(),
+            sha256,
+            size: Some(size),
+        });
     }
 
     if assets.is_empty() { None } else { Some((assets, max_mtime_secs, latest_version)) }
@@ -3478,25 +3582,20 @@ fn local_firmware_snapshot() -> Option<(Vec<FirmwareAsset>, i64, String)> {
 
 /// Query GitHub Releases. Returns `(tag, published_at_unix_secs,
 /// assets)` or `None` if the request failed / the latest release has
-/// no matching `.bin` assets.
+/// no `.bin` assets matching this dashboard's (class, carrier).
+///
+/// #90: matching is driven by the canonical release filename
+/// (`r2-workshop-firmware-<class-slug>-<carrier>-<version>+<git>.bin`,
+/// anchored on *our* class-slug so foreign-class assets fall away) and
+/// then the `.bin.meta.json` sidecar, which is authoritative for
+/// (class, carrier, version, sha256). Replaces the old hardcoded
+/// `name.contains("devkitc"|"xiao"|"dfr1117")` substring matcher.
 async fn github_firmware_snapshot() -> Option<(String, i64, Vec<FirmwareAsset>)> {
     let gh_url = format!(
         "https://api.github.com/repos/{}/releases/latest",
         GITHUB_OWNER_REPO,
     );
-    let output = tokio::process::Command::new("curl")
-        .args([
-            "-sS",
-            "--max-time", "5",
-            "-H", "Accept: application/vnd.github+json",
-            "-H", "User-Agent: r2-workshop-dashboard",
-            &gh_url,
-        ])
-        .output()
-        .await
-        .ok()?;
-    if !output.status.success() { return None; }
-    let body = String::from_utf8(output.stdout).ok()?;
+    let body = fetch_url_text(&gh_url, 5).await?;
     let json: serde_json::Value = serde_json::from_str(&body).ok()?;
     let tag = json.get("tag_name").and_then(|v| v.as_str())?.to_string();
     let published_secs = json
@@ -3505,40 +3604,96 @@ async fn github_firmware_snapshot() -> Option<(String, i64, Vec<FirmwareAsset>)>
         .and_then(iso_to_unix_secs)
         .unwrap_or(0);
 
-    let mut assets = Vec::new();
-    if let Some(arr) = json.get("assets").and_then(|v| v.as_array()) {
-        for a in arr {
-            let name = a.get("name").and_then(|v| v.as_str()).unwrap_or("");
-            let url = a.get("browser_download_url").and_then(|v| v.as_str()).unwrap_or("");
-            let size = a.get("size").and_then(|v| v.as_u64());
-            if !name.ends_with(".bin") { continue; }
-            // Match the carrier slug in the asset filename. Order
-            // matters: try the longest/most-specific slug first so
-            // a future "xiao-plus" doesn't get swallowed by the
-            // generic "xiao" substring (today's slugs are
-            // sufficiently distinct, but the pattern keeps us
-            // honest). The proper #90 implementation will drive
-            // this off the meta sidecar's `carrier` field instead
-            // of substring matching.
-            let carrier = if name.contains("devkitc") {
-                "devkitc"
-            } else if name.contains("dfr1117") {
-                "dfr1117"
-            } else if name.contains("xiao") {
-                "xiao"
-            } else {
-                continue;
-            };
-            assets.push(FirmwareAsset {
-                carrier: carrier.to_string(),
-                version: tag.clone(),
-                url: url.to_string(),
-                size,
-            });
+    let arr = json.get("assets").and_then(|v| v.as_array())?;
+    let slug = class_slug();
+
+    // First pass: index every sidecar asset by its filename so each
+    // surviving .bin can find its `<name>.meta.json` partner in O(1).
+    let mut sidecar_urls: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
+    for a in arr {
+        let name = a.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        if name.ends_with(".bin.meta.json") {
+            if let Some(url) = a.get("browser_download_url").and_then(|v| v.as_str()) {
+                sidecar_urls.insert(name, url);
+            }
         }
+    }
+
+    // Second pass: each .bin whose filename matches our class-slug + the
+    // canonical convention. Foreign-class binaries don't match the prefix,
+    // so they're filtered out exactly as §13.3 requires.
+    let mut assets = Vec::new();
+    for a in arr {
+        let name = a.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        let url = a.get("browser_download_url").and_then(|v| v.as_str()).unwrap_or("");
+        let size = a.get("size").and_then(|v| v.as_u64());
+        if !name.ends_with(".bin") { continue; }
+
+        let Some((_, fn_carrier, fn_version)) = parse_release_filename(name, &slug) else {
+            continue; // non-canonical or foreign-class → not auto-surfaced
+        };
+
+        // Sidecar is authoritative. Fetch `<name>.meta.json` if the release
+        // shipped one; fall back to the filename parse for pre-v0.3 tags.
+        let sidecar_name = format!("{}.meta.json", name);
+        let meta = if let Some(murl) = sidecar_urls.get(sidecar_name.as_str()) {
+            fetch_url_text(murl, 5).await.and_then(|b| parse_meta_json(&b))
+        } else {
+            None
+        };
+
+        let (class, carrier, version, sha256) = match meta {
+            Some(m) => {
+                if m.class != ENSEMBLE_CLASS {
+                    // A sidecar that disagrees with its own filename's
+                    // class-slug. Trust the JSON and drop it — it isn't ours.
+                    eprintln!(
+                        "[firmware] WARN: GitHub asset {} sidecar declares class '{}' ≠ ours '{}' — skipping",
+                        name, m.class, ENSEMBLE_CLASS
+                    );
+                    continue;
+                }
+                if m.carrier != fn_carrier {
+                    eprintln!(
+                        "[firmware] WARN: GitHub asset {} filename carrier '{}' ≠ sidecar '{}' — trusting sidecar",
+                        name, fn_carrier, m.carrier
+                    );
+                }
+                (m.class, m.carrier, m.version, m.sha256)
+            }
+            None => (ENSEMBLE_CLASS.to_string(), fn_carrier, fn_version, None),
+        };
+
+        assets.push(FirmwareAsset {
+            class,
+            carrier,
+            version,
+            url: url.to_string(),
+            sha256,
+            size,
+        });
     }
     if assets.is_empty() { return None; }
     Some((tag, published_secs, assets))
+}
+
+/// `curl -sS` a URL and return the body as a String, or `None` on any
+/// transport/HTTP failure. Shared by the release-list query and the
+/// per-asset sidecar fetches.
+async fn fetch_url_text(url: &str, max_time_secs: u32) -> Option<String> {
+    let output = tokio::process::Command::new("curl")
+        .args([
+            "-sSL",
+            "--max-time", &max_time_secs.to_string(),
+            "-H", "Accept: application/vnd.github+json",
+            "-H", "User-Agent: r2-workshop-dashboard",
+            url,
+        ])
+        .output()
+        .await
+        .ok()?;
+    if !output.status.success() { return None; }
+    String::from_utf8(output.stdout).ok()
 }
 
 /// Tiny ISO-8601 ("2026-05-18T07:36:42Z") → unix seconds parser.
@@ -3567,13 +3722,91 @@ fn iso_to_unix_secs(s: &str) -> Option<i64> {
 
 #[cfg(test)]
 mod firmware_snapshot_tests {
-    use super::iso_to_unix_secs;
+    use super::{iso_to_unix_secs, parse_release_filename, parse_meta_json};
     #[test]
     fn iso_epoch() { assert_eq!(iso_to_unix_secs("1970-01-01T00:00:00Z"), Some(0)); }
     #[test]
     fn iso_known() {
-        // 2026-05-18T07:36:42Z = 1779435402
-        assert_eq!(iso_to_unix_secs("2026-05-18T07:36:42Z"), Some(1779435402));
+        // 2026-05-18T07:36:42Z = 1779089802 (verified via `date -u -d`).
+        // The previous constant (1779435402) was 2026-05-22 — a stale
+        // off-by-4-days value that failed the suite.
+        assert_eq!(iso_to_unix_secs("2026-05-18T07:36:42Z"), Some(1779089802));
+    }
+
+    const SLUG: &str = "nz-ac-auckland-rocker";
+
+    #[test]
+    fn filename_canonical_release() {
+        // The exact shape of the v0.3.0 GitHub asset names.
+        let got = parse_release_filename(
+            "r2-workshop-firmware-nz-ac-auckland-rocker-devkitc-v0.3.0.bin", SLUG);
+        assert_eq!(got, Some((SLUG.to_string(), "devkitc".to_string(), "v0.3.0".to_string())));
+    }
+
+    #[test]
+    fn filename_strips_git_build_metadata() {
+        // Dev-build name: <version>+<git>; the "+sha" suffix is dropped.
+        let got = parse_release_filename(
+            "r2-workshop-firmware-nz-ac-auckland-rocker-dfr1117-0.3.0+abc1234.bin", SLUG);
+        assert_eq!(got, Some((SLUG.to_string(), "dfr1117".to_string(), "0.3.0".to_string())));
+    }
+
+    #[test]
+    fn filename_class_anchor_rejects_foreign_class() {
+        // A different class-slug must NOT match our dashboard's slug —
+        // this is the (class)-filter half of the §13.3 match rule.
+        let got = parse_release_filename(
+            "r2-workshop-firmware-com-example-other-devkitc-v0.3.0.bin", SLUG);
+        assert_eq!(got, None);
+    }
+
+    #[test]
+    fn filename_rejects_non_canonical() {
+        // Pre-v0.3 local archive name (no class/carrier segment) and a
+        // plain non-matching string both fail the canonical parse.
+        assert_eq!(parse_release_filename("r2-workshop-firmware-0.3.0.bin", SLUG), None);
+        assert_eq!(parse_release_filename("not-our-asset.bin", SLUG), None);
+        assert_eq!(parse_release_filename(
+            "r2-workshop-firmware-nz-ac-auckland-rocker-devkitc-v0.3.0.bin.meta.json", SLUG), None);
+    }
+
+    #[test]
+    fn filename_carrier_may_contain_hyphen_suffix_version() {
+        // carrier is the first token after the slug; everything after the
+        // next '-' is the version (which itself carries dots, not hyphens).
+        let got = parse_release_filename(
+            "r2-workshop-firmware-nz-ac-auckland-rocker-xiao-v1.2.3.bin", SLUG);
+        assert_eq!(got, Some((SLUG.to_string(), "xiao".to_string(), "v1.2.3".to_string())));
+    }
+
+    #[test]
+    fn meta_full_tuple() {
+        let m = parse_meta_json(r#"{
+            "class": "nz.ac.auckland.rocker", "carrier": "xiao",
+            "version": "0.3.0", "git": "a1b2c3d",
+            "sha256": "deadbeef", "built": "2026-05-28T07:00:00Z"
+        }"#).expect("parses");
+        assert_eq!(m.class, "nz.ac.auckland.rocker");
+        assert_eq!(m.carrier, "xiao");
+        assert_eq!(m.version, "0.3.0");
+        assert_eq!(m.sha256.as_deref(), Some("deadbeef"));
+    }
+
+    #[test]
+    fn meta_tolerates_missing_sha256() {
+        // Pre-v0.3 sidecars (if any) may omit sha256 — parse must survive.
+        let m = parse_meta_json(
+            r#"{"class":"nz.ac.auckland.rocker","carrier":"devkitc","version":"0.2.9"}"#)
+            .expect("parses");
+        assert_eq!(m.sha256, None);
+        assert_eq!(m.carrier, "devkitc");
+    }
+
+    #[test]
+    fn meta_rejects_incomplete() {
+        // Missing a required key → None (caller falls back to filename parse).
+        assert!(parse_meta_json(r#"{"class":"x","carrier":"y"}"#).is_none());
+        assert!(parse_meta_json("not json").is_none());
     }
 }
 

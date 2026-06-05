@@ -130,11 +130,14 @@ if [[ ! -s "${CLASS_FILE}" ]]; then
     echo "$KEYGEN_HINT" >&2
     exit 1
 fi
+# Reverse-DNS class string — read once here so it's available both for the
+# demo-class warning below and the meta sidecar emitted after the build
+# (SPEC-R2-WORKSHOP-DASHBOARD §13.3).
+CLASS_STRING=$(tr -d '\n' < "${CLASS_FILE}")
 if [[ -s "${CLASS_DEMO_HASH_FILE}" ]]; then
     CLASS_DEMO_HASH=$(cat "${CLASS_DEMO_HASH_FILE}")
     CLASS_ACTUAL_HASH=$(sha256sum "${CLASS_FILE}" | awk '{print $1}')
     if [[ "${CLASS_ACTUAL_HASH}" == "${CLASS_DEMO_HASH}" ]]; then
-        CLASS_STRING=$(tr -d '\n' < "${CLASS_FILE}")
         echo "WARNING: trust_keys/sensor_class.txt matches the upstream demo class SHA." >&2
         echo "         Class: ${CLASS_STRING}" >&2
         echo "         Sensors built from this firmware will be BLE-discoverable by any" >&2
@@ -194,9 +197,31 @@ mkdir -p "${REL_DIR}"
 ARCHIVE="${REL_DIR}/r2-workshop-firmware-${FW_VER}.bin"
 cp "${BIN}" "${ARCHIVE}"
 
+# Meta sidecar (SPEC-R2-WORKSHOP-DASHBOARD §13.3) — authoritative
+# (class, carrier, version, sha256) tuple the dashboard's local-fallback
+# scanner reads to match a sensor's announce to this build. We keep the
+# timestamped local filename (so repeated dev builds at the same semver
+# don't clobber each other) and let the sidecar carry the canonical tuple.
+SHA256=$(sha256sum "${ARCHIVE}" | awk '{print $1}')
+BUILT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+META="${ARCHIVE}.meta.json"
+cat > "${META}" <<EOF
+{
+  "class":   "${CLASS_STRING}",
+  "carrier": "${CARRIER}",
+  "version": "${FW_VER}",
+  "git":     "${SHA}",
+  "sha256":  "${SHA256}",
+  "built":   "${BUILT}"
+}
+EOF
+
 echo
 echo "OTA-ready image (use this with /api/ota/{addr}):"
 ls -la "${BIN}"
 echo
 echo "Versioned archive copy (git add to record the release):"
 ls -la "${ARCHIVE}"
+echo
+echo "Meta sidecar (git add alongside the .bin):"
+ls -la "${META}"

@@ -926,11 +926,25 @@ breaking the match.
    the dashboard walks every `firmware/<soc-family>/<carrier>/releases/`
    tree under the repo (as of 2026-05-31 those are `esp32-s3/devkitc`,
    `esp32-s3/xiao`, and `esp32-c6/dfr1117`) and picks the highest-mtime
-   `.bin` per `(class-slug, carrier)` tuple. The sensor's announced
-   `carrier` (WIRE §3.1 row 12) selects which entry it's matched
-   against. Used when the GitHub query fails (no internet, repo
-   private, rate-limit) so the operator is never stuck without the
-   dot working.
+   `.bin` per `(class-slug, carrier)` tuple. The **carrier comes from
+   the directory** (not the filename); **class + version + sha256 come
+   from the `<bin>.meta.json` sidecar** when present (authoritative),
+   falling back to the dashboard's own class + a filename-parsed version
+   for pre-v0.3 archives that shipped no sidecar. A sidecar whose `class`
+   is foreign is skipped. The sensor's announced `carrier` (WIRE §3.1
+   row 12) selects which entry it's matched against. Used when the
+   GitHub query fails (no internet, repo private, rate-limit) so the
+   operator is never stuck without the dot working.
+
+   > **Local filename note.** Unlike GitHub release assets, the local
+   > archive keeps the timestamped dev-build name
+   > (`r2-workshop-firmware-<fw_ver>.bin`, where `fw_ver` embeds a build
+   > timestamp) rather than the canonical `<class-slug>-<carrier>`
+   > filename — so repeated dev builds at the same semver don't clobber
+   > each other. The sidecar carries the authoritative `(class, carrier,
+   > version, sha256)` tuple, so matching never depends on the local
+   > filename. `tools/build-firmware.sh` emits the sidecar alongside
+   > each archive.
 
 **Endpoint:**
 
