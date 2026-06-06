@@ -50,6 +50,10 @@ build/
 # GitHub Releases, not the repo.
 firmware/**/releases/
 
+# Server release bundles built by tools/build-server.sh — large
+# per-arch tarballs, distribution is via GitHub Releases, not the repo.
+/dist/
+
 # ESP-IDF / esp-idf-svc generated
 sdkconfig
 sdkconfig.old

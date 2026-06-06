@@ -1058,9 +1058,79 @@ adjacent metadata block the build pipeline writes; see SENSOR §12);
 sensor refuses to write the partition on carrier mismatch and emits
 `r2.sensor.event.log {code: OTA_CARRIER_MISMATCH}`.
 
----
+### 13.5 Server bundle distribution (Hive + webapp)
 
-## 14. Configuration
+> **Not an OTA path.** Firmware updates push wirelessly to sensors
+> (§13.1–§13.4); the controller Hive itself is installed/updated by an
+> operator on the controller host. This section defines how that
+> server artefact is built and published, reusing the §13.3 release-asset
+> + meta-sidecar convention so the two distribution streams stay
+> symmetric.
+
+The controller is published as a self-contained per-architecture
+tarball alongside the firmware assets on the same GitHub Release. Of
+the three things that compile (the WASM hive `crates/r2-wasm`, the
+firmware, and the core Hive `r2-dashboard`), only the **core Hive
+binary is architecture-specific**. The **WASM hive + webapp are
+architecture-independent** — built once and dropped into every bundle.
+
+**Bundle filename convention** (mirrors §13.3):
+
+```
+r2-workshop-server-<class-slug>-<version>-linux-<arch>.tar.gz
+```
+
+* `<class-slug>` — reverse-DNS class with dots → hyphens, as §13.3.
+* `<version>` — the release tag (e.g. `v0.3.0`); the binary's baked
+  `DASHBOARD_VERSION` (= `CARGO_PKG_VERSION+<git>`) MUST come from a
+  clean, tagged checkout so it has no `-dirty` suffix.
+* `<arch>` — `uname -m` of the target: `x86_64` (Intel/AMD) or
+  `aarch64` (ARM, e.g. Raspberry Pi). Both run 64-bit Linux.
+
+**Bundle contents** (extract-and-run, no system install required):
+
+```
+r2-dashboard                 # core Hive binary for <arch>
+webapp/                      # static UI + webapp/pkg/ WASM hive (arch-independent)
+tools/start-server.sh        # one-command launcher (build step skipped — binary present)
+tools/install-launcher.sh    # optional desktop icon + `r2-workshop` PATH command
+RUN.md                       # extract → ./tools/start-server.sh → http://localhost:21042/
+```
+
+Each tarball ships a **meta sidecar**
+`r2-workshop-server-<class-slug>-<version>-linux-<arch>.tar.gz.meta.json`:
+
+```json
+{
+  "class":   "nz.ac.auckland.rocker",
+  "kind":    "server",
+  "arch":    "aarch64",
+  "version": "0.3.0",
+  "git":     "a1b2c3d",
+  "sha256":  "<hex of the .tar.gz>",
+  "built":   "2026-06-07T00:00:00Z"
+}
+```
+
+As in §13.3 the sidecar is authoritative over the filename.
+
+**Build (`tools/build-server.sh`):**
+
+1. Build the WASM hive once on the build host:
+   `wasm-pack build crates/r2-wasm --target web --release --out-dir webapp/pkg`.
+2. Build `r2-dashboard --release` for **x86_64** natively on the build host.
+3. Build `r2-dashboard --release` for **aarch64** natively on a real
+   ARM host (the project uses a Raspberry Pi 5 over Tailscale SSH) from
+   a **clean `git` checkout of the release tag** — not a cross-compile —
+   to avoid the `openssl` (native-tls) cross-toolchain burden and to
+   keep the version string clean. The binary is copied back to the
+   build host for packaging.
+4. Assemble the per-arch tarball + sidecar above.
+
+Native-on-target (rather than cross-compilation) is the chosen
+mechanism while the Hive links `openssl` via `tokio-tungstenite`'s
+`native-tls` feature; should that move to `rustls`, static
+`*-musl` cross-builds become viable and MAY replace the remote build.
 
 ### 14.1 CLI / config file
 
@@ -1215,3 +1285,4 @@ implementing `SPEC-R2-WORKSHOP-WIRE`):
 | 2026-05-26 | 0.2 | §5.1 adds `/api/data/local/list`, `/api/data/local/file/{name}`, and folds in `/api/data/zip` (now sources from controller-local store). §15.6 + §15.7 add capture auto-sync + event-mark acceptance tests per SPEC-R2-WORKSHOP-CAPTURE §7.4 + §7.5. |
 | 2026-05-28 | 0.3 | Heterogeneous-fleet OTA: §13.3 rewritten to filter `/api/firmware/available` by `(class, carrier)` against the dashboard's own class. New §13.4 specifies the manual OTA validation gate (class-mismatch → yellow warn; carrier-mismatch → red double-confirm). §15.8 adds the matching acceptance tests. Sensor-side fail-safe documented in §13.4 (last paragraph) — cross-ref into SENSOR §12 OTA. |
 | 2026-05-28 | 0.3.1 | §1 introduction reframed: the dashboard is the r2-workshop ensemble's controller hive — hosting the dashboard-side sentants per SPEC-R2-WORKSHOP-SENTANTS §4 + the R2-WEB plugin registration that delivers the operator UI. Cross-references the new SPEC-R2-WORKSHOP-ENSEMBLE. |
+| 2026-06-07 | 0.3.2 | New §13.5 specifies the **server bundle distribution** convention — per-arch (`x86_64`, `aarch64`) `r2-workshop-server-<class>-<version>-linux-<arch>.tar.gz` tarballs (core Hive binary + arch-independent webapp/WASM hive) + meta sidecars, published alongside firmware on the same GitHub Release. Built by `tools/build-server.sh` (native x86_64 + native aarch64 on a Pi over SSH, from a clean tagged checkout; not cross-compiled while the Hive links openssl). |

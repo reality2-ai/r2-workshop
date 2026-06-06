@@ -18,7 +18,15 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PORT=21042
 URL="http://localhost:${PORT}/"
-BIN="${REPO_ROOT}/target/release/r2-dashboard"
+
+# Locate the dashboard binary. Two layouts are supported with one script:
+#   • released bundle  → r2-dashboard sits next to webapp/ at the root
+#   • dev checkout     → built into target/release/ by cargo
+if [ -x "${REPO_ROOT}/r2-dashboard" ]; then
+    BIN="${REPO_ROOT}/r2-dashboard"
+else
+    BIN="${REPO_ROOT}/target/release/r2-dashboard"
+fi
 
 REBUILD=0
 OPEN=1
@@ -46,9 +54,17 @@ if port_is_up; then
 fi
 
 # Build the release binary if it's missing, or if --rebuild was asked for.
+# A released bundle already ships the binary; only a dev checkout builds.
 if [ "$REBUILD" = 1 ] || [ ! -x "$BIN" ]; then
+    if ! command -v cargo >/dev/null 2>&1; then
+        echo "ERROR: no r2-dashboard binary at ${BIN} and cargo is not installed." >&2
+        echo "       In a released bundle the binary ships alongside this script —" >&2
+        echo "       re-extract the tarball, or install Rust to build from source." >&2
+        exit 1
+    fi
     echo "Building r2-dashboard (release) — this can take a few minutes the first time…"
     ( cd "$REPO_ROOT" && cargo build --release -p r2-dashboard )
+    BIN="${REPO_ROOT}/target/release/r2-dashboard"
 fi
 
 # Open the browser once the port comes up, while the server holds the
