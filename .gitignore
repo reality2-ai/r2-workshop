@@ -83,3 +83,8 @@ Thumbs.db
 *.log
 scratch/
 tmp/
+
+# Local symlink to the sibling r2-specifications checkout, so the vendored
+# r2-core conformance tests (CARGO_MANIFEST_DIR/../../r2-specifications/...)
+# resolve. Layout-specific — not committed.
+/r2-specifications
