@@ -45,6 +45,11 @@ build/
 **/Cargo.lock.bak
 *.bin.bak
 
+# Locally stamped firmware copies written by tools/build-firmware.sh
+# "for posterity". Reproducible from a tagged tree; distribution is via
+# GitHub Releases, not the repo.
+firmware/**/releases/
+
 # ESP-IDF / esp-idf-svc generated
 sdkconfig
 sdkconfig.old
