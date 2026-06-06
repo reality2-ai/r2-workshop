@@ -187,7 +187,11 @@ signer host.
 On a fresh deployment site:
 
 1. Operator boots the dashboard host. The dashboard process auto-starts
-   via systemd (or is launched manually).
+   via systemd, or is launched manually — either by `cargo run --release
+   -p r2-dashboard`, or for non-developer operators via the one-command
+   launcher `tools/start-server.sh` (builds if needed, serves at :21042,
+   opens the browser; `tools/install-launcher.sh` adds a desktop icon and
+   an `r2-workshop` PATH command). All paths start the same binary.
 2. The dashboard binds the unified R2 port :21042 (HTTP + WS + raw
    R2-WIRE multiplexed via peek-based protocol detection per WIRE
    §13.5), brings up the WiFi hotspot, and becomes operational. State

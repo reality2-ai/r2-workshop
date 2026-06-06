@@ -387,6 +387,12 @@ cd ../../..
 #    root of the same HTTP port — no separate webapp server needed.
 cargo run --release -p r2-dashboard
 
+#    Or, for day-to-day use, the one-command launcher — it builds the
+#    binary if needed, starts the server, and opens the browser:
+./tools/start-server.sh
+#    Run once for a desktop icon + an `r2-workshop` command on the PATH:
+./tools/install-launcher.sh
+
 # 5. Open http://localhost:21042/ in your browser.
 # 6. Click "Connect Sensors" and watch the LEDs.
 ```
