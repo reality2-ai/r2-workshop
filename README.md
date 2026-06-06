@@ -46,10 +46,18 @@ classifier warning the operator before joint failure; v0.1+v0.2
 are the data-collection phase of that arc (see
 [`conversation/THEMES.md`](conversation/THEMES.md) §12).
 
-The hardware (ESP32-S3 + ADXL355 accelerometer + microSD + LiPo)
-and the R2-protocol stack are deliberately general — the sensors
-clip on, you point them at whatever you're measuring, and the
-dashboard records, displays, and exports. Other sensor types
+The hardware is deliberately general — the sensors clip on, you
+point them at whatever you're measuring, and the dashboard records,
+displays, and exports. Three carrier boards are supported as of
+v0.3.0:
+
+* **ESP32-S3-DevKitC-1** + ADXL355 accelerometer + microSD + LiPo —
+  the reference / current default (ADR-002).
+* **Seeed XIAO ESP32-S3** — smaller alternative S3 carrier (ADR-001).
+* **DFRobot Beetle ESP32-C6 (DFR1117)** — alternative **RISC-V**
+  carrier with a `lis2dh` I²C sensing plugin (ADR-003, v0.3.0).
+
+The R2-protocol stack is shared across all three. Other sensor types
 (temperature, pressure, strain) ride the same wire format with
 heterogeneous-fleet routing on the dashboard side (Phase 10).
 
@@ -193,8 +201,9 @@ cloud-app:
   diagram above is *only* used by the dashboard to surface "new
   firmware available" and pull binaries on demand; when the
   controller is offline it falls back to firmware in
-  `firmware/esp32-s3/<carrier>/releases/` on its local disk and
-  the rig keeps running.
+  `firmware/<soc-family>/<carrier>/releases/` on its local disk
+  (e.g. `firmware/esp32-s3/devkitc/releases/`,
+  `firmware/esp32-c6/dfr1117/releases/`) and the rig keeps running.
 
 ## What it looks like
 
@@ -268,6 +277,12 @@ read-only subset of the controller's surface:
 ---
 
 ## Reference hardware
+
+The full carrier index — including the two S3 alternatives and the
+DFR1117 / ESP32-C6 — lives in
+[`specifications/HARDWARE-WIRING.md`](specifications/HARDWARE-WIRING.md).
+The list below is the **reference DevKitC build** (ADR-002). Adjust
+per the wiring document of your chosen carrier.
 
 You need:
 
@@ -353,9 +368,11 @@ After the first-time setup, normal use is:
 #    credentials are reused.
 ./tools/setup-hotspot.sh
 
-# 2. Build the firmware for your carrier (devkitc or xiao — defaults
-#    to devkitc). Produces TWO files: one for cabled flashing, one
-#    archived under firmware/esp32-s3/<carrier>/releases/ for posterity.
+# 2. Build the firmware for your carrier — devkitc, xiao, or dfr1117
+#    (defaults to devkitc). The script is carrier-aware: devkitc/xiao
+#    build for ESP32-S3 (xtensa), dfr1117 for ESP32-C6 (RISC-V).
+#    Produces two files: one for cabled flashing, one archived under
+#    firmware/<soc-family>/<carrier>/releases/ for posterity.
 ./tools/build-firmware.sh devkitc
 
 # 3. Flash a fresh sensor over USB. The DevKitC's USB-OTG port shows
@@ -409,17 +426,26 @@ cable again:
 
 In the dashboard, switch to the **Devices** tab, click *Update
 Firmware* on the sensor's card, and pick the new `.bin` file
-(`firmware/esp32-s3/devkitc/target/xtensa-esp32s3-espidf/release/r2-workshop-firmware.bin`).
+(`firmware/<soc-family>/<carrier>/target/<rust-target>/release/r2-workshop-firmware.bin`).
 The sensor receives the image, checks its integrity, writes the
 inactive partition, reboots into the new firmware, and rejoins.
 Takes about 15 seconds.
 
 To update every sensor at once, click **Update All Firmware…** at
-the top of the Devices view and pick the same `.bin`. Sensors
-already running that build (matched by the filename's `fw_ver`
-stamp) are skipped; the rest get the push in parallel. The
-companion **Reset All Sensors** button does the same fan-out
-for a fleet reboot.
+the top of the Devices view and pick a `.bin`. Since v0.3.0 the
+puller is **carrier-aware**: it parses the carrier slug out of the
+filename (the spec convention
+`r2-workshop-firmware-<class>-<carrier>-<version>.bin`) and pushes
+the image only to sensors whose announced `carrier` matches —
+refusing to send a wrong-arch image to a different-carrier sensor.
+Sensors already running that build (matched by `fw_ver`) are
+skipped, as are sensors on pre-v0.3 firmware that don't yet announce
+a `carrier` (use the per-sensor button for those). The companion
+**Update Outdated from Latest** button (which pulls from a GitHub
+Release rather than a local file) does the same per-carrier grouping
+automatically.
+
+The **Reset All Sensors** button does a fleet-wide reboot fan-out.
 
 If the new firmware is broken — can't join WiFi, or can't reach the
 dashboard — the bootloader notices on the next boot and rolls back
@@ -427,9 +453,9 @@ to the previous version automatically. So you can't accidentally
 brick a sensor over the air.
 
 Every wireless-update build is also archived under
-`firmware/esp32-s3/<carrier>/releases/` with the version string in
-the filename, so you can always find the exact bytes a given sensor
-is running.
+`firmware/<soc-family>/<carrier>/releases/` with the version string
+in the filename, so you can always find the exact bytes a given
+sensor is running.
 
 ## Building a new firmware version by hand
 
@@ -689,7 +715,8 @@ r2-workshop/
 ├─ Cargo.toml                ← workspace root (the dashboard, tools, and protocol crates)
 ├─ crates/                   ← protocol building blocks (compact frames, CBOR, crypto)
 ├─ dashboard/                ← the controller's web server (Rust)
-├─ firmware/esp32-s3/        ← sensor firmware (Rust on Xtensa)
+├─ firmware/esp32-s3/        ← S3 sensor firmware (Rust on Xtensa: devkitc, xiao)
+├─ firmware/esp32-c6/        ← C6 sensor firmware (Rust on RISC-V: dfr1117)
 ├─ webapp/              ← the web app (HTML + JS + WASM bundle)
 ├─ tools/                    ← scripts and CLIs (build, flash, key generation, setup)
 ├─ trust_keys/               ← public keys + cert (PRIVATE KEY NEVER LIVES HERE)
@@ -720,9 +747,9 @@ What's left before the rig is "production-ready":
 - Onsite long-term data archive.
 - Remote-viewing rollout — the spec is written, implementation is
   staged across several incremental milestones.
-- Real battery telemetry on every sensor (firmware ready; needs the
-  100 nF bypass cap fitted across the voltage divider, see
-  `specifications/HARDWARE-WIRING-DEVKITC.md` §4.2).
+- Real battery telemetry on every sensor (now wired and verified on
+  the DevKitC and DFR1117 carriers; the XIAO has no battery-sense
+  divider allocated yet and runs `BatterySim`).
 
 `plan/PLAN.md` has the full roadmap with current status against each
 milestone.

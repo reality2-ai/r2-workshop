@@ -443,7 +443,72 @@ Canonical record: project memory above, SPEC-R2-WORKSHOP-TIMESYNC.md.
 
 ---
 
-## 13. Theme: open questions carried
+## 13. Theme: heterogeneous-fleet identity (the v0.3 arc)
+
+Through v0.1 + v0.2 the fleet was implicitly homogeneous: all S3,
+all the same firmware, OTA was a single filename matched by version
+string and pushed to everything outdated. The 2026-05-29 → 31 arc
+broke that assumption deliberately by adding the **DFRobot Beetle
+ESP32-C6 (DFR1117)** as a third carrier — RISC-V, on-board LiPo
+charge, mono-LED, and a different accelerometer chip (LIS2DH /
+SEN0224 / Gravity I²C instead of the ADXL355 SPI). The protocol
+stack didn't need to change to support it; **every assumption above
+the wire that pretended the fleet was one carrier did.**
+
+The arc reshaped four surfaces:
+
+* **Announce identity tuple (WIRE §3.1 keys 11/12/13).** Every
+  sensor now emits `class`, `carrier`, and an authoritative
+  `sd_mounted` in `r2.sensor.announce`. The dashboard parses + the
+  webapp surfaces all three as rows on each device card. The
+  `sd_mounted` field in particular replaces a previously optimistic
+  "infer SD presence from whether the data-list call returned 200"
+  heuristic that lied for fresh-boot sensors with no SD wired.
+* **Sensor-as-plugin made concrete.** The `lis2dh` driver
+  (`firmware/esp32-c6/dfr1117/src/lis2dh.rs`) is the first time a
+  different chip on a different bus stands in behind the same
+  `read_xyz_lsb()` contract — sender + sim-fallback path unchanged.
+  What SPEC-R2-WORKSHOP-SENTANTS describes as the plugin model, now
+  shown to work.
+* **Matched OTA per (class, carrier).** The dashboard's GitHub-asset
+  matcher + local-fallback scanner gained a `dfr1117` slug; the
+  webapp's bulk "Update All from latest" and "Update All Firmware"
+  (file picker) both group sensors by their announced carrier and
+  push only the matching `.bin`. The pre-fix behaviour — push the
+  devkitc image to *every* outdated sensor regardless of carrier —
+  was saved on the bench only by the on-device OTA rollback gate
+  catching the wrong-arch boot.
+* **Build pipeline carrier-aware.** `tools/build-firmware.sh
+  <carrier>` dispatches on the carrier slug for target triple, MCU
+  id, and partition table. `build.rs::stamp_sensor_carrier()` bakes
+  the slug into the binary so it surfaces in the announce without a
+  runtime config.
+
+**Released as v0.3.0** (2026-05-31, first tagged release of the
+firmware tree). GitHub Release carries three `.bin`s + three
+`.meta.json` sidecars named per the spec convention
+`r2-workshop-firmware-<class>-<carrier>-vX.Y.Z.bin`.
+
+**The "no guessing" feedback rule came out of this arc.** Asked
+"what pad is each silk label on?" I extrapolated from the DFR1117
+schematic netlist and presented a confident pad-by-pad map that
+turned out wrong against the actual board. The user's correction
+("you MUSTN'T guess stuff like this") is now a permanent feedback
+memory — for any physically-consequential question (pinout, wiring,
+register address), state only what's verified and ask if uncertain.
+The fix was to read the authoritative `dfrobot_beetle_esp32c6`
+Arduino variant under `espressif/arduino-esp32` for the
+label→GPIO map, and to wire **by the printed silk label** rather
+than by physical position.
+
+Canonical record: `specifications/decisions/ADR-003-c6-carrier.md`;
+SPEC-R2-WORKSHOP-WIRE v0.3.1 + v0.3.2 change-log; memory entries
+`feedback_no_guessing`, `reference_dfr1117_carrier`,
+`project_r2_ensemble_alignment`.
+
+---
+
+## 14. Theme: open questions carried
 
 These don't have a resolution yet, deliberately. They're stored
 as theme entries rather than open decisions because the rig

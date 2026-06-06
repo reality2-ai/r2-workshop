@@ -125,8 +125,19 @@ became general enough to serve other instrumentation jobs. The user
 the rig's actuator joints toward shear failure; sensors detect that
 lateral motion as a diagnostic. The data also feeds a paper / report.
 
-**Hardware**: ESP32-S3-DevKitC-1 + EVAL-ADXL355-PMDZ + microSD breakout +
-LiPo cell. Multiple sensor nodes (start: 2; later: dozens).
+**Hardware** (carrier-agnostic at protocol/spec layer; per-carrier
+wiring docs under `specifications/HARDWARE-WIRING-*.md`):
+
+* **ESP32-S3-DevKitC-1** + EVAL-ADXL355-PMDZ + microSD + LiPo (the
+  reference / current default per ADR-002).
+* **Seeed XIAO ESP32-S3** — alternative supported S3 carrier (ADR-001).
+* **DFRobot Beetle ESP32-C6 (DFR1117)** — alternative **RISC-V**
+  carrier, released as v0.3.0 (2026-05-31); uses a `lis2dh` I²C
+  sensing plugin (SEN0224 / Gravity) instead of the ADXL355 — first
+  concrete sensing-plugin swap. See `specifications/decisions/ADR-003-c6-carrier.md`.
+
+Multiple sensor nodes (start: 2; later: dozens; current bench: 3 across
+all three carriers).
 **Controlling device**: laptop or Raspberry Pi running a browser
 dashboard.
 **Protocol stack**: Reality2 (BLE bootstrap → trust group → WiFi → R2-WIRE
@@ -177,7 +188,53 @@ Project is **self-contained** — no path deps on `../r2-core`. R2 protocol
 crates will be vendored into `crates/` when they're needed (Phase 4+
 onwards). Don't add `path = "../../r2-core"` style references.
 
-## Current state (2026-05-24)
+## Current state (2026-05-31)
+
+**Released v0.3.0** (first tagged release; GitHub release with six
+assets — three `.bin`s + three `.meta.json` sidecars, named per the
+spec convention `r2-workshop-firmware-<class-slug>-<carrier>-vX.Y.Z.bin`
+covering `devkitc`, `xiao`, and the new `dfr1117` carrier). The v0.3.x
+arc is **heterogeneous-fleet identity + first RISC-V carrier**.
+Bench-validated end-to-end on three sensors of three different
+carriers, OTA-pushed via the dashboard's GitHub-Releases path.
+
+* **Announce identity tuple** (SPEC-R2-WORKSHOP-WIRE §3.1 keys 11/12/13,
+  required from firmware v0.3+): every sensor emits its `class`,
+  `carrier`, and authoritative `sd_mounted` in `r2.sensor.announce`.
+  All three carriers implement it; the dashboard parses and forwards;
+  the webapp's Sensors tab surfaces all three as rows on each device
+  card (replacing the optimistic SD-presence inference that lied for
+  fresh-boot sensors with no SD wired).
+* **Three carriers, one release.** Source tree split as
+  `firmware/<soc-family>/<carrier>/` — `esp32-s3/devkitc`,
+  `esp32-s3/xiao`, `esp32-c6/dfr1117`. The C6 (RISC-V, ESP-IDF 5.2.5,
+  `riscv32imac-esp-espidf`) is the first non-S3 SoC family — same
+  protocol stack, different toolchain. Per-carrier wiring docs
+  finalised; the C6 pins match its silk labels (verified against the
+  official `dfrobot_beetle_esp32c6` Arduino variant).
+* **First sensor-as-plugin swap**: `lis2dh` I²C driver on the C6
+  (SEN0224 / Gravity) — drop-in for the ADXL355's `read_xyz_lsb()`
+  contract; sender + sim-fallback path unchanged. Demonstrates the
+  framework's plugin abstraction concretely.
+* **Matched-OTA puller (per-carrier)**: dashboard
+  `/api/firmware/available` returns one entry per carrier; webapp's
+  bulk "Update All from latest" and "Update All Firmware" (file
+  picker) both group sensors by their announced `carrier` and push
+  only the matching `.bin` (refusing wrong-arch sends; pre-v0.3
+  firmware without an announced carrier is skipped with a clear
+  message). Tasks #88 done end-to-end; #89/#90's local-fallback half
+  + GitHub asset-by-meta-sidecar still pending.
+* **C6 carrier-specific extras**: single-colour LED via LEDC PWM
+  (status patterns carry the state, no RGB channel); battery
+  telemetry on `LP_RX` (GPIO4) via the §5 100k/100k + 100nF divider —
+  wired and verified on the bench.
+* **Specs bumped**: WIRE v0.3.1 (carrier enumeration clarified as
+  open, mirrors `firmware/<soc-family>/<carrier>/`) and v0.3.2
+  (`sd_mounted` added at key 13); SENSOR §1 + DASHBOARD §13.3
+  generalised from "ESP32-S3 only" to "every SoC family the firmware
+  tree supports".
+
+## Earlier state preserved (2026-05-24 — v0.2.0)
 
 **Released v0.2.0** (tag + GitHub release with `r2-workshop-firmware-
 0.2.0-{devkitc,xiao}.bin` attached). Architectural milestone
@@ -572,10 +629,19 @@ Don't relitigate these without explicit user re-opening:
    as the live KeyHolder at any moment per R2-TRUST §5.5 Key Holder
    Transfer. Failover is operator-managed, not protocol-level — see
    `memory/project_controller_is_fixed_per_experiment.md`.
-1. **Hardware**: ESP32-S3-DevKitC-1 + EVAL-ADXL355-PMDZ + microSD + LiPo.
-2. **Wiring**: SPI2/FSPI defaults (CS=GPIO10, MOSI=11, SCLK=12, MISO=13,
-   DRDY=14) + SD CS=GPIO9 + battery sense=GPIO4 (ADC1_CH3) via 100k/100k
-   divider. RGB LED on GPIO38 (v1.1) as status indicator.
+1. **Hardware**: ESP32-S3-DevKitC-1 + EVAL-ADXL355-PMDZ + microSD + LiPo
+   as the **reference / current default** (per ADR-002). Alternative
+   carriers are supported and share the spec layer — XIAO ESP32-S3
+   (ADR-001), and the C6/RISC-V DFR1117 (ADR-003, v0.3.0).
+2. **Wiring** (carrier-specific — see each `HARDWARE-WIRING-*.md` for
+   the authoritative pin map): on the **DevKitC** reference,
+   SPI2/FSPI defaults (CS=GPIO10, MOSI=11, SCLK=12, MISO=13,
+   DRDY=14) + SD CS=GPIO9 + battery sense=GPIO4 (ADC1_CH3) via
+   100k/100k divider; RGB LED on GPIO38 as status indicator. The
+   **DFR1117** carrier matches its silk: SDA=19, SCL=20, SCK=23,
+   MO=22, MI=21, CS=7 (`LP_SCL`), battery sense on GPIO4 (`LP_RX`),
+   mono status LED on GPIO15. Pin choices are carrier-specific; the
+   *contract* (logical pins) is `SPEC-R2-WORKSHOP-SENSOR §8`.
 3. **Sample rate**: default 100 Hz; NVS-tunable up to 4 kHz.
 4. **g-range**: default ±2 g; NVS-tunable.
 5. **SD card is primary durable log** — TCP is a near-real-time tap, not
@@ -663,4 +729,4 @@ The high-level phase numbers below are stable; granular sub-phases
 
 ---
 
-*Last touched 2026-05-08 — Phase 5L + 6 + 9-light end-to-end on real hardware; bridge architecture spec'd.*
+*Last touched 2026-05-31 — v0.3.0 released; three carriers (devkitc, xiao, dfr1117 / ESP32-C6 RISC-V); announce identity tuple (class, carrier, sd_mounted); per-carrier OTA puller.*
