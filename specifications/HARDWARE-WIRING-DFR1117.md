@@ -142,9 +142,13 @@ rail that powers it in all modes.
 > on-board 3.3 V buck, but nothing re-creates 5 V). So never power a
 > battery-build SD module from `VIN`. Two workable options:
 >
-> 1. **Cleanest — a 3.3 V-native microSD breakout** (bare socket +
->    pull-ups, no LDO, no level-shifter) powered from the **`3V3`** pad
->    (regulated, present on USB *and* battery). Avoids both gotchas below.
+> 1. **Cleanest, and the chosen module — a 3.3 V-native microSD breakout**
+>    (bare socket + pull-ups, no LDO, no level-shifter) powered from the
+>    **`3V3`** pad (regulated, present on USB *and* battery). Avoids both
+>    gotchas below. The standard part across all r2-workshop carriers is
+>    the **Adafruit #4682** ("Micro SD SPI or SDIO — 3V ONLY!", DigiKey
+>    1528-4682-ND); its `SI`/`SO` pads are the MOSI/MISO mapping already
+>    used in the table below.
 > 2. **The 5 V DFR0229 / "MicroSD Module V1.0" can run on battery via
 >    `BAT`.** Its regulator is a **BL8555-33** (datasheet-verified):
 >    dropout **0.22 V typ / 0.35 V max @ 120 mA**, so from a LiPo on `BAT`

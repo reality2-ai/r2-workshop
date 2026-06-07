@@ -40,7 +40,7 @@ that phase's scope.
 |---|---|---|
 | 1 | ESP32-S3-DevKitC-1 (N8R8 or N32R16V) | Per `docs/esp-dev-kits-en-master-esp32s3.pdf` §1.1 |
 | 1 | EVAL-ADXL355-PMDZ | Analog Devices Pmod accelerometer, per `docs/ADXL355.md` link |
-| 1 | microSD breakout (SPI, 3.3 V) | Adafruit #254 or any generic equivalent |
+| 1 | microSD breakout (SPI, 3.3 V) | **Adafruit #4682** ("Micro SD SPI or SDIO — 3V ONLY!", DigiKey 1528-4682-ND) — the common 3.3 V-native module across all r2-workshop carriers; onboard SPI pull-ups. Generic 3–5 V breakouts also work. |
 | 1 | microSD card | ≥4 GB, Class 10 |
 | 1 | LiPo cell | 3.7 V nominal, 1000–2000 mAh; with JST-PH 2-pin connector |
 | 1 | Mating JST-PH 2-pin pigtail | In-line disconnect; lets the cell be removed for external charging |
@@ -178,6 +178,26 @@ the firmware bus driver multiplexes). Six new wires.
 
 Most generic SPI breakouts (Adafruit, HiLetgo, generic Chinese) expose:
 `VCC, GND, MISO, MOSI, SCK, CS, [CD]`. Confirm against your specific module.
+
+> **Adafruit #4682 silk labels (the BOM module).** This board names its
+> SPI pads from the *card's* point of view. Verified against Adafruit's
+> pinout guide:
+>
+> | #4682 pad | Generic signal | DevKitC |
+> |---|---|---|
+> | `3V`  | VCC  | **Pin 1 / 3V3** |
+> | `GND` | GND  | **Pin 22 / GND** |
+> | `CLK` | SCK  | **Pin 18 / GPIO12** |
+> | `SI`  | MOSI | **Pin 17 / GPIO11** |
+> | `SO`  | MISO | **Pin 19 / GPIO13** |
+> | `CS`  | CS   | **Pin 15 / GPIO9** |
+> | `DET` | card-detect | **Pin 8 / GPIO15** (optional) |
+>
+> ⚠ **`SI` is MOSI and `SO` is MISO** — named for the card, not the host
+> (`SI` = Serial-**In** to the card = host MOSI; `SO` = Serial-**Out** =
+> MISO). Wiring `SI↔MISO` is the easy mistake. The board's other edge
+> exposes SDIO names (`D0 D1 DAT2 D3`); ignore those for SPI. Pull-ups are
+> onboard on all SPI lines (CS included), so §3.3's pull-up note is satisfied.
 
 ### 3.2 Connection table
 
@@ -385,3 +405,4 @@ GPIO39, GPIO40, GPIO41, GPIO42, GPIO47.
 |---|---|---|
 | 2026-05-06 | 0.1 | Initial draft. Phase 1/2/3 pin assignments. |
 | 2026-05-07 | 0.2 | §1 BoM and §4 (Phase 3) revised: removed on-board charger; battery is power-in only via JST-PH disconnect, recharged externally in a separate dock. Added buck-boost converter requirement and hot-swap rule. |
+| 2026-06-07 | 0.3 | §1 BoM + §3.1 specify the **Adafruit #4682** 3.3 V-native microSD breakout (DigiKey 1528-4682-ND) — now the common SD module across all carriers — with its verified silk-label → signal mapping (`SI`=MOSI, `SO`=MISO card-perspective trap called out). Pin assignments unchanged. |

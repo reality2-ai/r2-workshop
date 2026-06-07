@@ -49,7 +49,7 @@ that phase's scope.
 |---|---|---|
 | 1 | Seeed XIAO ESP32-S3 (Pre-Soldered) | DigiKey/Seeed SKU 113991141 or similar; 8 MB flash, 8 MB PSRAM |
 | 1 | EVAL-ADXL355-PMDZ | Analog Devices Pmod accelerometer (unchanged from DevKitC build) |
-| 1 | microSD breakout (SPI, 3.3 V) | Adafruit #254 or generic equivalent (Phase 2) |
+| 1 | microSD breakout (SPI, 3.3 V) | **Adafruit #4682** ("Micro SD SPI or SDIO — 3V ONLY!", DigiKey 1528-4682-ND) — 3.3 V-native, onboard SPI pull-ups. Generic 3–5 V breakouts also work. (Phase 2) |
 | 1 | microSD card | ≥ 4 GB, Class 10 (Phase 2) |
 | 1 | WS2812 single-LED module | Jaycar XC4380 (Duinotech WS2812 RGB module) or a single WS2812 cell cut from a 5050 strip; powered from 3V3 (Phase 1) |
 | 1 | LiPo cell, 18650 or similar | 3.7 V nominal, 2000–3000 mAh; **protected cell strongly recommended** (Phase 3) |
@@ -216,6 +216,28 @@ the firmware bus driver multiplexes). Six new wires.
 
 Most generic SPI breakouts (Adafruit, HiLetgo, generic Chinese) expose:
 `VCC, GND, MISO, MOSI, SCK, CS, [CD]`. Confirm against your specific module.
+
+> **Adafruit #4682 silk labels (the 3.3 V board in the BOM).** This
+> board names its SPI pads from the *card's* point of view, so the
+> labels differ from the generic table below. Verified against
+> Adafruit's pinout guide:
+>
+> | #4682 pad | Generic signal | XIAO header |
+> |---|---|---|
+> | `3V`  | VCC  | **3V3** |
+> | `GND` | GND  | **GND** |
+> | `CLK` | SCK  | **D8 / GPIO7** |
+> | `SI`  | MOSI | **D10 / GPIO9** |
+> | `SO`  | MISO | **D9 / GPIO8** |
+> | `CS`  | CS   | **D4 / GPIO5** |
+> | `DET` | card-detect | *(unused — see §3.3)* |
+>
+> ⚠ **`SI` is MOSI and `SO` is MISO** — named for the card, not the
+> host. `SI` (Serial-**In** to the card) carries the host's MOSI; `SO`
+> (Serial-**Out** from the card) carries MISO. Wiring `SI↔MISO` is the
+> easy mistake here. The board's other edge exposes the SDIO names
+> (`D0 D1 DAT2 D3`); ignore those for SPI mode. Pull-ups are onboard on
+> all SPI lines (CS included), so §3.3's pull-up note is already satisfied.
 
 ### 3.2 Connection table
 
@@ -436,3 +458,4 @@ ADR-001 §"Alternatives considered".
 | Date | Version | Change |
 |---|---|---|
 | 2026-05-11 | 0.1 | Initial draft. XIAO ESP32-S3 carrier. Phase 1/2/3 pin assignments. Carrier-swap from DevKitC per ADR-001. |
+| 2026-06-07 | 0.2 | §1 BOM + §3.1 specify the **Adafruit #4682** 3.3 V-native microSD breakout (DigiKey 1528-4682-ND) and add its verified silk-label → signal mapping (`SI`=MOSI, `SO`=MISO card-perspective trap called out). Pin assignments unchanged. |
