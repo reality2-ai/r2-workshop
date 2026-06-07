@@ -30,11 +30,13 @@ set -euo pipefail
 
 CARRIER="${1:-devkitc}"
 
-# Carrier → (architecture dir, Rust target triple, espflash chip).
-# devkitc + xiao are xtensa ESP32-S3; dfr1117 is a RISC-V ESP32-C6.
+# Carrier → (architecture dir, Rust target triple, espflash chip, flash size).
+# devkitc + xiao are xtensa ESP32-S3 with 8 MB flash; dfr1117 is a RISC-V
+# ESP32-C6 with 4 MB. FLASH_SIZE must match each carrier's partitions.csv +
+# sdkconfig.defaults so `espflash save-image` validates the layout correctly.
 case "${CARRIER}" in
-    devkitc|xiao) ARCH_DIR="esp32-s3"; TARGET="xtensa-esp32s3-espidf";  CHIP="esp32s3" ;;
-    dfr1117)      ARCH_DIR="esp32-c6"; TARGET="riscv32imac-esp-espidf"; CHIP="esp32c6" ;;
+    devkitc|xiao) ARCH_DIR="esp32-s3"; TARGET="xtensa-esp32s3-espidf";  CHIP="esp32s3"; FLASH_SIZE="8mb" ;;
+    dfr1117)      ARCH_DIR="esp32-c6"; TARGET="riscv32imac-esp-espidf"; CHIP="esp32c6"; FLASH_SIZE="4mb" ;;
     *)
         echo "ERROR: unknown carrier '${CARRIER}'" >&2
         echo "Known carriers: devkitc, xiao (esp32-s3); dfr1117 (esp32-c6)" >&2
@@ -179,7 +181,18 @@ ELF="target/${TARGET}/release/r2-workshop-firmware"
 BIN="${ELF}.bin"
 
 echo "==> espflash save-image  →  ${BIN}"
-espflash save-image --chip "${CHIP}" "${ELF}" "${BIN}"
+# Pass the carrier's own partition table AND flash size so espflash
+# validates the app image against the real OTA-slot size (3 MB on the 8 MB
+# S3 boards, 1.875 MB on the 4 MB C6) within the right flash. Both flags
+# are needed for cross-version correctness:
+#   * espflash 3.x: without --partition-table it checks against a 1 MB
+#     default app slot and rejects our ~1.5 MB image ("image_too_big").
+#   * espflash 4.x: with --partition-table it also checks the table fits
+#     the flash, defaulting to 4 MB — so the 8 MB S3 table needs an
+#     explicit --flash-size ("does_not_fit") .
+# save-image (no --merge) only emits the app image, so the output bytes
+# are identical regardless — these flags only make the size check correct.
+espflash save-image --chip "${CHIP}" --partition-table "${FW_DIR}/partitions.csv" --flash-size "${FLASH_SIZE}" "${ELF}" "${BIN}"
 
 # Compute the same FW_VER string the firmware bakes in via build.rs:
 #   <semver>-<YYYY-MM-DD-HH:MM>+<git-short-sha>[-dirty]
