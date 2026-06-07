@@ -3591,21 +3591,52 @@ fn local_firmware_snapshot() -> Option<(Vec<FirmwareAsset>, i64, String)> {
 /// (class, carrier, version, sha256). Replaces the old hardcoded
 /// `name.contains("devkitc"|"xiao"|"dfr1117")` substring matcher.
 async fn github_firmware_snapshot() -> Option<(String, i64, Vec<FirmwareAsset>)> {
+    // Walk the releases LIST (newest first), not just `/releases/latest`.
+    // A later release that ships no firmware — e.g. a server-bundle-only
+    // release (`r2-workshop-server-…`, SPEC §13.5) — must NOT hide the
+    // most recent firmware. Return the first (newest) release that yields
+    // ≥1 matching firmware asset.
     let gh_url = format!(
-        "https://api.github.com/repos/{}/releases/latest",
+        "https://api.github.com/repos/{}/releases?per_page=20",
         GITHUB_OWNER_REPO,
     );
     let body = fetch_url_text(&gh_url, 5).await?;
     let json: serde_json::Value = serde_json::from_str(&body).ok()?;
-    let tag = json.get("tag_name").and_then(|v| v.as_str())?.to_string();
-    let published_secs = json
-        .get("published_at")
-        .and_then(|v| v.as_str())
-        .and_then(iso_to_unix_secs)
-        .unwrap_or(0);
-
-    let arr = json.get("assets").and_then(|v| v.as_array())?;
+    let releases = json.as_array()?;
     let slug = class_slug();
+
+    for rel in releases {
+        if rel.get("draft").and_then(|v| v.as_bool()).unwrap_or(false) {
+            continue;
+        }
+        let Some(tag) = rel.get("tag_name").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let published_secs = rel
+            .get("published_at")
+            .and_then(|v| v.as_str())
+            .and_then(iso_to_unix_secs)
+            .unwrap_or(0);
+
+        let assets = github_firmware_assets_for_release(rel, &slug).await;
+        if !assets.is_empty() {
+            return Some((tag.to_string(), published_secs, assets));
+        }
+    }
+    None
+}
+
+/// Extract a single release's firmware assets matching our (class, carrier)
+/// per §13.3 — sidecar-authoritative, foreign-class filtered. Returns an
+/// empty Vec when the release carries no matching firmware (e.g. a
+/// server-bundle-only release), so the caller skips on to the next release.
+async fn github_firmware_assets_for_release(
+    rel: &serde_json::Value,
+    slug: &str,
+) -> Vec<FirmwareAsset> {
+    let Some(arr) = rel.get("assets").and_then(|v| v.as_array()) else {
+        return Vec::new();
+    };
 
     // First pass: index every sidecar asset by its filename so each
     // surviving .bin can find its `<name>.meta.json` partner in O(1).
@@ -3629,7 +3660,7 @@ async fn github_firmware_snapshot() -> Option<(String, i64, Vec<FirmwareAsset>)>
         let size = a.get("size").and_then(|v| v.as_u64());
         if !name.ends_with(".bin") { continue; }
 
-        let Some((_, fn_carrier, fn_version)) = parse_release_filename(name, &slug) else {
+        let Some((_, fn_carrier, fn_version)) = parse_release_filename(name, slug) else {
             continue; // non-canonical or foreign-class → not auto-surfaced
         };
 
@@ -3673,8 +3704,7 @@ async fn github_firmware_snapshot() -> Option<(String, i64, Vec<FirmwareAsset>)>
             size,
         });
     }
-    if assets.is_empty() { return None; }
-    Some((tag, published_secs, assets))
+    assets
 }
 
 /// `curl -sS` a URL and return the body as a String, or `None` on any

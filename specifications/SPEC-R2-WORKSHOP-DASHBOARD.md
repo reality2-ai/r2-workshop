@@ -917,11 +917,16 @@ breaking the match.
 **Sources (in order of preference):**
 
 1. **GitHub Releases** on `reality2-ai/r2-workshop` — queried via the
-   public REST API. The dashboard filters the asset list down to
+   public REST API. The dashboard walks the **releases list** newest →
+   oldest and uses the **most recent release that contains a matching
+   firmware asset**; for that release it filters the asset list down to
    binaries matching its own `(class, carrier)` per the filename
    convention above, then fetches the sidecar for each survivor
    (or parses the filename when the sidecar is missing, for
-   pre-v0.3 releases).
+   pre-v0.3 releases). Walking the list (rather than only
+   `/releases/latest`) is required so a later **non-firmware** release —
+   e.g. a server-bundle-only release (`r2-workshop-server-…`, §13.5) —
+   does not hide the most recent firmware.
 2. **Local `firmware/<soc-family>/<carrier>/releases/` directories** —
    the dashboard walks every `firmware/<soc-family>/<carrier>/releases/`
    tree under the repo (as of 2026-05-31 those are `esp32-s3/devkitc`,
@@ -1285,4 +1290,5 @@ implementing `SPEC-R2-WORKSHOP-WIRE`):
 | 2026-05-26 | 0.2 | §5.1 adds `/api/data/local/list`, `/api/data/local/file/{name}`, and folds in `/api/data/zip` (now sources from controller-local store). §15.6 + §15.7 add capture auto-sync + event-mark acceptance tests per SPEC-R2-WORKSHOP-CAPTURE §7.4 + §7.5. |
 | 2026-05-28 | 0.3 | Heterogeneous-fleet OTA: §13.3 rewritten to filter `/api/firmware/available` by `(class, carrier)` against the dashboard's own class. New §13.4 specifies the manual OTA validation gate (class-mismatch → yellow warn; carrier-mismatch → red double-confirm). §15.8 adds the matching acceptance tests. Sensor-side fail-safe documented in §13.4 (last paragraph) — cross-ref into SENSOR §12 OTA. |
 | 2026-05-28 | 0.3.1 | §1 introduction reframed: the dashboard is the r2-workshop ensemble's controller hive — hosting the dashboard-side sentants per SPEC-R2-WORKSHOP-SENTANTS §4 + the R2-WEB plugin registration that delivers the operator UI. Cross-references the new SPEC-R2-WORKSHOP-ENSEMBLE. |
+| 2026-06-08 | 0.3.3 | §13.3 GitHub source walks the **releases list** for the most recent release containing matching firmware, instead of only `/releases/latest` — so a server-bundle-only release (§13.5) no longer shadows the firmware (regression from cutting v0.3.1). |
 | 2026-06-07 | 0.3.2 | New §13.5 specifies the **server bundle distribution** convention — per-arch (`x86_64`, `aarch64`) `r2-workshop-server-<class>-<version>-linux-<arch>.tar.gz` tarballs (core Hive binary + arch-independent webapp/WASM hive) + meta sidecars, published alongside firmware on the same GitHub Release. Built by `tools/build-server.sh` (native x86_64 + native aarch64 on a Pi over SSH, from a clean tagged checkout; not cross-compiled while the Hive links openssl). |
