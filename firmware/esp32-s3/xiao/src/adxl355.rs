@@ -220,8 +220,10 @@ mod tests {
 
     #[test]
     fn decode_one_g_at_2g_range() {
-        // 1 g at ±2 g range = 256_000 LSB = 0x3E800 → left-shifted into
-        // 0x3E_8000 → bytes [0x03, 0xE8, 0x00]
-        assert_eq!(decode_20bit_signed(&[0x03, 0xE8, 0x00]), 256_000);
+        // 1 g at ±2 g range = 256_000 LSB = 0x3_E800 → left-justified into
+        // the top 20 of 24 bits (<<4) = 0x3E_8000 → bytes [0x3E, 0x80, 0x00].
+        // (The decoder's >>4 reverses that.) The old example bytes
+        // [0x03, 0xE8, 0x00] decode to 16_000, not 256_000.
+        assert_eq!(decode_20bit_signed(&[0x3E, 0x80, 0x00]), 256_000);
     }
 }
