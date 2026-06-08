@@ -202,17 +202,32 @@ echo "==> espflash save-image  →  ${BIN}"
 # are identical regardless — these flags only make the size check correct.
 espflash save-image --chip "${CHIP}" --partition-table "${FW_DIR}/partitions.csv" --flash-size "${FLASH_SIZE}" "${ELF}" "${BIN}"
 
-# Compute the same FW_VER string the firmware bakes in via build.rs:
-#   <semver>-<YYYY-MM-DD-HH:MM>+<git-short-sha>[-dirty]
-# Same git + date inputs as build.rs, so within the same minute the
-# script's filename matches the announce string exactly. (May drift by
-# 1 minute in pathological build-races; close enough for archival.)
+# Compute FW_VER — the version that names the archive AND fills the sidecar's
+# `version`. It MUST equal the firmware's baked R2_FW_VER (build.rs) so the
+# dashboard's announce-vs-sidecar match works.
+#   * Release (R2_RELEASE=1): build.rs requires a clean checkout on an exact
+#     tag and bakes the tag minus the `fw-` stream prefix (SPEC §13.3/§13.5).
+#     Mirror that here so archive + sidecar == baked fw_ver == clean version.
+#   * Dev: <semver>-<YYYY-MM-DD-HH:MM>+<git-short-sha>[-dirty], matching the
+#     dev branch of build.rs (filename disambiguates repeated same-semver builds).
 SEMVER=$(awk -F'"' '/^version[[:space:]]*=/{print $2; exit}' "${FW_DIR}/Cargo.toml")
 SHA=$(git -C "${REPO_ROOT}" rev-parse --short=8 HEAD 2>/dev/null || echo unknown)
-DIRTY=""
-if ! git -C "${REPO_ROOT}" diff-index --quiet HEAD -- 2>/dev/null; then DIRTY="-dirty"; fi
-TS=$(date -u +%Y-%m-%d-%H:%M)
-FW_VER="${SEMVER}-${TS}+${SHA}${DIRTY}"
+if [[ "${R2_RELEASE:-}" == "1" ]]; then
+    if ! git -C "${REPO_ROOT}" diff-index --quiet HEAD -- 2>/dev/null; then
+        echo "ERROR: R2_RELEASE=1 but the working tree is dirty — commit first." >&2
+        exit 1
+    fi
+    TAG=$(git -C "${REPO_ROOT}" describe --tags --exact-match 2>/dev/null) || {
+        echo "ERROR: R2_RELEASE=1 but HEAD is not on a tag — 'git tag fw-vX.Y.Z' first." >&2
+        exit 1
+    }
+    FW_VER="${TAG#fw-}"          # strip the firmware stream prefix; legacy v* passes through
+else
+    DIRTY=""
+    if ! git -C "${REPO_ROOT}" diff-index --quiet HEAD -- 2>/dev/null; then DIRTY="-dirty"; fi
+    TS=$(date -u +%Y-%m-%d-%H:%M)
+    FW_VER="${SEMVER}-${TS}+${SHA}${DIRTY}"
+fi
 
 mkdir -p "${REL_DIR}"
 ARCHIVE="${REL_DIR}/r2-workshop-firmware-${FW_VER}.bin"

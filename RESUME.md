@@ -30,10 +30,19 @@ Master save (read-only): `claude-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ p
 ## Next steps
 1. **Cut the first real release on the new scheme** — tag `fw-v0.3.x` +
    `server-v0.3.x`, clean build (`R2_RELEASE=1`), `gh release create` per
-   stream. This is the true end-to-end test.
-2. **Demo guard** `.tg_pub_demo_sha256` — deferred (needs upstream demo TG key
-   hash; would be dormant for the rocker since its TG key is real).
-3. Watch the **vendored core/hive crate re-sync** (upstream churn) before any
+   stream. GATED on Roy's go-ahead + version (outward-facing; live deployment
+   OTA-fetches). Release mechanics now wired: build.rs strips `fw-`,
+   build-firmware.sh honors `R2_RELEASE` (archive+sidecar version == baked
+   fw_ver == clean tag), build-server.sh strips `server-`.
+2. **DFR1195 (ESP32-S3) Path-B no_std build path** (forward dep, not urgent).
+   New target NOT covered by the current Path-A/ESP-IDF matrix
+   (devkitc/xiao/dfr1117). Pipeline: hive (no_std esp-hal/embassy source) →
+   **workshop adds a no_std esp-hal build path + `fw-vX.Y.Z` release +
+   OTA sidecars** → composer OTA push. hive coordinates when its scaffold
+   compiles (hive branch `platform-trait`).
+3. **Demo guard** `.tg_pub_demo_sha256` — deferred (needs upstream demo TG key
+   hash; dormant for the rocker since its TG key is real).
+4. Watch the **vendored core/hive crate re-sync** (upstream churn) before any
    protocol-touching work.
 
 ## Deps / peers (branches per supervisor)
