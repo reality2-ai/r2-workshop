@@ -991,12 +991,14 @@ browser to GitHub directly) — see v0.2's CORS rationale.
 
 **Release-mode firmware build:**
 
-For the GitHub-side comparison to make sense, the released `.bin`
-must bake an `fw_ver` string equal to the tag name. The firmware's
-`build.rs` checks `R2_RELEASE=1` and `git describe --tags
---exact-match`: if both pass, `fw_ver` is just the tag (`v0.3.0`);
-if either fails (dirty tree, no tag), the build panics with a clear
-error.
+Firmware is published as its own release stream tagged **`fw-vX.Y.Z`**
+(separate from the server's `server-vX.Y.Z`, §13.5). For the GitHub-side
+comparison to make sense, the released `.bin` must bake an `fw_ver`
+string equal to the version. The firmware's `build.rs` checks
+`R2_RELEASE=1` and `git describe --tags --exact-match`: if both pass,
+`fw_ver` is the tag **with the `fw-` stream prefix stripped** (`fw-v0.3.0`
+→ `v0.3.0`; a legacy un-prefixed `v0.3.0` tag passes through); if either
+fails (dirty tree, no tag), the build panics with a clear error.
 
 **Webapp UX:**
 
@@ -1072,8 +1074,23 @@ sensor refuses to write the partition on carrier mismatch and emits
 > + meta-sidecar convention so the two distribution streams stay
 > symmetric.
 
+**Separate release streams.** The server and the firmware are published
+as **distinct GitHub Releases with prefixed tags** — firmware as
+`fw-vX.Y.Z`, the server as `server-vX.Y.Z` — never combined in one
+release. They have different consumers and lifecycles: the **server is
+downloaded and installed by an operator** (the bootstrap — nothing runs
+until it is up), whereas **firmware is fetched from GitHub by the
+already-running server** on demand (§13.1–§13.4) and pushed to sensors
+over OTA. The only time firmware is needed locally is the first USB flash
+of a fresh carrier board (OTA cannot bootstrap an empty board). The
+dashboard's firmware query (§13.3) walks the releases list and matches
+firmware by asset name, so server releases never shadow or pollute the
+OTA picker. The git tag carries the stream prefix; the artefact
+`<version>` label is the tag **minus** that prefix (`server-v0.3.1` →
+`v0.3.1`), kept clean by `build-server.sh` / `build.rs`.
+
 The controller is published as a self-contained per-architecture
-tarball alongside the firmware assets on the same GitHub Release. Of
+tarball in its `server-vX.Y.Z` release. Of
 the three things that compile (the WASM hive `crates/r2-wasm`, the
 firmware, and the core Hive `r2-dashboard`), only the **core Hive
 binary is architecture-specific**. The **WASM hive + webapp are
@@ -1086,9 +1103,10 @@ r2-workshop-server-<class-slug>-<version>-linux-<arch>.tar.gz
 ```
 
 * `<class-slug>` — reverse-DNS class with dots → hyphens, as §13.3.
-* `<version>` — the release tag (e.g. `v0.3.0`); the binary's baked
-  `DASHBOARD_VERSION` (= `CARGO_PKG_VERSION+<git>`) MUST come from a
-  clean, tagged checkout so it has no `-dirty` suffix.
+* `<version>` — the release tag **minus the `server-` prefix** (tag
+  `server-v0.3.1` → `v0.3.1`); the binary's baked `DASHBOARD_VERSION`
+  (= `CARGO_PKG_VERSION+<git>`) MUST come from a clean, tagged checkout
+  so it has no `-dirty` suffix.
 * `<arch>` — `uname -m` of the target: `x86_64` (Intel/AMD) or
   `aarch64` (ARM, e.g. Raspberry Pi). Both run 64-bit Linux.
 
@@ -1292,3 +1310,4 @@ implementing `SPEC-R2-WORKSHOP-WIRE`):
 | 2026-05-28 | 0.3.1 | §1 introduction reframed: the dashboard is the r2-workshop ensemble's controller hive — hosting the dashboard-side sentants per SPEC-R2-WORKSHOP-SENTANTS §4 + the R2-WEB plugin registration that delivers the operator UI. Cross-references the new SPEC-R2-WORKSHOP-ENSEMBLE. |
 | 2026-06-08 | 0.3.3 | §13.3 GitHub source walks the **releases list** for the most recent release containing matching firmware, instead of only `/releases/latest` — so a server-bundle-only release (§13.5) no longer shadows the firmware (regression from cutting v0.3.1). |
 | 2026-06-07 | 0.3.2 | New §13.5 specifies the **server bundle distribution** convention — per-arch (`x86_64`, `aarch64`) `r2-workshop-server-<class>-<version>-linux-<arch>.tar.gz` tarballs (core Hive binary + arch-independent webapp/WASM hive) + meta sidecars, published alongside firmware on the same GitHub Release. Built by `tools/build-server.sh` (native x86_64 + native aarch64 on a Pi over SSH, from a clean tagged checkout; not cross-compiled while the Hive links openssl). |
+| 2026-06-09 | 0.3.4 | **Separate release streams** (§13.5 + §13.3): server and firmware are now published as distinct GitHub Releases with prefixed tags — firmware `fw-vX.Y.Z`, server `server-vX.Y.Z` — never combined. Rationale: operator-installed server vs OTA-fetched firmware (local firmware only for a fresh board's first USB flash). The `<version>` label is the tag minus its stream prefix; `build.rs` strips `fw-`, `build-server.sh` strips `server-`. Dashboard firmware query (already list-walking per 0.3.3) matches firmware by asset name, so server releases never shadow the OTA picker. |

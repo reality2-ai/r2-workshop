@@ -145,6 +145,11 @@ fn stamp_build_metadata() {
                  `git tag vX.Y.Z` first."
             ),
         };
+        // Firmware releases are tagged `fw-vX.Y.Z` (a separate release
+        // stream from the server's `server-vX.Y.Z`, SPEC §13.5). Strip the
+        // stream prefix so the baked fw_ver stays clean semver (`v0.3.0`);
+        // legacy un-prefixed `vX.Y.Z` tags pass through unchanged.
+        let tag = tag.strip_prefix("fw-").map(str::to_owned).unwrap_or(tag);
         println!("cargo:rustc-env=R2_GIT_SHA={tag}");
         println!("cargo:rustc-env=R2_BUILD_TIMESTAMP=");
         println!("cargo:rustc-env=R2_FW_VER={tag}");

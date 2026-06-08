@@ -25,6 +25,14 @@
 #   The filename matches the `fw_ver` string the firmware bakes into
 #   `r2.sensor.announce`, so a sensor's reported version is searchable
 #   directly against the releases directory.
+#
+# Release stream: firmware is published to GitHub as its OWN release
+# tagged `fw-vX.Y.Z` — separate from the server's `server-vX.Y.Z` stream
+# (SPEC §13.5). For a clean tagged release, build with R2_RELEASE=1 on a
+# `fw-vX.Y.Z` tag (build.rs strips the `fw-` prefix so the baked fw_ver
+# stays clean semver). The running dashboard fetches these per-carrier
+# `.bin` + `.meta.json` assets over OTA; an operator never hand-installs
+# firmware except a fresh board's first USB flash.
 
 set -euo pipefail
 

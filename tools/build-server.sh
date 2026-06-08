@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # tools/build-server.sh — build & package the r2-workshop controller
 # (the "server": core Hive binary + webapp + WASM hive) as self-contained
-# per-architecture tarballs for Linux x86_64 and aarch64, ready to attach
-# to a GitHub Release alongside the firmware.
+# per-architecture tarballs for Linux x86_64 and aarch64, published as
+# their OWN release stream tagged `server-vX.Y.Z` — separate from the
+# firmware's `fw-vX.Y.Z` releases. The server is downloaded + installed by
+# an operator; firmware is fetched from GitHub by the running server. The
+# two streams have different consumers and lifecycles, so they do not share
+# a GitHub Release.
 #
 # See SPEC-R2-WORKSHOP-DASHBOARD §13.5 for the artefact convention.
 #
@@ -68,12 +72,15 @@ BUILT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 # Version label for the bundle filename: the exact tag if HEAD is on one
 # (a real release), otherwise <semver>+<sha> (a dev/preview build).
 if TAG="$(git -C "${REPO_ROOT}" describe --tags --exact-match 2>/dev/null)"; then
-    VERSION="${TAG}"
+    # Server releases are tagged `server-vX.Y.Z`; strip the stream prefix so
+    # the bundle version label stays clean (`v0.3.1`). A plain `vX.Y.Z` tag
+    # (legacy / shared) passes through unchanged.
+    VERSION="${TAG#server-}"
 else
     VERSION="${SEMVER}+${SHA}"
     echo "NOTE: HEAD is not on a tag — building a preview labelled '${VERSION}'." >&2
-    echo "      For a published release, tag the commit first so the bundle" >&2
-    echo "      version matches the GitHub release tag (§13.5)." >&2
+    echo "      For a published release, tag the commit 'server-vX.Y.Z' first so" >&2
+    echo "      the bundle version matches the GitHub release tag (§13.5)." >&2
 fi
 
 # Dirty-tree note (cosmetic for the server — the dashboard's own version
@@ -226,5 +233,6 @@ echo
 echo "Done. Artefacts in dist/:"
 ls -la "${DIST}"/*.tar.gz "${DIST}"/*.meta.json 2>/dev/null
 echo
-echo "To attach to the GitHub release:"
-echo "  gh release upload <tag> dist/r2-workshop-server-*.tar.gz dist/r2-workshop-server-*.meta.json"
+echo "To publish the SERVER release stream (separate from firmware fw-* releases):"
+echo "  gh release create server-${VERSION} --title \"r2-workshop server ${VERSION}\" \\"
+echo "    dist/r2-workshop-server-*.tar.gz dist/r2-workshop-server-*.meta.json"
