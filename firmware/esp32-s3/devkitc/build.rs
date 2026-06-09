@@ -132,7 +132,10 @@ fn stamp_build_metadata() {
             );
         }
         let tag = std::process::Command::new("git")
-            .args(["describe", "--tags", "--exact-match"])
+            // Select the firmware stream's tag only — `fw-*` (or a legacy
+            // un-prefixed `vX.Y.Z`), never the server's `server-vX.Y.Z`, so a
+            // commit carrying both stream tags resolves unambiguously (§13.5).
+            .args(["describe", "--tags", "--exact-match", "--match", "fw-*", "--match", "v[0-9]*"])
             .output()
             .ok()
             .and_then(|o| if o.status.success() { Some(o.stdout) } else { None })

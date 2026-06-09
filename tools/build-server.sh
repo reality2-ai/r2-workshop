@@ -71,10 +71,10 @@ BUILT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 # Version label for the bundle filename: the exact tag if HEAD is on one
 # (a real release), otherwise <semver>+<sha> (a dev/preview build).
-if TAG="$(git -C "${REPO_ROOT}" describe --tags --exact-match 2>/dev/null)"; then
-    # Server releases are tagged `server-vX.Y.Z`; strip the stream prefix so
-    # the bundle version label stays clean (`v0.3.1`). A plain `vX.Y.Z` tag
-    # (legacy / shared) passes through unchanged.
+if TAG="$(git -C "${REPO_ROOT}" describe --tags --exact-match --match 'server-*' --match 'v[0-9]*' 2>/dev/null)"; then
+    # Select the server stream tag (`server-*` / legacy `v*`), not `fw-*`, so a
+    # commit carrying both stream tags resolves unambiguously (§13.5). Strip the
+    # `server-` prefix so the bundle version label stays clean (`v0.3.1`).
     VERSION="${TAG#server-}"
 else
     VERSION="${SEMVER}+${SHA}"

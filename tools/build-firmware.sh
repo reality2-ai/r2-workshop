@@ -217,8 +217,10 @@ if [[ "${R2_RELEASE:-}" == "1" ]]; then
         echo "ERROR: R2_RELEASE=1 but the working tree is dirty — commit first." >&2
         exit 1
     fi
-    TAG=$(git -C "${REPO_ROOT}" describe --tags --exact-match 2>/dev/null) || {
-        echo "ERROR: R2_RELEASE=1 but HEAD is not on a tag — 'git tag fw-vX.Y.Z' first." >&2
+    # Select the firmware stream tag (`fw-*` / legacy `v*`), not `server-*`,
+    # so a commit carrying both stream tags resolves unambiguously (§13.5).
+    TAG=$(git -C "${REPO_ROOT}" describe --tags --exact-match --match 'fw-*' --match 'v[0-9]*' 2>/dev/null) || {
+        echo "ERROR: R2_RELEASE=1 but HEAD is not on a firmware tag — 'git tag fw-vX.Y.Z' first." >&2
         exit 1
     }
     FW_VER="${TAG#fw-}"          # strip the firmware stream prefix; legacy v* passes through
