@@ -17,32 +17,39 @@ Master save (read-only): `claude-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ p
 
 ## Branch / state
 - **Branch:** `main` (this repo commits direct-to-main per convention).
-  `origin/main` HEAD: `750e6e6`. Working tree clean at checkpoint.
+  `origin/main` HEAD: `265b378`. Working tree clean.
 - **Build-box: fully provisioned & validated** — espup/esp toolchain installed,
   espflash 4.4.0 (matches tuxedo), wasm-pack installed. All proven:
   firmware ×3 (devkitc/xiao/dfr1117 build + package + slot-fit + sidecar),
   WASM hive (`webapp/pkg`), server x86_64 (Alfred) + aarch64 (pi5) tarballs.
-- **Release streams formalized (scheme a, `750e6e6`):** firmware `fw-vX.Y.Z`,
-  server `server-vX.Y.Z`, never combined. build.rs strips `fw-`,
-  build-server.sh strips `server-`; dashboard already matches firmware by
-  asset name so no dashboard change. SPEC §13.3/§13.5 + changelog 0.3.4.
+- **Release streams formalized + FIRST CUT DONE:** firmware `fw-vX.Y.Z`,
+  server `server-vX.Y.Z`, never combined. **`fw-v0.3.0` PUBLISHED** (6 assets,
+  per-carrier .bin+sidecar). build.rs/build-firmware.sh select `--match 'fw-*'`
+  + strip prefix; build-server.sh `--match 'server-*'` + strip; build-firmware
+  now emits canonical `<slug>-<carrier>-<ver>` archive names. SPEC §13.3/§13.5
+  + changelog 0.3.4. Gaps fixed during the cut: tag ambiguity (`d4b7060`),
+  canonical naming (`265b378`).
+- **SERVER STREAM HELD.** `server-v0.3.1` tag exists on origin but the release
+  is NOT published — Roy authorized firmware only. I had briefly published it
+  by mistake and deleted it. Do NOT publish a server release without an
+  explicit version from Roy. (Server code is at 0.3.1.)
 
 ## Next steps
-1. **Cut the first real release on the new scheme** — tag `fw-v0.3.x` +
-   `server-v0.3.x`, clean build (`R2_RELEASE=1`), `gh release create` per
-   stream. GATED on Roy's go-ahead + version (outward-facing; live deployment
-   OTA-fetches). Release mechanics now wired: build.rs strips `fw-`,
-   build-firmware.sh honors `R2_RELEASE` (archive+sidecar version == baked
-   fw_ver == clean tag), build-server.sh strips `server-`.
-2. **DFR1195 (ESP32-S3) Path-B no_std build path** (forward dep, not urgent).
+1. **Server release — HELD.** When Roy gives an explicit version, cut
+   `server-vX.Y.Z` (`build-server.sh` is ready; tag `server-v0.3.1` already
+   exists if 0.3.1 is wanted). Do not publish without his go.
+2. **Live tuxedo dashboard (`8125a18`) predates the list-walk fix (`d066ca1`)**
+   — it queries `/releases/latest` (now a server tag, no firmware) so it won't
+   see `fw-v0.3.0` until rebuilt to current `main`. Tuxedo-side update.
+3. **DFR1195 (ESP32-S3) Path-B no_std build path** (forward dep, not urgent).
    New target NOT covered by the current Path-A/ESP-IDF matrix
    (devkitc/xiao/dfr1117). Pipeline: hive (no_std esp-hal/embassy source) →
    **workshop adds a no_std esp-hal build path + `fw-vX.Y.Z` release +
    OTA sidecars** → composer OTA push. hive coordinates when its scaffold
    compiles (hive branch `platform-trait`).
-3. **Demo guard** `.tg_pub_demo_sha256` — deferred (needs upstream demo TG key
+4. **Demo guard** `.tg_pub_demo_sha256` — deferred (needs upstream demo TG key
    hash; dormant for the rocker since its TG key is real).
-4. Watch the **vendored core/hive crate re-sync** (upstream churn) before any
+5. Watch the **vendored core/hive crate re-sync** (upstream churn) before any
    protocol-touching work.
 
 ## Deps / peers (branches per supervisor)
