@@ -20,11 +20,10 @@
 #   `firmware/esp32-s3/<carrier>/target/xtensa-esp32s3-espidf/release/r2-workshop-firmware.bin`
 #   — push this via /api/ota/{addr}.
 # * Versioned archive copy lives at
-#   `firmware/esp32-s3/<carrier>/releases/r2-workshop-firmware-<fw_ver>.bin`
-#   — `git add` this when you want to record the release for posterity.
-#   The filename matches the `fw_ver` string the firmware bakes into
-#   `r2.sensor.announce`, so a sensor's reported version is searchable
-#   directly against the releases directory.
+#   `firmware/<soc>/<carrier>/releases/r2-workshop-firmware-<class-slug>-<carrier>-<fw_ver>.bin`
+#   — the canonical SPEC §13.3 name (so it uploads straight to a GitHub
+#   Release). `git add` it to record the release for posterity. The embedded
+#   `fw_ver` matches the string the firmware bakes into `r2.sensor.announce`.
 #
 # Release stream: firmware is published to GitHub as its OWN release
 # tagged `fw-vX.Y.Z` — separate from the server's `server-vX.Y.Z` stream
@@ -140,10 +139,11 @@ if [[ ! -s "${CLASS_FILE}" ]]; then
     echo "$KEYGEN_HINT" >&2
     exit 1
 fi
-# Reverse-DNS class string — read once here so it's available both for the
-# demo-class warning below and the meta sidecar emitted after the build
+# Reverse-DNS class string + filename slug (dots → hyphens). Used for the
+# demo-class warning below, the meta sidecar, AND the canonical archive name
 # (SPEC-R2-WORKSHOP-DASHBOARD §13.3).
 CLASS_STRING=$(tr -d '\n' < "${CLASS_FILE}")
+CLASS_SLUG="${CLASS_STRING//./-}"
 if [[ -s "${CLASS_DEMO_HASH_FILE}" ]]; then
     CLASS_DEMO_HASH=$(cat "${CLASS_DEMO_HASH_FILE}")
     CLASS_ACTUAL_HASH=$(sha256sum "${CLASS_FILE}" | awk '{print $1}')
@@ -232,7 +232,12 @@ else
 fi
 
 mkdir -p "${REL_DIR}"
-ARCHIVE="${REL_DIR}/r2-workshop-firmware-${FW_VER}.bin"
+# Canonical archive name (SPEC §13.3): <class-slug>-<carrier>-<version>. This is
+# the same name the GitHub Release asset must carry for the dashboard's
+# (class, carrier) matcher to parse it, so a release build can be uploaded
+# straight to `gh release create` with no rename. Per-carrier names are
+# distinct, so the three carriers' assets coexist in one release.
+ARCHIVE="${REL_DIR}/r2-workshop-firmware-${CLASS_SLUG}-${CARRIER}-${FW_VER}.bin"
 cp "${BIN}" "${ARCHIVE}"
 
 # Meta sidecar (SPEC-R2-WORKSHOP-DASHBOARD §13.3) — authoritative
