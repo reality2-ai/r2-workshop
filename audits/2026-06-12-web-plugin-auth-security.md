@@ -75,10 +75,28 @@ HTTP-as-bypass gap; (4) is the durable, composer-aligned form.
    9-secure ⏳; the future `r2.dash.fw.update {url, sha256, tg_sig}` event is
    the signed control path.)
 
-2. **Uniform `require_access` across the web surface.**
-   Every **mutating** route (`/api/ota`, all `DELETE …/data/*`) gated to the
-   operator/KeyHolder role; every **data read** gated to Member/viewer. No
-   blob/mutating route should be a weaker path than its equivalent event.
+2. **Gate the *actuation* at a sentant state machine, not the route
+   (preferred — makes transport irrelevant).**
+   Per-handler `require_access` checks work but are bolt-ons that can be
+   forgotten (exactly what happened here). The R2-native fix: a destructive
+   operation is a **sentant state-machine transition that only fires on a
+   TG-authenticated message** (verified signature + cert role). The HTTP route,
+   if kept, becomes a dumb ingress — at most it *stages bytes* (e.g. the OTA
+   image blob) but **cannot itself commit**; the commit is a sentant transition
+   triggered by a TG-signed command. So an unauthenticated HTTP call produces
+   no effect, because the sentant ignores any actuation that isn't carried by a
+   valid TG-authenticated frame. Auth becomes **intrinsic to the action**, not
+   a property of which port it arrived on.
+   - This already has a specced shape: `r2.dash.fw.update {url, sha256,
+     tg_sig}` (SPEC-DASHBOARD §13, the v1 signed-OTA control event) is exactly
+     such a TG-signed command; pair it with 9-secure (on-device verify) and the
+     `/api/ota` blob is inert without the matching signed commit.
+   - Same pattern for data deletes: a `DataStore` sentant only executes a
+     delete/wipe on a TG-signed `r2.dash.cmd.data.delete*`; the `DELETE`
+     HTTP verb routes to "emit the command", never to direct filesystem action.
+   - Falls straight out of R2-PLUGIN §13 (the server role hosts no handlers;
+     the sentant owns the logic) — the destructive routes were the one place
+     that principle wasn't yet applied.
 
 3. **Cert-role enforcement of remote read-only** (ACCESS v1 cert-handshake on
    `/r2` + the HTTP surface), replacing UI/operator discretion. Remote =
