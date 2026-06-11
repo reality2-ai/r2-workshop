@@ -35,6 +35,15 @@ Master save (read-only): `claude-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ p
   explicit version from Roy. (Server code is at 0.3.1.)
 
 ## Next steps
+0. **IN FLIGHT — rebuild the live tuxedo dashboard to pick up `fw-v0.3.0`.**
+   tuxedo `/mnt/data/...` already pulled to `cd9609f` (has the `d066ca1`
+   walk-list fix). A detached `cargo build --release -p r2-dashboard` was
+   started but tuxedo went offline (laptop closed / commuting) — assume the
+   build was suspended. When tuxedo is back on the tailnet: re-run the
+   dashboard release build, start it detached (no args, from repo root — it
+   was DOWN, nothing to stop), then verify `/api/version` (new sha) +
+   `/api/firmware/available` discovers `fw-v0.3.0` per carrier. (Verified
+   working from Alfred already, so it's just bringing the live box current.)
 1. **Server release — HELD.** When Roy gives an explicit version, cut
    `server-vX.Y.Z` (`build-server.sh` is ready; tag `server-v0.3.1` already
    exists if 0.3.1 is wanted). Do not publish without his go.
