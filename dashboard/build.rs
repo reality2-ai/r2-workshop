@@ -6,7 +6,7 @@
 /// advertisement.
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed=../.git/HEAD");
+    rerun_on_git_commit_change();
     println!("cargo:rerun-if-changed=../trust_keys/sensor_class.txt");
     println!("cargo:rerun-if-changed=../trust_keys/legacy_classes.txt");
 
@@ -76,4 +76,26 @@ fn main() {
         .map(|s| s.trim().to_owned())
         .unwrap_or_else(|| "unknown".into());
     println!("cargo:rustc-env=R2_BUILD_TIMESTAMP={ts}");
+}
+
+/// Re-stamp the git sha whenever the checked-out commit changes.
+///
+/// Watching `.git/HEAD` alone is NOT enough: a fast-forward `git pull`
+/// advances the *branch ref*, while `.git/HEAD` stays `ref: refs/heads/<branch>`
+/// — unchanged — so the stamp would silently go stale after every pull.
+/// Watch HEAD, the loose ref it resolves to (`.git/refs/...`), AND
+/// `packed-refs` (where the ref lives once `git gc`/`pack-refs` has packed
+/// it), so a commit change via any of those paths forces a rerun. Best-effort:
+/// outside a git checkout (e.g. a release tarball) these paths just don't
+/// exist and the sha falls back to "unknown".
+fn rerun_on_git_commit_change() {
+    let git_dir = std::path::Path::new("../.git");
+    let head = git_dir.join("HEAD");
+    println!("cargo:rerun-if-changed={}", head.display());
+    if let Ok(content) = std::fs::read_to_string(&head) {
+        if let Some(reference) = content.strip_prefix("ref:").map(str::trim) {
+            println!("cargo:rerun-if-changed={}", git_dir.join(reference).display());
+        }
+    }
+    println!("cargo:rerun-if-changed={}", git_dir.join("packed-refs").display());
 }
