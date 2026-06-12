@@ -36,16 +36,19 @@ Master save (read-only): `claude-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ p
 
 ## Next steps
 0. **DEPLOY-PENDING on tuxedo (it went offline / lid closed mid-session).**
-   `origin/main` is at `f75e093`. tuxedo's running dashboard binary is
-   `5d63c7f` (per-session delete feature — live, working). Its `/mnt/data`
-   webapp checkout is behind at `3059270`. When tuxedo's back:
-   `cd /mnt/data/.../r2-workshop && git pull` then **hard-refresh the browser
-   (Ctrl-Shift-R)** — that lands the real "Sample at" dropdown fix (`f75e093`,
-   skip session-card re-render when data unchanged) + the per-session delete
-   button. NO dashboard rebuild needed for the webapp (static, served from
-   disk). A rebuild only matters to pick up the `build.rs` version-stamp fix
-   (cosmetic) and is otherwise optional. Then have Roy re-test: the dropdown
-   holding its pick during recording, and 🗑 Delete session.
+   `origin/main` is at `930f196`. tuxedo's running dashboard binary is
+   `5d63c7f` (per-session delete — live, working); its `/mnt/data` webapp
+   checkout is behind. When tuxedo's back, on `/mnt/data/.../r2-workshop`:
+   - `git pull` → then **hard-refresh the browser (Ctrl-Shift-R)**: lands the
+     real "Sample at" dropdown fix (`f75e093`, skip session-card re-render when
+     unchanged) + per-session delete button. **No rebuild** (webapp is static).
+   - **Rebuild + restart the dashboard** to land the two Rust fixes:
+     (a) **flapping fix** (`930f196`) — steady-state sync_pulse keepalive 30s→10s
+     so idle sensors don't trip the 15s read timeout; UNTESTED on hardware,
+     verify idle sensors stay connected. (b) build.rs version-stamp fix
+     (cosmetic). Restart drops sensors ~90s.
+   - Then have Roy re-test: dropdown holds its pick during recording, 🗑 Delete
+     session, and idle-sensor flapping gone.
 1. **Server release — HELD.** When Roy gives an explicit version, cut
    `server-vX.Y.Z` (`build-server.sh` is ready; tag `server-v0.3.1` already
    exists if 0.3.1 is wanted). Do not publish without his go.
