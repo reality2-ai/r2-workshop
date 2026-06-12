@@ -5682,7 +5682,29 @@ class R2SessionCard extends HTMLElement {
   set session(s) {
     this._session = s;
     if (s) this.setAttribute('data-stem', s.session_stem);
+    // Only rebuild the card's DOM when its data actually changed.
+    // renderSessionsView re-sets `.session` on every existing card every pass,
+    // so an un-guarded render() here means a burst of unrelated events
+    // (capture.state during a recording, telemetry) rebuilds the card's
+    // innerHTML each frame — recreating the per-session "Sample at" <select>
+    // and snapping it shut under the operator. Skipping the no-op render keeps
+    // the dropdown (and scroll/focus) stable; the card still updates the moment
+    // a file syncs/changes or the session is deleted.
+    const sig = R2SessionCard._sig(s);
+    if (sig === this._sig) return;
+    this._sig = sig;
     this.render();
+  }
+  // Cheap content signature: the bits render() actually paints. A change here
+  // (a synced file appears, a size settles, the session is dropped) forces a
+  // re-render; everything else is a no-op.
+  static _sig(s) {
+    if (!s) return '';
+    const files = (s.files || [])
+      .map((f) => `${f.kind}:${f.device_safe}:${f.size}`)
+      .sort()
+      .join('|');
+    return `${s.session_stem}#${s.total_size}#${files}`;
   }
   connectedCallback() { this.render(); }
   render() {
