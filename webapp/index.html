@@ -3516,6 +3516,17 @@ function restoreMergedBinPref() {
   });
 }
 
+/// Per-session "Sample at" picker preference. Shares the global merged-bin
+/// key so the setting is consistent across the page, and — crucially — is
+/// read by R2SessionCard.render() to mark the right <option selected>, so a
+/// card rebuild keeps the operator's pick instead of snapping back to 10 ms.
+function getSessionBinPref() {
+  return localStorage.getItem(LS_DATA_MERGED_BIN) || '10';
+}
+function saveSessionBinPref(v) {
+  localStorage.setItem(LS_DATA_MERGED_BIN, v);
+}
+
 async function downloadMergedLatest() {
   if (!lastMarkedFilename) {
     alert('No marked capture in this session yet.');
@@ -5680,6 +5691,10 @@ class R2SessionCard extends HTMLElement {
 
     const dataFiles = (s.files || []).filter((f) => f.kind === 'data');
     const markFiles = (s.files || []).filter((f) => f.kind === 'marks');
+    // Persisted "Sample at" choice — so a re-render (which rebuilds this
+    // card's innerHTML, recreating the <select>) keeps the operator's pick
+    // instead of snapping back to the hardcoded default.
+    const bin = getSessionBinPref();
 
     // Aggregate event marks across all sidecars in this session.
     // Each entry: {ts_ms, mark_id, label, device_safe}. Sorted.
@@ -5735,11 +5750,12 @@ class R2SessionCard extends HTMLElement {
             <label class="session-bin-picker"
                    title="Average samples into time buckets so timestamps line up across sensors. Raw = no averaging.">
               Sample at:
-              <select id="sessionBin-${escHtml(s.session_stem)}">
-                <option value="0">Raw</option>
-                <option value="10" selected>10 ms</option>
-                <option value="100">100 ms</option>
-                <option value="1000">1 s</option>
+              <select id="sessionBin-${escHtml(s.session_stem)}"
+                      onchange="saveSessionBinPref(this.value)">
+                <option value="0"    ${bin === '0'    ? 'selected' : ''}>Raw</option>
+                <option value="10"   ${bin === '10'   ? 'selected' : ''}>10 ms</option>
+                <option value="100"  ${bin === '100'  ? 'selected' : ''}>100 ms</option>
+                <option value="1000" ${bin === '1000' ? 'selected' : ''}>1 s</option>
               </select>
             </label>
             <button class="session-merged-btn"
@@ -6490,6 +6506,7 @@ Object.assign(window, {
   requestClearLocalStore,
   downloadMergedForSession,
   deleteSession,
+  saveSessionBinPref,
   // Link tab (SPEC-R2-WORKSHOP-ACCESS).
   loadLinkMembers,
   openOnboardModal,
