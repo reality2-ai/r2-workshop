@@ -1561,9 +1561,17 @@ async fn handle_sensor_connection(stream: TcpStream, addr: SocketAddr, state: Ar
         });
     }
 
-    // Per-peer sync_pulse task. Per SPEC-R2-WORKSHOP-TIMESYNC §3.1 cadence:
-    // 1 Hz for the first 30 s after this TCP connect, then 30 s thereafter.
-    // Exits when the cmd_tx send fails (peer disconnected, channel closed).
+    // Per-peer sync_pulse task. 1 Hz for the first 30 s after this TCP
+    // connect, then steady-state thereafter. The steady-state interval
+    // DOUBLES as the connection keepalive: each pulse draws a `sync_pong`
+    // back from the sensor, which is the only periodic traffic an *idle*
+    // (non-streaming) sensor produces inside the 15 s read-idle timeout
+    // (the firmware's other periodic frame, battery, is every 30 s). So it
+    // MUST stay comfortably below that timeout — at 30 s it didn't, and idle
+    // sensors flapped (closed for "no traffic in 15 s", then reconnected).
+    // 10 s keeps every idle peer alive with margin. (SPEC-R2-WORKSHOP-TIMESYNC
+    // §3.1 cadence note: steady-state pulse interval < dashboard read timeout.)
+    const SYNC_STEADY_SECS: u64 = 10;
     let sync_tx = cmd_tx.clone();
     let sync_state_for_task = sync_state.clone();
     let sync_addr = addr;
@@ -1573,7 +1581,7 @@ async fn handle_sensor_connection(stream: TcpStream, addr: SocketAddr, state: Ar
             let interval = if Instant::now() < fast_until {
                 std::time::Duration::from_secs(1)
             } else {
-                std::time::Duration::from_secs(30)
+                std::time::Duration::from_secs(SYNC_STEADY_SECS)
             };
             // Acquire a req_id and record the dashboard-side T1 before
             // sending, so the pong handler can look it up by req_id.
