@@ -35,20 +35,16 @@ Master save (read-only): `claude-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ p
   explicit version from Roy. (Server code is at 0.3.1.)
 
 ## Next steps
-0. **DEPLOY-PENDING on tuxedo (it went offline / lid closed mid-session).**
-   `origin/main` is at `930f196`. tuxedo's running dashboard binary is
-   `5d63c7f` (per-session delete — live, working); its `/mnt/data` webapp
-   checkout is behind. When tuxedo's back, on `/mnt/data/.../r2-workshop`:
-   - `git pull` → then **hard-refresh the browser (Ctrl-Shift-R)**: lands the
-     real "Sample at" dropdown fix (`f75e093`, skip session-card re-render when
-     unchanged) + per-session delete button. **No rebuild** (webapp is static).
-   - **Rebuild + restart the dashboard** to land the two Rust fixes:
-     (a) **flapping fix** (`930f196`) — steady-state sync_pulse keepalive 30s→10s
-     so idle sensors don't trip the 15s read timeout; UNTESTED on hardware,
-     verify idle sensors stay connected. (b) build.rs version-stamp fix
-     (cosmetic). Restart drops sensors ~90s.
-   - Then have Roy re-test: dropdown holds its pick during recording, 🗑 Delete
-     session, and idle-sensor flapping gone.
+0. **DEPLOYED to tuxedo @ `d88670a8` (2026-06-12).** Dashboard rebuilt + running
+   the latest; `/api/version` correctly shows `d88670a8` clean (build.rs
+   version-stamp fix validated). Per-session delete route live (200).
+   **Awaiting Roy's verification:**
+   - **Hard-refresh the browser (Ctrl-Shift-R)** to load the new webapp →
+     confirm the "Sample at" dropdown holds its pick during recording, and
+     the 🗑 Delete session button works (local + SD, offline tombstones).
+   - **Power the sensors** → confirm the **flapping fix** (idle keepalive 30s→10s
+     vs 15s read timeout): idle sensors should now stay connected instead of
+     dropping every few seconds. (Deployed but untested — 0 sensors at deploy.)
 1. **Server release — HELD.** When Roy gives an explicit version, cut
    `server-vX.Y.Z` (`build-server.sh` is ready; tag `server-v0.3.1` already
    exists if 0.3.1 is wanted). Do not publish without his go.
