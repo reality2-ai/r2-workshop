@@ -16,7 +16,7 @@
 //! on every boot from a directory scan. Operators who want to wipe
 //! the laptop's captures can `rm -rf` the directory and restart.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
@@ -95,6 +95,13 @@ pub struct CapturesStore {
     /// fine, the `(ts_ms, label)` pair disambiguates downstream
     /// (CAPTURE §7.5).
     next_mark_id: AtomicU32,
+    /// Persistent delete-tombstones — `(device_pk, sensor_filename)` pairs the
+    /// operator deleted while a sensor was offline. The sync engine deletes
+    /// these off the SD instead of re-syncing them (else a deleted session
+    /// reappears on reconnect), then clears the tombstone. Persisted to
+    /// `.tombstones.json` so a restart between the delete and the reconnect
+    /// doesn't resurrect the session.
+    tombstones: Mutex<HashSet<IndexKey>>,
 }
 
 impl CapturesStore {
@@ -153,12 +160,15 @@ impl CapturesStore {
             }
         }
 
-        eprintln!("[captures] {} entries indexed under {:?}", index.len(), dir);
+        let tombstones = read_tombstones(&dir);
+        eprintln!("[captures] {} entries indexed under {:?} ({} delete-tombstones)",
+            index.len(), dir, tombstones.len());
 
         Ok(Arc::new(Self {
             dir,
             index: Mutex::new(index),
             next_mark_id: AtomicU32::new(1),
+            tombstones: Mutex::new(tombstones),
         }))
     }
 
@@ -325,6 +335,88 @@ impl CapturesStore {
         Ok(removed)
     }
 
+    /// Delete a whole session from the logical store: remove the
+    /// controller-local files now, AND tombstone the session's SD-side files
+    /// so a connected sensor's copy is wiped (by the caller) and an offline
+    /// sensor's copy is wiped on reconnect (by the sync engine) rather than
+    /// re-synced. Returns `(local files removed, SD delete-targets)` where
+    /// each target is `(device_pk, sensor_filename)` for the caller to wipe
+    /// off any currently-connected sensor. Only index entries for this stem
+    /// are touched, so a bogus/`..`-laden stem matches nothing.
+    pub async fn delete_session(&self, stem: &str) -> std::io::Result<(usize, Vec<IndexKey>)> {
+        let data_name = format!("{stem}.csv");
+        let marks_name = format!("{stem}.marks.csv");
+
+        let mut g = self.index.lock().await;
+        let mut device_pks: HashSet<String> = HashSet::new();
+        let mut paths: Vec<PathBuf> = Vec::new();
+        for e in g.values() {
+            if e.session_stem == stem {
+                device_pks.insert(e.device_pk.clone());
+                paths.push(e.controller_path.clone());
+            }
+        }
+        g.retain(|_, e| e.session_stem != stem);
+        drop(g);
+
+        let mut removed = 0usize;
+        for path in &paths {
+            match std::fs::remove_file(path) {
+                Ok(_) => removed += 1,
+                Err(e) => eprintln!("[captures] remove {:?}: {e}", path),
+            }
+        }
+
+        // SD targets: the data file + marks sidecar, per real device. Synthetic
+        // `alias:` pks (from a disk scan before the sensor reconnected) can't be
+        // matched to a live sensor, so we don't tombstone them — such a session
+        // re-syncs once and needs a second delete once the sensor is back.
+        let mut targets: Vec<IndexKey> = Vec::new();
+        for pk in device_pks.iter().filter(|p| !p.starts_with("alias:")) {
+            targets.push((pk.clone(), data_name.clone()));
+            targets.push((pk.clone(), marks_name.clone()));
+        }
+        if !targets.is_empty() {
+            let mut t = self.tombstones.lock().await;
+            for key in &targets { t.insert(key.clone()); }
+            let snapshot: Vec<IndexKey> = t.iter().cloned().collect();
+            drop(t);
+            write_tombstones(&self.dir, &snapshot);
+        }
+        Ok((removed, targets))
+    }
+
+    /// True if `(device_pk, sensor_filename)` was deleted by the operator and
+    /// must be wiped off the SD instead of re-synced (sync-engine guard).
+    pub async fn is_tombstoned(&self, device_pk: &str, sensor_filename: &str) -> bool {
+        let t = self.tombstones.lock().await;
+        t.contains(&(device_pk.to_string(), sensor_filename.to_string()))
+    }
+
+    /// Drop a tombstone once its SD file has been deleted (or confirmed gone).
+    pub async fn clear_tombstone(&self, device_pk: &str, sensor_filename: &str) {
+        let mut t = self.tombstones.lock().await;
+        if t.remove(&(device_pk.to_string(), sensor_filename.to_string())) {
+            let snapshot: Vec<IndexKey> = t.iter().cloned().collect();
+            drop(t);
+            write_tombstones(&self.dir, &snapshot);
+        }
+    }
+
+    /// Self-clean: drop any tombstone for `device_pk` whose file no longer
+    /// appears in the sensor's current LIST (SD ring already rotated it out, or
+    /// it was deleted) so the tombstone set can't grow without bound.
+    pub async fn prune_tombstones(&self, device_pk: &str, present: &[String]) {
+        let mut t = self.tombstones.lock().await;
+        let before = t.len();
+        t.retain(|(pk, fname)| pk != device_pk || present.iter().any(|f| f == fname));
+        if t.len() != before {
+            let snapshot: Vec<IndexKey> = t.iter().cloned().collect();
+            drop(t);
+            write_tombstones(&self.dir, &snapshot);
+        }
+    }
+
     /// Look up an entry by the on-disk filename (used by
     /// `/api/data/local/file/{name}` to validate the request).
     pub async fn lookup_on_disk_name(&self, on_disk_name: &str) -> Option<CaptureEntry> {
@@ -386,6 +478,32 @@ fn now_ms() -> u64 {
         .duration_since(SystemTime::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+/// `.tombstones.json` lives in the captures dir alongside the CSVs.
+fn tombstones_path(dir: &Path) -> PathBuf {
+    dir.join(".tombstones.json")
+}
+
+/// Load the persisted delete-tombstones (best-effort — a missing/corrupt file
+/// is treated as an empty set).
+fn read_tombstones(dir: &Path) -> HashSet<IndexKey> {
+    let Ok(s) = std::fs::read_to_string(tombstones_path(dir)) else { return HashSet::new(); };
+    serde_json::from_str::<Vec<IndexKey>>(&s)
+        .map(|v| v.into_iter().collect())
+        .unwrap_or_default()
+}
+
+/// Persist the tombstone set (called whenever it changes).
+fn write_tombstones(dir: &Path, set: &[IndexKey]) {
+    match serde_json::to_string(set) {
+        Ok(s) => {
+            if let Err(e) = std::fs::write(tombstones_path(dir), s) {
+                eprintln!("[captures] write tombstones: {e}");
+            }
+        }
+        Err(e) => eprintln!("[captures] serialize tombstones: {e}"),
+    }
 }
 
 fn atomic_write(path: &Path, bytes: &[u8]) -> std::io::Result<()> {

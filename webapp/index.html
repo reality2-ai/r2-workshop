@@ -554,6 +554,28 @@
   r2-session-card .session-merged-btn:hover {
     background: rgba(56, 189, 248, 0.08);
   }
+  r2-session-card .session-actions-row {
+    display: flex;
+    justify-content: flex-end;
+    padding: 6px 10px 8px;
+  }
+  r2-session-card .session-delete-btn {
+    background: transparent;
+    color: var(--text-danger, #f87171);
+    border: 1px solid rgba(248, 113, 113, 0.35);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  r2-session-card .session-delete-btn:hover {
+    background: rgba(248, 113, 113, 0.10);
+  }
+  r2-session-card .session-delete-btn:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
   r2-session-card .session-body {
     margin-top: 10px;
     padding-top: 10px;
@@ -5726,6 +5748,13 @@ class R2SessionCard extends HTMLElement {
               💾 Download merged CSV
             </button>
           </div>` : ''}
+        <div class="session-actions-row" onclick="event.stopPropagation()">
+          <button class="session-delete-btn"
+                  onclick="deleteSession('${escHtml(s.session_stem)}', this)"
+                  title="Delete this whole session everywhere — the controller's local copy and each sensor's SD copy (now if the sensor is connected, on reconnect if it's offline).">
+            🗑 Delete session
+          </button>
+        </div>
       </div>
     `;
 
@@ -5899,6 +5928,30 @@ async function downloadMergedForSession(sessionStem, btn) {
       btn.disabled = false;
       if (originalLabel) btn.textContent = originalLabel;
     }
+  }
+}
+
+/// Delete a whole session from the store: controller-local copy + each
+/// sensor's SD copy (now if connected, on reconnect if offline — the
+/// controller tombstones it so it never re-syncs). Drops the card from this
+/// viewer immediately; the data itself is gone server-side.
+async function deleteSession(stem, btn) {
+  if (!confirm(`Delete the entire session "${stem}"?\n\nRemoves the controller's local copy AND each sensor's SD copy (now if the sensor is connected, on reconnect if it's offline). This cannot be undone.`)) return;
+  const prevLabel = btn ? btn.textContent : null;
+  if (btn) { btn.disabled = true; btn.textContent = '🗑 Deleting…'; }
+  try {
+    const res = await fetch(`/api/data/session/${encodeURIComponent(stem)}`, { method: 'DELETE' });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || j.ok === false) throw new Error(j.error || `HTTP ${res.status}`);
+    // Drop this session's entries from the synced index so the card vanishes.
+    for (const [key, e] of _syncedIndex) {
+      if (e.session_stem === stem) _syncedIndex.delete(key);
+    }
+    renderDataViewIfVisible();
+  } catch (err) {
+    console.warn('[data] delete session', err);
+    alert(`Delete failed: ${err.message}`);
+    if (btn) { btn.disabled = false; btn.textContent = prevLabel; }
   }
 }
 
@@ -6436,6 +6489,7 @@ Object.assign(window, {
   requestDeleteAllFleet,
   requestClearLocalStore,
   downloadMergedForSession,
+  deleteSession,
   // Link tab (SPEC-R2-WORKSHOP-ACCESS).
   loadLinkMembers,
   openOnboardModal,

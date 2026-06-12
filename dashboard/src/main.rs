@@ -1036,6 +1036,7 @@ async fn main() {
         .route("/api/data/local/list",         get(data_local_list_handler))
         .route("/api/data/local/file/{name}",  get(data_local_file_handler))
         .route("/api/data/local/all",          axum::routing::delete(data_local_delete_all_handler))
+        .route("/api/data/session/{stem}",     axum::routing::delete(data_delete_session_handler))
         // Operator-assigned device aliases. Persisted to
         // ~/.config/r2-workshop/device_aliases.json. Read by every
         // dashboard browser session on load + applied on top of the
@@ -4713,6 +4714,51 @@ async fn data_local_delete_all_handler(
     }
 }
 
+/// `DELETE /api/data/session/{stem}` — delete one session from the logical
+/// store. The store is the abstraction: a session's data lives both on the
+/// controller (auto-synced) and on each sensor's SD (the original, left after
+/// sync), so "delete" removes both. Local copies go now; the SD copy is wiped
+/// on any currently-connected sensor immediately and on offline sensors when
+/// they reconnect (via the persistent tombstone), so a deleted session never
+/// re-syncs back.
+async fn data_delete_session_handler(
+    State(state): State<Arc<AppState>>,
+    Path(stem): Path<String>,
+) -> impl IntoResponse {
+    let (removed_local, targets) = match state.captures.delete_session(&stem).await {
+        Ok(v) => v,
+        Err(e) => return (axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"ok": false, "error": e.to_string()}))).into_response(),
+    };
+    let mut sd_deleted = 0usize;
+    let mut sd_pending = 0usize;
+    for (device_pk, name) in &targets {
+        let ip = {
+            let peers = state.peers.read().await;
+            peers.iter()
+                .find(|(_, p)| p.device_pk.as_deref() == Some(device_pk.as_str()))
+                .map(|(sa, _)| sa.ip().to_string())
+        };
+        match ip {
+            Some(ip) if delete_file_on_sensor(&ip, name).await => {
+                state.captures.clear_tombstone(device_pk, name).await;
+                sd_deleted += 1;
+            }
+            // Offline (no live peer) or the SD delete failed / file absent —
+            // the tombstone stays and the sync engine reconciles on reconnect
+            // (and self-prunes if the file's already gone).
+            _ => sd_pending += 1,
+        }
+    }
+    eprintln!("[captures] delete session '{stem}': {removed_local} local, {sd_deleted} SD now, {sd_pending} tombstoned");
+    (axum::http::StatusCode::OK, Json(serde_json::json!({
+        "ok": true,
+        "removed_local": removed_local,
+        "sd_deleted": sd_deleted,
+        "sd_pending": sd_pending,
+    }))).into_response()
+}
+
 /// `GET /api/data/local/file/{name}` — stream a single file from the
 /// controller-local captures dir per SPEC-R2-WORKSHOP-DASHBOARD §5.1.
 /// `{name}` is the `<stem>__<dev>.csv` (or `.marks.csv`) filename as
@@ -4952,7 +4998,20 @@ async fn reconcile_single_peer(
             return;
         }
     };
+    // Self-clean: drop any tombstone for this device whose file is no longer
+    // on the SD (already gone / rotated out) so the set can't grow unbounded.
+    state.captures.prune_tombstones(device_pk, &listing).await;
     for fname in listing {
+        // The operator deleted this session while the sensor was offline — wipe
+        // the SD copy now instead of re-syncing it, then drop the tombstone, so
+        // a deleted session never reappears on reconnect.
+        if state.captures.is_tombstoned(device_pk, &fname).await {
+            if delete_file_on_sensor(&addr_listen, &fname).await {
+                state.captures.clear_tombstone(device_pk, &fname).await;
+                eprintln!("[sync recon] {ip}: wiped tombstoned {fname} off SD (deleted session)");
+            }
+            continue;
+        }
         if state.captures.has(device_pk, &fname).await { continue; }
         let is_marks = fname.ends_with(".marks.csv");
         broadcast_sync_started(state, device_pk, &fname,
@@ -5072,6 +5131,22 @@ async fn fetch_file_on_sensor(addr: &str, name: &str) -> std::io::Result<Vec<u8>
     let mut body = vec![0u8; size];
     s.read_exact(&mut body).await?;
     Ok(body)
+}
+
+/// Delete one capture file off a sensor's SD via `data_tcp` OP_DEL
+/// (`[0x03][u16 BE len][name]` → status byte). Returns true on `ST_OK`.
+/// Best-effort: any transport error returns false. Used by the per-session
+/// delete handler and the sync engine's tombstone reconciliation.
+async fn delete_file_on_sensor(addr: &str, name: &str) -> bool {
+    let mut s = match dial_data_tcp(addr).await { Ok(s) => s, Err(_) => return false };
+    let mut req = Vec::with_capacity(3 + name.len());
+    req.push(0x03);
+    req.extend_from_slice(&(name.len() as u16).to_be_bytes());
+    req.extend_from_slice(name.as_bytes());
+    if s.write_all(&req).await.is_err() { return false; }
+    let mut status = [0u8; 1];
+    if s.read_exact(&mut status).await.is_err() { return false; }
+    status[0] == ST_OK
 }
 
 /// Path used by `load_device_aliases` / `save_device_aliases`. We
