@@ -3014,9 +3014,37 @@ function setView(name) {
 
 let lastMarkedFilename = null; // remembered between Mark and the "merged download" button press
 
+let _dataViewDirty = false;
 function renderDataViewIfVisible() {
-  if (currentView === 'data') renderDataView();
+  if (currentView !== 'data') return;
+  // Don't rebuild the Data view while the operator is mid-interaction with a
+  // control in it. renderDataView() replaces the area's innerHTML, recreating
+  // the per-session "Sample at" <select> (and file rows) — and during a
+  // recording, `r2.sensor.capture.state` frames stream in continuously, so an
+  // un-guarded rebuild yanks the open dropdown closed before a choice can be
+  // made. Defer the render and flush it once focus leaves the control.
+  const ae = document.activeElement;
+  if (ae && ae.closest && ae.closest('#dataArea')
+      && (ae.tagName === 'SELECT' || ae.tagName === 'INPUT')) {
+    _dataViewDirty = true;
+    return;
+  }
+  renderDataView();
 }
+
+// Flush a deferred Data-view render once the operator leaves the control that
+// was holding it open (pairs with the guard in renderDataViewIfVisible).
+document.addEventListener('focusout', () => {
+  if (!_dataViewDirty) return;
+  setTimeout(() => {
+    if (!_dataViewDirty) return;
+    const ae = document.activeElement;
+    if (ae && ae.closest && ae.closest('#dataArea')
+        && (ae.tagName === 'SELECT' || ae.tagName === 'INPUT')) return;
+    _dataViewDirty = false;
+    if (currentView === 'data') renderDataView();
+  }, 0);
+});
 
 function renderDataView() {
   const area = document.getElementById('dataArea');
