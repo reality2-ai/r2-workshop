@@ -109,7 +109,12 @@ impl CapturesStore {
     /// the index. Idempotent — calling on a startup where some files
     /// already exist on disk picks them up without re-fetching.
     pub async fn load() -> std::io::Result<Arc<Self>> {
-        let dir = captures_dir();
+        Self::load_from(captures_dir()).await
+    }
+
+    /// `load()` against an explicit captures dir — a testability seam so unit
+    /// tests can point the store at a temp dir without racing `XDG_DATA_HOME`.
+    async fn load_from(dir: PathBuf) -> std::io::Result<Arc<Self>> {
         std::fs::create_dir_all(&dir)?;
 
         let mut index: HashMap<IndexKey, CaptureEntry> = HashMap::new();
@@ -558,5 +563,83 @@ mod tests {
         ).unwrap();
         assert_eq!(stem, "2026_05_26_some_under_scored_stem.csv");
         assert_eq!(dev, "alias");
+    }
+
+    static TEST_DIR_COUNTER: std::sync::atomic::AtomicU32 =
+        std::sync::atomic::AtomicU32::new(0);
+    fn temp_dir(tag: &str) -> PathBuf {
+        let n = TEST_DIR_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let p = std::env::temp_dir()
+            .join(format!("r2ws-captures-test-{}-{}-{}", std::process::id(), tag, n));
+        let _ = std::fs::remove_dir_all(&p);
+        std::fs::create_dir_all(&p).unwrap();
+        p
+    }
+
+    #[test]
+    fn tombstone_persistence_roundtrip() {
+        let dir = temp_dir("ts");
+        // Missing file → empty set.
+        assert!(read_tombstones(&dir).is_empty());
+        // Write + read back exactly.
+        let set: Vec<IndexKey> = vec![
+            ("pkA".into(), "run1.csv".into()),
+            ("pkA".into(), "run1.marks.csv".into()),
+            ("pkB".into(), "run1.csv".into()),
+        ];
+        write_tombstones(&dir, &set);
+        let back = read_tombstones(&dir);
+        assert_eq!(back.len(), 3);
+        assert!(back.contains(&("pkA".to_string(), "run1.csv".to_string())));
+        assert!(back.contains(&("pkB".to_string(), "run1.csv".to_string())));
+        // Corrupt file → empty (tolerant), never panics. This is the failure
+        // mode that would otherwise resurrect a deleted session.
+        std::fs::write(tombstones_path(&dir), b"{ not json").unwrap();
+        assert!(read_tombstones(&dir).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn delete_session_removes_local_tombstones_and_self_prunes() {
+        let dir = temp_dir("del");
+        let store = CapturesStore::load_from(dir.clone()).await.unwrap();
+        // Two sensors recorded the same session "run1"; an unrelated "run2".
+        store.write_data("pkLeft",  "left",  "run1.csv", b"x,y,z\n1,2,3\n", 0).await.unwrap();
+        store.write_data("pkRight", "right", "run1.csv", b"x,y,z\n4,5,6\n", 0).await.unwrap();
+        store.write_data("pkLeft",  "left",  "run2.csv", b"x,y,z\n7,8,9\n", 0).await.unwrap();
+
+        let (removed, targets) = store.delete_session("run1").await.unwrap();
+        assert_eq!(removed, 2, "both run1 local files removed");
+        assert!(dir.join("run2__left.csv").exists(), "unrelated session survives");
+        assert!(!dir.join("run1__left.csv").exists());
+        assert!(!dir.join("run1__right.csv").exists());
+
+        // SD delete-targets: per device, the data file + the marks sidecar.
+        let got: HashSet<IndexKey> = targets.into_iter().collect();
+        let want: HashSet<IndexKey> = [
+            ("pkLeft".into(),  "run1.csv".into()),
+            ("pkLeft".into(),  "run1.marks.csv".into()),
+            ("pkRight".into(), "run1.csv".into()),
+            ("pkRight".into(), "run1.marks.csv".into()),
+        ].into_iter().collect();
+        assert_eq!(got, want);
+
+        // Tombstones recorded, persisted, and queryable; unrelated session clear.
+        assert!(store.is_tombstoned("pkLeft", "run1.csv").await);
+        assert!(store.is_tombstoned("pkRight", "run1.marks.csv").await);
+        assert!(!store.is_tombstoned("pkLeft", "run2.csv").await);
+        assert!(!read_tombstones(&dir).is_empty(), "tombstones persisted to disk");
+
+        // Connected-sensor path clears the tombstone it just wiped off the SD.
+        store.clear_tombstone("pkLeft", "run1.csv").await;
+        assert!(!store.is_tombstoned("pkLeft", "run1.csv").await);
+
+        // Self-prune: drop a device's tombstone whose file is no longer listed
+        // (SD rotated it out / already gone), keep the one that is.
+        store.prune_tombstones("pkRight", &["run1.csv".to_string()]).await;
+        assert!(store.is_tombstoned("pkRight", "run1.csv").await, "still listed → kept");
+        assert!(!store.is_tombstoned("pkRight", "run1.marks.csv").await, "absent → pruned");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
