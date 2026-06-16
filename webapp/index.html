@@ -1155,6 +1155,14 @@
     box-shadow: 0 0 4px #ec4899;
     vertical-align: middle;
   }
+  /* Outdated but not auto-updatable (pre-v0.3: no announced carrier, or no
+     matching asset) — amber, to distinguish from the pink auto-updatable dot.
+     Hover for the "use the card's Update Firmware button" hint. */
+  .fw-update-dot-manual {
+    background: #f59e0b;
+    box-shadow: 0 0 4px #f59e0b;
+    cursor: help;
+  }
 
   .theme-toggle { background: transparent; border: 1px solid currentColor; color: inherit;
     border-radius: 6px; padding: 4px 8px; cursor: pointer; margin-right: 8px; font-size: 14px; }
@@ -5379,17 +5387,34 @@ class R2DeviceCard extends HTMLElement {
     // Firmware row + needs-update dot.
     const fwShort = s.fwVer ?? '—';
     const targetVer = availableFirmware?.version || null;
+    // Outdated = a target exists, the sensor reports a version, it differs, and
+    // no published asset already matches it.
     const fwOutdated = !!(targetVer && s.fwVer && s.fwVer !== targetVer
       && !availableFirmware.assets.some((a) => a.version === s.fwVer));
-    s._needsUpdate = fwOutdated;
-    const fwSig = `${fwShort}|${fwOutdated ? targetVer : ''}`;
+    // Auto-updatable = outdated AND we can actually pick a binary: the sensor
+    // announced a carrier (pre-v0.3 firmware doesn't) AND this release has an
+    // asset for it. ONLY these drive the bulk "Pull → N" count/button, so it
+    // never promises an update the bulk action would then skip ("no sensors
+    // can be updated"). Pre-v0.3 / no-asset sensors are flagged as manual.
+    const autoUpdatable = fwOutdated && !!s.carrier
+      && (availableFirmware?.assets ?? []).some((a) => a.carrier === s.carrier);
+    const fwManual = fwOutdated && !autoUpdatable;
+    s._needsUpdate = autoUpdatable;
+    s._outdatedManual = fwManual;
+    const fwSig = `${fwShort}|${autoUpdatable ? 'A' : ''}${fwManual ? 'M' : ''}${(autoUpdatable || fwManual) ? targetVer : ''}`;
     if (last.fwSig !== fwSig) {
       r.fw.title = s.fwVer ?? '—';
       r.fw.textContent = fwShort;
-      if (fwOutdated) {
+      if (autoUpdatable) {
         const dot = document.createElement('span');
         dot.className = 'fw-update-dot';
-        dot.title = `newer firmware available: ${targetVer}`;
+        dot.title = `newer firmware available: ${targetVer} (Update All, or this card’s Update Firmware)`;
+        r.fw.appendChild(dot);
+      } else if (fwManual) {
+        const dot = document.createElement('span');
+        dot.className = 'fw-update-dot fw-update-dot-manual';
+        dot.title = `outdated (target ${targetVer}) — no carrier announced (pre-v0.3 firmware); `
+          + `update via this card’s "⬆ Update Firmware" button (pick the .bin)`;
         r.fw.appendChild(dot);
       }
       last.fwSig = fwSig;
