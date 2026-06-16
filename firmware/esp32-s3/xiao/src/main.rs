@@ -223,10 +223,13 @@ fn run(
         // inside the sender thread once we know whether ADXL355 init
         // succeeded. See SPEC-R2-WORKSHOP-SENSOR-HEALTH §4.
 
-        // OTA-rollback gate is now fired by the sender on first
-        // successful TCP frame round-trip (§12.2-tightened). A buggy
-        // firmware that joins WiFi but can't reach the dashboard never
-        // marks itself valid, so the bootloader rolls back on next boot.
+        // OTA anti-brick gate is fired by the sender at the streaming
+        // stage on LOCAL self-proof (boot + WiFi + drivers all init'd),
+        // NOT on reaching the dashboard — see `sender::confirm_image_valid`.
+        // Gating on dashboard reach would roll back a good image after a
+        // single transient reset before the first frame (the 0.3.0→0.3.0
+        // revert). An image that crashes during local init never reaches
+        // the gate, so the bootloader still rolls those back on next boot.
 
         // Phase 9-light — OTA receive listener on TCP port 21043. Accepts
         // CMD_START preamble (sha256 + size) + firmware stream, writes to

@@ -12,8 +12,7 @@
 use anyhow::{Context, Result};
 use esp_idf_svc::hal::delay::FreeRtos;
 use esp_idf_svc::sys::{
-    esp_mac_type_t_ESP_MAC_WIFI_STA, esp_ota_mark_app_valid_cancel_rollback,
-    esp_random, esp_read_mac, ESP_OK,
+    esp_mac_type_t_ESP_MAC_WIFI_STA, esp_random, esp_read_mac,
 };
 use log::{info, warn};
 use std::io::{Read, Write};
@@ -116,12 +115,6 @@ pub struct Sender {
     /// NVS persistence, deferred.
     last_acked_seq: u32,
     boot_instant: Instant,
-    /// OTA-rollback gate (SPEC-R2-WORKSHOP-SENSOR §12.2): cleared until
-    /// the first successful TCP frame round-trip, then we tell the
-    /// bootloader the new image is good. A buggy firmware that joins
-    /// WiFi but can't reach the dashboard never sets this, so the
-    /// bootloader rolls back on the next reset.
-    app_validated: bool,
     /// Build identifier sent in every `r2.sensor.announce`. Reflects
     /// the runtime ADXL355 path: includes `-sim` only when we fell back
     /// to the synthetic accelerometer.
@@ -168,7 +161,6 @@ impl Sender {
             capture,
             last_acked_seq: 0,
             boot_instant: Instant::now(),
-            app_validated: false,
             fw_ver,
             class,
             carrier,
@@ -178,6 +170,11 @@ impl Sender {
 
     /// Run forever — connect, stream, reconnect on error.
     pub fn run(&mut self) -> ! {
+        // OTA anti-brick gate — validate the running image as soon as the
+        // streaming stage is reached (local self-proof), BEFORE any
+        // dashboard contact. See `confirm_image_valid`.
+        self.confirm_image_valid();
+
         let mut backoff = RECONNECT_BACKOFF_MS_INIT;
         loop {
             // Reflect "trying to reach the dashboard" on the LED before
@@ -274,14 +271,6 @@ impl Sender {
             let now = Instant::now();
             if now >= next_sample {
                 self.send_sample(&mut stream, seq).context("send_sample")?;
-                // First successful frame round-trip → tell the
-                // bootloader this image is good. Calling more than
-                // once is a no-op on subsequent boots, so the flag
-                // just avoids the syscall after we know it's done.
-                if !self.app_validated {
-                    self.mark_app_valid();
-                    self.app_validated = true;
-                }
                 seq = seq.wrapping_add(1);
                 next_sample += Duration::from_millis(sample_period_ms);
             }
@@ -742,15 +731,33 @@ impl Sender {
         Ok(())
     }
 
-    /// OTA-rollback gate. Called once per session lifetime, the first
-    /// time a frame round-trips successfully to the dashboard.
-    fn mark_app_valid(&self) {
-        let rc = unsafe { esp_ota_mark_app_valid_cancel_rollback() };
-        if rc == ESP_OK {
-            info!("[ota-gate] image marked VALID after first frame round-trip");
-        } else {
-            warn!("[ota-gate] esp_ota_mark_app_valid_cancel_rollback returned {}", rc);
-        }
+    /// OTA anti-brick validity gate (SPEC-R2-WORKSHOP-SENSOR §12.2).
+    ///
+    /// A freshly OTA'd image rolls back on the next reset unless it marks
+    /// itself valid. We do that here, at the streaming stage, because
+    /// reaching this point proves the image ran its ENTIRE local init
+    /// without crashing: identity/clock/NVS → WiFi associate + DHCP →
+    /// BLE beacon/L2CAP → I2C/SPI bus + accelerometer init (all done in
+    /// `Sender::new`, before `run`). That is the meaningful "this image
+    /// is not a brick" signal.
+    ///
+    /// We deliberately do NOT wait for the dashboard. Gating on dashboard
+    /// reachability conflates a bad *image* with a bad *environment*, so a
+    /// single transient reset before the first frame would needlessly roll
+    /// back a good image (the 0.3.0→0.3.0 revert that motivated this). The
+    /// best-effort sensor self-test below is logged for diagnostics but
+    /// must NOT block validation — a flaky bus must not cause a rollback
+    /// loop, and sim-fallback is a valid degraded operating mode.
+    fn confirm_image_valid(&mut self) {
+        let probe = match self.adxl.as_mut() {
+            Some(accel) => match accel.read_xyz_lsb() {
+                Ok(_) => "accel self-test OK",
+                Err(_) => "accel self-test errored (transient) — continuing",
+            },
+            None => "sim fallback — valid degraded mode",
+        };
+        info!("[ota-gate] streaming stage reached ({probe}) — validating image");
+        r2_esp::ota_tcp::mark_app_valid();
     }
 
     /// Emit `r2.sensor.status` with the current LED FSM state value

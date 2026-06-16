@@ -34,6 +34,51 @@ Master save (read-only): `claude-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ p
   by mistake and deleted it. Do NOT publish a server release without an
   explicit version from Roy. (Server code is at 0.3.1.)
 
+## OTA-revert diagnosis (2026-06-16) — RESOLVED as not-a-bug
+Device 10.42.0.47 (devkitc, running **dev-build** 0.3.0) reverted after a cloud
+OTA of release `fw-v0.3.0`. Forensics:
+- Released asset `...rocker-devkitc-v0.3.0.bin` is **byte-perfect**: size 1530128
+  + sha256 `871db034…` match the OTA-TCP log AND the sidecar. Not corruption.
+- Valid image header: magic OK, ESP32-S3, 8MB, DIO/40MHz. Not a bad image.
+- **No firmware commits since the `fw-v0.3.0` tag** → release image is
+  logically IDENTICAL to the running dev build (only the version string differs).
+- Anti-brick has **no rollback timer**; `mark_app_valid()` fires only on the
+  **first `send_sample` after a dashboard TCP connect** (sender.rs:278).
+- ∴ Revert ⟺ the new image rebooted *before* WiFi-connect → dashboard-connect →
+  first frame. On the flaky-WiFi box this is the rollback working **as designed**,
+  not an OTA bug. (Matches Roy's confirmed flaky-WiFi/BLE theory.)
+- OTA of this release is also **functionally pointless** — identical firmware,
+  cosmetic version string only.
+- Design note for real upgrades (e.g. 0.3.0→0.4.0): gating mark-valid on a full
+  dashboard round-trip makes OTA reliability hostage to network flakiness at the
+  worst moment. Consider marking valid after the image self-proves (boot + WiFi
+  assoc + self-test) rather than requiring an end-to-end dashboard frame — but
+  that's a design change to discuss, low priority given supersede-by-composer.
+
+## OTA validity-gate change (2026-06-16) — DRAFTED, hardware-unverified
+Fix for the revert above + reusable contract for **composer's OTA plugin**
+(Roy: workshop WILL be used in the field before composer is done, so this is a
+real fix, not just reference). Moves the anti-brick gate off the dashboard.
+- **Before:** `mark_app_valid` fired on the **first dashboard frame round-trip**
+  → any single transient reset before that frame rolled back a *good* image.
+- **After:** validate at the **streaming stage on LOCAL self-proof** (boot + all
+  init + WiFi+DHCP + BLE + driver init all done in `Sender::new`), independent
+  of dashboard reachability. ESP-IDF's own docs say mark "as early as possible."
+- **Files:** shared `crates/r2-esp/src/ota_tcp.rs` gains `pub fn mark_app_valid()`
+  (the reusable contract); each carrier's `sender.rs` (devkitc/xiao/dfr1117)
+  replaces the old `mark_app_valid` method + `app_validated` field + loop gate
+  with `confirm_image_valid()` called at top of `run()`; main.rs comments updated.
+- **Trade-off (documented in code):** no longer rolls back an image that boots
+  fine but has a broken dashboard-comms layer — that's an environment/CI concern,
+  not an anti-brick concern. Residual: a deterministic panic in the steady-state
+  send loop won't roll back (but that returns Err → reconnect, doesn't reset).
+- **STATUS:** edits applied, source-clean (no leftover refs). Compile-check
+  running on Alfred. **NOT committed, NOT released** — firmware must be
+  hardware-verified on tuxedo (currently OFF) before any `fw-v` release. Verify:
+  flash, OTA-push it, confirm the new image marks valid right after WiFi/streaming
+  (serial: "[ota-gate] streaming stage reached … validating image") and survives
+  a reboot without rolling back.
+
 ## Next steps
 0. **DEPLOYED to tuxedo @ `d88670a8` (2026-06-12).** Dashboard rebuilt + running
    the latest; `/api/version` correctly shows `d88670a8` clean (build.rs

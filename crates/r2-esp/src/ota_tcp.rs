@@ -27,6 +27,45 @@ pub fn ota_in_progress() -> bool {
     OTA_IN_PROGRESS.load(Ordering::Relaxed)
 }
 
+/// Cancel the bootloader rollback for the **currently running** image —
+/// the OTA anti-brick "validity contract".
+///
+/// A freshly OTA'd image boots in `ESP_OTA_IMG_PENDING_VERIFY`; the
+/// bootloader rolls it back to the previous slot on the next reset
+/// UNLESS the image calls this. There is deliberately **no rollback
+/// timer** (`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` without
+/// `..._WITH_TIMER`), so an image that never calls this does NOT roll
+/// back while it keeps running — the rollback only happens on the next
+/// reset. A slow/unreachable back-end therefore cannot, on its own,
+/// cause a rollback; only an actual reset-before-validate can.
+///
+/// WHERE the caller invokes this is the load-bearing decision. Call it
+/// once the image has proven it boots and runs its full *local* stack
+/// (radio up, drivers initialised, self-test pass). Do **not** gate it
+/// on reaching a back-end server: that conflates a bad *image* with a
+/// bad *environment*, so a single transient reset before the first
+/// round-trip needlessly rolls back a perfectly good image. (This is the
+/// exact failure that reverted a workshop 0.3.0→0.3.0 OTA — identical,
+/// valid firmware rolled back because a transient reset landed before
+/// the first dashboard frame.)
+///
+/// Idempotent: once the image is already VALID a second call is a
+/// harmless no-op, so callers need not track whether they've called it.
+///
+/// NOTE (composer OTA plugin): this is the reusable anti-brick contract.
+/// The transport (`handle_start`) writes + verifies + reboots; the host
+/// pushes; but *who decides the new image is healthy* lives here, and
+/// the rule "validate on local self-proof, never on back-end reach" is
+/// the part worth carrying forward.
+pub fn mark_app_valid() {
+    let rc = unsafe { sys::esp_ota_mark_app_valid_cancel_rollback() };
+    if rc == sys::ESP_OK {
+        info!("[ota-gate] running image marked VALID (rollback cancelled)");
+    } else {
+        warn!("[ota-gate] esp_ota_mark_app_valid_cancel_rollback returned {rc}");
+    }
+}
+
 /// RAII guard — sets the in-progress flag for the lifetime of `handle_start`.
 /// Drop fires on every exit path (success-before-reboot, all error
 /// branches, panic), so the flag stays accurate even if a future change
