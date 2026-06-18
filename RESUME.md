@@ -72,12 +72,13 @@ real fix, not just reference). Moves the anti-brick gate off the dashboard.
   fine but has a broken dashboard-comms layer — that's an environment/CI concern,
   not an anti-brick concern. Residual: a deterministic panic in the steady-state
   send loop won't roll back (but that returns Err → reconnect, doesn't reset).
-- **STATUS:** edits applied, source-clean (no leftover refs). Compile-check
-  running on Alfred. **NOT committed, NOT released** — firmware must be
-  hardware-verified on tuxedo (currently OFF) before any `fw-v` release. Verify:
-  flash, OTA-push it, confirm the new image marks valid right after WiFi/streaming
+- **STATUS:** PUSHED to `origin/main` @ `699ee32` (2026-06-17). Compiles clean
+  on all 3 carriers (S3 xtensa + C6 riscv), source-clean. **Source only — NOT
+  released**; nothing fetches it until a `fw-v` release is cut, which must wait
+  on hardware verification on tuxedo (currently OFF). **Verify when tuxedo is up:**
+  flash → OTA-push it → confirm the new image marks valid right after WiFi/streaming
   (serial: "[ota-gate] streaming stage reached … validating image") and survives
-  a reboot without rolling back.
+  a reboot without rolling back. Only then cut `fw-v0.3.1` (or next).
 
 ## Next steps
 0. **DEPLOYED to tuxedo @ `d88670a8` (2026-06-12).** Dashboard rebuilt + running
