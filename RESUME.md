@@ -1,7 +1,8 @@
 # RESUME — r2-workshop (workshop-worker)
 
 _Owned by this session. Keep current. Last updated 2026-06-09._
-Master save (read-only): `claude-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan + DEV_STATUS).
+Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan + DEV_STATUS).
+(Relocated 2026-06-18 from `claude-fleet/fleet-context/`; claude-fleet is now tooling-code-only.)
 
 ## Roles
 1. **Build & release owner.** Alfred (this `/remote-control workshop` session,
