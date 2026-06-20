@@ -41,13 +41,15 @@ sockets — done on Alfred, pushed.** Branch HEAD `ff01a04`.
   `R2_TN_AP_MAC` hosts the AP (`r2_esp::wifi_ap`, default SSID r2-tn-lab) + listens;
   others join STA + originate to the AP → STA→AP delivery = the hardware frame.
   Aligned to hive field.lab: UDP **21042**, matching partition table.
-- **HARDWARE FIRST-LIGHT — RUNNING ON REAL BOARDS (link-gated on final confirm).**
-  Flashed ttyACM9 (AP, f4:12:fa:b6:0a:a0) + ttyACM10 (STA) over SSH→tuxedo with
-  the role-by-MAC image (`R2_TN_AP_MAC` baked). **Serial-confirmed over the real
-  radio:** AP boots → SoftAP `r2-tn-lab` up → TN node on 192.168.71.1; STA boots →
-  **joins the AP** → IP 192.168.71.2 → **originates R2-WIRE frames every 3s**
-  through RouteNode (`[tn] originated ev=8127232d -> next_hop 4767b7f3`). Board-to-
-  board TN over real WiFi works end-to-end **except final delivery**.
+- **★ HARDWARE FRAME DELIVERED — TRUE TN A→B ON REAL SILICON (2026-06-20).**
+  ttyACM9 (AP, f4:12:fa:b6:0a:a0) + ttyACM10 (STA, 52:99:28), role-by-MAC image.
+  AP serial: **`[tn] DELIVERED ev=8127232d 8 bytes — HARDWARE FRAME`** every ~3s,
+  matching STA `originated ev=8127232d -> next_hop 4767b7f3`. A real R2-WIRE frame
+  routed STA→AP through core's RouteEngine over the WiFi radio (board-hosted SoftAP
+  `r2-tn-lab`, STA joins → originates → AP delivers). Full routing tier end-to-end
+  on hardware. Captured by firing the monitors detached + reading back the log
+  (aws-bos keepalive held the link). Boards run the gateway-fix image (b5749be8);
+  flash the canon+trust+relay blobs (124739a5/5490c063) for the trust + #19 demos.
 - **BUG FOUND + FIXED (`9c5709f`, blob sha b5749be8):** STA targeted **192.168.4.1**
   (hive's *embassy-net* AP IP) but **esp-idf-svc's SoftAP is 192.168.71.1** → frames
   missed the AP. Fixed: `wifi_sta::get_gateway()` — STA targets its actual gateway
@@ -55,12 +57,13 @@ sockets — done on Alfred, pushed.** Branch HEAD `ff01a04`.
 - **SPEC finding (route to specs):** the SoftAP/TN AP IP is **platform-stack
   dependent** (esp-idf-svc 192.168.71.1 vs embassy-net 192.168.4.1) — interop needs
   the AP IP discoverable (gateway), not assumed.
-- **NEXT — confirm DELIVERED (link-blocked, not code-blocked):** tuxedo's Tailscale
-  link went too flaky to hold a serial-monitor session after the re-flash. To finish:
-  on tuxedo, monitor the AP `espflash monitor --port /dev/ttyACM9` while both boards
-  run → expect `[tn] DELIVERED ev=8127232d … HARDWARE FRAME`. (Boards already hold
-  the fixed image b5749be8; just need a stable monitor window or someone at tuxedo.)
-  Merged blob: `/tmp/dfr1195-merged.bin` (Alfred + tuxedo). For 3 boards = 1 AP +
+- **Link technique (flaky-Tailscale workaround):** can't hold a streaming SSH
+  monitor; FIRE the monitors detached (`setsid nohup … espflash monitor … &`,
+  return instantly like an echo) then READ the log back in a separate sub-second
+  SSH. aws-bos keepalive helps connection setup.
+- **NEXT (demos, when re-flashed via composer):** canon+trust+relay blobs
+  (124739a5/5490c063) → trust-gate live + STA↔STA-via-AP relay (#19) + dedup/relay
+  activity on the proof-surface. For 3 boards = 1 AP +
   2 STA; STA↔STA may be client-isolated → AP relays (RouteNode does).
 - **TRUST TIER — RUNG 1 DONE (intra-TG)** (`1858410`): RouteNode `with_trust(my_tg, hk)`
   → originate signs every frame with `GroupHmac` (SHA256, sets target_group=
