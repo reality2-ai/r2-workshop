@@ -54,14 +54,22 @@ pub enum Inbound {
     DecodeError,
 }
 
+/// Constrained-MCU RouteNode profile (`RouteEngine<16,16,32>`, core engine.rs:148)
+/// — use this on the C6 / ESP32-S3 firmware. Gateway default is `<64,64,64>`.
+pub type McuRouteNode = RouteNode<16, 16, 32>;
+
 /// A TN node: a RouteEngine plus this node's own hive id and a frame counter.
-pub struct RouteNode {
+///
+/// Generic over the engine table capacities (neighbours / paths / dedup) so a
+/// constrained MCU can use small tables ([`McuRouteNode`]) while a gateway uses
+/// the `<64,64,64>` default.
+pub struct RouteNode<const N: usize = 64, const P: usize = 64, const D: usize = 64> {
     my_hive_id: u32,
-    engine: RouteEngine,
+    engine: RouteEngine<N, P, D>,
     seq: u32,
 }
 
-impl RouteNode {
+impl<const N: usize, const P: usize, const D: usize> RouteNode<N, P, D> {
     /// Create a node identified by `my_hive_id` (FNV-1a of the device UUID).
     pub fn new(my_hive_id: u32) -> Self {
         Self {
@@ -77,7 +85,7 @@ impl RouteNode {
     }
 
     /// Mutable access to the engine (to feed real discovery observations).
-    pub fn engine_mut(&mut self) -> &mut RouteEngine {
+    pub fn engine_mut(&mut self) -> &mut RouteEngine<N, P, D> {
         &mut self.engine
     }
 
@@ -342,8 +350,8 @@ mod tests {
         let txa = MockTransport { net: net.clone(), reachable: vec![B] };
         let txb = MockTransport { net: net.clone(), reachable: vec![A] };
 
-        let mut a = RouteNode::new(A);
-        let mut b = RouteNode::new(B);
+        let mut a = RouteNode::<64, 64, 64>::new(A);
+        let mut b = RouteNode::<64, 64, 64>::new(B);
         a.seed_direct(B, RTransport::Wifi, 1);
 
         // A originates "hello" to B; engine picks B as the next hop.
@@ -373,9 +381,9 @@ mod tests {
         let txb = MockTransport { net: net.clone(), reachable: vec![A, C] };
         let txc = MockTransport { net: net.clone(), reachable: vec![B] };
 
-        let mut a = RouteNode::new(A);
-        let mut b = RouteNode::new(B);
-        let mut c = RouteNode::new(C);
+        let mut a = RouteNode::<64, 64, 64>::new(A);
+        let mut b = RouteNode::<64, 64, 64>::new(B);
+        let mut c = RouteNode::<64, 64, 64>::new(C);
 
         // A can reach B directly and knows C is via B.
         a.seed_direct(B, RTransport::Wifi, 1);
@@ -416,10 +424,10 @@ mod tests {
     fn frame_not_for_us_is_not_delivered() {
         let net: Net = Rc::new(RefCell::new(HashMap::new()));
         let txb = MockTransport { net: net.clone(), reachable: vec![] };
-        let mut b = RouteNode::new(B);
+        let mut b = RouteNode::<64, 64, 64>::new(B);
 
         // Build a frame addressed to C, hand it to B which has no route to C.
-        let mut a = RouteNode::new(A);
+        let mut a = RouteNode::<64, 64, 64>::new(A);
         let txa = MockTransport { net: net.clone(), reachable: vec![B] };
         a.seed_direct(B, RTransport::Wifi, 1);
         a.originate(B, EV, b"x", &txa, 1).unwrap(); // just to build a frame at B
