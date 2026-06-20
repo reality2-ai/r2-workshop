@@ -62,10 +62,19 @@ sockets — done on Alfred, pushed.** Branch HEAD `ff01a04`.
   the fixed image b5749be8; just need a stable monitor window or someone at tuxedo.)
   Merged blob: `/tmp/dfr1195-merged.bin` (Alfred + tuxedo). For 3 boards = 1 AP +
   2 STA; STA↔STA may be client-isolated → AP relays (RouteNode does).
-- **THEN — trust tier** (core's TRUST-INTEGRATION-BRIEF @ r2-core 905502c): add the
-  trust gate at RouteNode's DELIVER branch only (relay stays trust-agnostic):
-  intra-TG GroupHmac verify; inter-TG PeeringHmac entanglement. Host-testable in
-  r2-tn first.
+- **THEN — trust tier** (core TRUST-INTEGRATION-BRIEF @ r2-core 5f8798b; host-
+  testable in r2-tn first). SCOUTED entry points (ready to wire):
+  - Gate ONLY at RouteNode's DELIVER branch (lib.rs ~234); relay stays
+    trust-agnostic. deliverable = `dest_tg==mine ? verify_extended(msg, &GroupHmac(hk))
+    : entangled(origin_tg) ? verify_extended(msg, &PeeringHmac(p.hmac)) : false`.
+  - Crates: `r2-trust` (lifecycle::TrustGroup, cert::DeviceCertificate,
+    wire_hmac::{GroupHmac,PeeringHmac} impl HmacProvider, hkdf derive_group/peering
+    keys, revocation) + `r2-wire::hmac::{sign_extended, verify_extended}(msg, &impl
+    HmacProvider)`. target_group (u32) is the TG discriminator in the ext header.
+  - PREREQ: converge dfr1195 hive_id from MAC-shortcut to §6.2.1 (load_identity)
+    so target_hive is TG-scoped (agreed canon with hive/specs).
+  - Climb: (1) intra-TG GroupHmac deliver-gate; (2) inter-TG PeeringHmac
+    entanglement (2 TGs × 2 boards); retire = drop peering key + buffered frames.
 - **DONE — delivery-dedup** (`c64a354`): NOT a spec change (core: spec already
   answers it). RouteNode gates the whole message on `(msg_id, SOURCE)` first;
   SOURCE = route_stack[0] (R2-WIRE §3.3) else transport source for a direct frame.
