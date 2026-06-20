@@ -24,7 +24,7 @@ use esp_idf_svc::hal::peripherals::Peripherals;
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
 use esp_idf_svc::sys::{esp_mac_type_t_ESP_MAC_WIFI_STA, esp_read_mac, link_patches};
 use log::{info, warn};
-use r2_esp::{tn, wifi_ap, wifi_sta};
+use r2_esp::{ota_tcp, tn, wifi_ap, wifi_sta};
 
 const AP_SSID: &str = match option_env!("R2_TN_AP_SSID") {
     Some(s) => s,
@@ -81,6 +81,12 @@ fn main() -> Result<()> {
             event_hash: hello_event(),
             payload: b"hello-tn".to_vec(),
         })?;
+        // Task #17: network-OTA receiver (recv over WiFi -> verify sha ->
+        // write inactive OTA slot -> reboot). #18: CMD_QUERY serves fw version.
+        ota_tcp::start_listener();
+        // Anti-brick: this image proved boot + WiFi/AP + node up = healthy.
+        ota_tcp::mark_app_valid();
+        info!("[boot] OTA receiver listening (TCP 21043); image marked valid");
         // Keep the AP handle alive for the process lifetime.
         loop {
             FreeRtos::delay_ms(60_000);
@@ -113,6 +119,11 @@ fn main() -> Result<()> {
                         event_hash: hello_event(),
                         payload: b"hello-tn".to_vec(),
                     })?;
+                    // Task #17: network-OTA receiver + #18 version query (CMD_QUERY).
+                    ota_tcp::start_listener();
+                    // Anti-brick: boot + WiFi join + node up = healthy.
+                    ota_tcp::mark_app_valid();
+                    info!("[boot] OTA receiver listening (TCP 21043); image marked valid");
                 }
                 loop {
                     FreeRtos::delay_ms(60_000);
