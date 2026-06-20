@@ -62,8 +62,19 @@ sockets — done on Alfred, pushed.** Branch HEAD `ff01a04`.
   the fixed image b5749be8; just need a stable monitor window or someone at tuxedo.)
   Merged blob: `/tmp/dfr1195-merged.bin` (Alfred + tuxedo). For 3 boards = 1 AP +
   2 STA; STA↔STA may be client-isolated → AP relays (RouteNode does).
-- **THEN — trust tier** (core TRUST-INTEGRATION-BRIEF @ r2-core 5f8798b; host-
-  testable in r2-tn first). SCOUTED entry points (ready to wire):
+- **TRUST TIER — RUNG 1 DONE (intra-TG)** (`1858410`): RouteNode `with_trust(my_tg, hk)`
+  → originate signs every frame with `GroupHmac` (SHA256, sets target_group=
+  FNV(tg_uuid) + 32B tag); DELIVER gated on `target_group==my_tg && verify_extended`
+  (else Dropped wrong-TG/HMAC-fail); RELAY untouched = trust-agnostic (B1).
+  r2-tn 10/10 host + **ESP32-S3 compiles** (r2-trust x25519/curve25519/chacha
+  build for xtensa). r2-tn now deps r2-trust.
+- **RUNG 2 — inter-TG PeeringHmac entanglement: BLOCKED on core's wire contract**
+  (asked core: target_group=dest-vs-origin + where origin_tg is carried;
+  PeeringHmac authenticated span + tag field; derive_peering_keys inputs/order;
+  entanglement state + retire/epoch model). Won't guess security-critical wire.
+  Host-testable in r2-tn once pinned.
+- **Trust-tier reference** (core TRUST-INTEGRATION-BRIEF @ r2-core 5f8798b; not in
+  my workspace — relayed summary only). Entry points:
   - Gate ONLY at RouteNode's DELIVER branch (lib.rs ~234); relay stays
     trust-agnostic. deliverable = `dest_tg==mine ? verify_extended(msg, &GroupHmac(hk))
     : entangled(origin_tg) ? verify_extended(msg, &PeeringHmac(p.hmac)) : false`.
