@@ -78,6 +78,13 @@ sockets — done on Alfred, pushed.** Branch HEAD `ff01a04`.
   UDP, 3 Nodes). **Two blobs to composer:** default STA→AP `124739a5`, relay
   STA↔STA `5490c063` (one-image role-by-MAC; both have canon dedup + intra-TG
   trust + learning + OTA receiver). Supersede 343d1ab2.
+- **DONE — C6 (RISC-V) TN carrier** (`b656083`): `firmware/esp32-c6/c6-tn`
+  (riscv32imac-esp-espidf / esp32c6 / 4MB / no-PSRAM / no-BT / no-LoRa). Reuses
+  the dfr1195 TN firmware verbatim (SoftAP + role-by-MAC + OTA + trust + relay) on
+  the C6 target (dfr1117's .cargo/config + rust-toolchain). Builds + esp32c6
+  merged-image validated. So 12-board mesh carriers covered: S3=dfr1195 blob (XIAO
+  shares it, 8MB variant deferred) + C6=c6-tn. composer builds-from-source + bakes
+  per-board MACs (I lack the C6 boards' MACs; can probe tuxedo if connected).
 - **DONE — #18 build-side** (`146003f`): dfr1195 build.rs bakes
   `R2_FW_VER=<semver>+<sha>` + boot-logs it. #18 PULL = CMD_QUERY. #18 PUSH
   (`r2.hb.health`) awaits composer's HEALTH-TELEMETRY-CONTRACT (asked).
