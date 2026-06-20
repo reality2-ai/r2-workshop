@@ -27,6 +27,7 @@ pub mod log_tcp;
 pub mod ota_tcp;
 pub mod reset_tcp;
 pub mod wifi_sta;
+pub mod wifi_ap;
 pub mod wifi_prov;
 
 // TRUE TN: WiFi/UDP peer transport implementing r2-transport::Transport, the

@@ -17,9 +17,11 @@ use std::sync::Mutex;
 
 use r2_transport::{LinkQuality, SendError, Transport, TransportId, TransportState};
 
-/// UDP port for R2-WIRE TN peer datagrams. Distinct from the hub data plane
-/// (`:21042`) and the OTA/reset/log/data listeners (`:21043`–`:21047`).
-pub const R2_TN_UDP_PORT: u16 = 21050;
+/// UDP port for R2-WIRE TN peer datagrams — the canonical R2_UDP_PORT
+/// (R2-WIFI §4), aligned with hive's field.lab for cross-stack interop. (This
+/// is the same number as the dashboard's TCP hub port, but a different
+/// socket/protocol; a standalone TN node runs no hub listener.)
+pub const R2_TN_UDP_PORT: u16 = 21042;
 
 /// A WiFi/UDP peer transport binding.
 pub struct UdpTransport {
