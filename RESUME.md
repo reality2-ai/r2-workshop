@@ -25,8 +25,11 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
   • hive ADDING explicit L3 relay (re-broadcast on plan_forward, TTL−1, dedup) so
     cross-arch STA↔STA is guaranteed; raising SoftAP max_connections ≥8.
   **REBAKE = 4 changes** (supervisor "re-bake NOW"):
-  1. JOIN r2-fieldlab — needs STATIC-IP STA (no DHCP) + BROADCAST transport. Code
-     UNBLOCKED (values known) but UNTESTABLE solo → metal-test loop w/ composer/hive.
+  1. JOIN r2-fieldlab — (a) BROADCAST transport **DONE host-side** (`b663b65`,
+     UdpTransport.set_broadcast_addr + TnConfig.broadcast_addr; r2-tn 18/18); (b)
+     STATIC-IP STA (no DHCP, self-assign 192.168.4.<lowMAC>) — esp-only, NEXT,
+     untestable solo → metal-test loop w/ composer/hive. Then wire the .255 bcast
+     value + static IP into main's fielded path.
   2. PERSONA-READER + canonical `derive_hive_id` (TG 4b3df45d trusted) — BLOCKED:
      (a) composer persona r2_cbor schema + partitions.csv line for 0x12000, (b)
      vendored r2-trust LACKS derive_hive_id → re-sync (core), (c) SHARED reader in
