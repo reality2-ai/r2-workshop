@@ -1,0 +1,27 @@
+# sdkconfig.defaults — DFR1195 / ESP32-S3, 4 MB flash, NO PSRAM.
+# TN-node firmware (WiFi-UDP RouteEngine). No BLE (NimBLE not built — r2-esp
+# `ble` feature is off), no sensor/SD/LCD.
+
+CONFIG_IDF_TARGET="esp32s3"
+
+# Generous main-task stack for higher-level Rust code (WiFi + R2 stack + TN loop).
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=16000
+
+# DFR1195 module: 4 MB flash, NO PSRAM. (Critically, do NOT enable SPIRAM —
+# CONFIG_SPIRAM=y on a no-PSRAM board hangs at early boot. board-info confirms
+# 4MB / no PSRAM on these boards.)
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+
+# ─── Console routing ──────────────────────────────────────────────────────
+# ESP32-S3 native USB-Serial-JTAG: the same USB cable used for flashing carries
+# the log monitor.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# ─── OTA / partition table ────────────────────────────────────────────────
+# Custom 4MB two-OTA-slot layout — see partitions.csv (staged into esp-idf-sys's
+# CMake build dir by build.rs each cycle). First install = full USB flash.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
+# (No CONFIG_BT_* — this TN node does not build NimBLE.)

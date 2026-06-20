@@ -1,0 +1,37 @@
+[package]
+name        = "r2-tn-node-dfr1195"
+version     = "0.3.0"
+edition     = "2021"
+description = "r2-workshop TRUE-TN node firmware (DFR1195 / ESP32-S3 4MB, WiFi-UDP RouteEngine)"
+license     = "MIT OR Apache-2.0"
+publish     = false
+
+[[bin]]
+name    = "r2-tn-node"
+path    = "src/main.rs"
+harness = false
+
+[profile.release]
+opt-level     = "s"
+lto           = "fat"
+codegen-units = 1
+debug         = false
+strip         = true
+
+[profile.dev]
+opt-level = "z"
+debug     = true
+
+[dependencies]
+log         = "0.4"
+anyhow      = "1"
+esp-idf-svc = { version = "0.51", default-features = false, features = ["binstart", "std"] }
+
+# Shared R2 substrate. TN-only: r2-esp WITHOUT the `ble` default (no NimBLE) —
+# this node just needs wifi_sta + wifi_prov + the `tn` run-loop.
+r2-esp  = { path = "../../../crates/r2-esp", default-features = false, features = ["tn"] }
+r2-core = { path = "../../../crates/r2-core", default-features = false, features = ["alloc"] }
+r2-wire = { path = "../../../crates/r2-wire", default-features = false, features = ["alloc"] }
+
+[build-dependencies]
+embuild = { version = "0.32", features = ["espidf"] }
