@@ -1636,6 +1636,7 @@ version = "0.1.0"
 dependencies = [
  "chacha20poly1305",
  "r2-cbor",
+ "r2-fnv",
  "r2-route",
  "r2-transport",
  "r2-trust",

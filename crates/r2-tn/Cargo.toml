@@ -19,3 +19,5 @@ r2-trust = { path = "../r2-trust" }
 r2-cbor = { path = "../r2-cbor" }
 # rung-2b: XChaCha20-Poly1305 cross-TG payload encryption (R2-TRUST §7.5).
 chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
+# Persona reader: tg_hash = fnv1a_32(tg_id) (same algo derive_hive_id uses).
+r2-fnv = { path = "../r2-fnv" }
