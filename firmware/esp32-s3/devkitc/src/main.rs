@@ -278,6 +278,17 @@ fn run(
                 .context("spawn presence thread")?;
         }
 
+        // TRUE TN board-to-board run-loop (feature `tn`, off by default).
+        // Routes R2-WIRE frames peer-to-peer via core's RouteEngine over
+        // WiFi/UDP — NOT through the dashboard hub. See r2_esp::tn.
+        #[cfg(feature = "tn")]
+        if !local_ip.is_empty() {
+            match tn_start(nvs.clone(), &local_ip) {
+                Ok(()) => info!("[tn] run-loop started"),
+                Err(e) => warn!("[tn] not started: {e:?}"),
+            }
+        }
+
         let gateway_ip: IpAddr = GATEWAY_IP
             .parse::<Ipv4Addr>()
             .map_err(|_| anyhow!("R2_GATEWAY_IP={:?} not a valid IPv4 address", GATEWAY_IP))?
@@ -580,6 +591,48 @@ fn run(
 /// Send `count` UDP presence packets to `255.255.255.255:PRESENCE_PORT`
 /// at 1 s intervals. Format per `r2-bootstrap::parse_presence_packet`:
 /// CBOR `{0: rbid (bytes 8), 1: ip (text), 2: class_hash (u32), 3: port (u16)}`.
+/// Start the TRUE TN board-to-board run-loop (feature `tn`).
+///
+/// Derives this board's hive id (FNV-1a of its R2-WIRE §6.2.1 hive_id UUID),
+/// reads the static peer + originate config from build-time env, and spawns the
+/// r2_esp::tn run-loop on the SoftAP-assigned IP. Peer config is optional so a
+/// `--features tn` build compiles without the env set (listen-only node).
+#[cfg(feature = "tn")]
+fn tn_start(nvs: EspDefaultNvsPartition, local_ip: &str) -> Result<()> {
+    use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+
+    let ident = r2_esp::hive_id::load_identity(nvs).context("tn: load hive identity")?;
+    let my_hive_id =
+        r2_core::fnv::r2_hash(&ident.hive_id_uuid).map_err(|e| anyhow!("tn: fnv hive_id: {e:?}"))?;
+    let ip: Ipv4Addr = local_ip.parse().context("tn: parse local ip")?;
+
+    let mut peers = Vec::new();
+    let mut originate_to = None;
+    if let (Some(pid), Some(pip)) = (option_env!("R2_TN_PEER_ID"), option_env!("R2_TN_PEER_IP")) {
+        let peer_id = u32::from_str_radix(pid.trim_start_matches("0x"), 16)
+            .map_err(|e| anyhow!("tn: R2_TN_PEER_ID not hex: {e}"))?;
+        let peer_ip: Ipv4Addr = pip.parse().context("tn: parse R2_TN_PEER_IP")?;
+        let port = option_env!("R2_TN_PEER_PORT")
+            .and_then(|s| s.parse::<u16>().ok())
+            .unwrap_or(r2_esp::peer_wifi_udp::R2_TN_UDP_PORT);
+        peers.push((peer_id, SocketAddr::V4(SocketAddrV4::new(peer_ip, port))));
+        if matches!(option_env!("R2_TN_ORIGINATE"), Some("1") | Some("true")) {
+            originate_to = Some(peer_id);
+        }
+    }
+
+    let event_hash = r2_core::fnv::r2_hash("r2.tn.hello").unwrap_or(0);
+    r2_esp::tn::spawn(r2_esp::tn::TnConfig {
+        my_hive_id,
+        local_ip: ip,
+        peers,
+        originate_to,
+        originate_period: core::time::Duration::from_secs(5),
+        event_hash,
+        payload: b"hello-tn".to_vec(),
+    })
+}
+
 fn broadcast_presence_burst(
     rbid: [u8; 8],
     ip: &str,

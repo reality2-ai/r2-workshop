@@ -46,5 +46,10 @@ r2-wire       = { path = "../../../crates/r2-wire", default-features = false, fe
 ws2812-esp32-rmt-driver = { version = "0.13", default-features = false, features = ["std", "smart-leds-trait"] }
 smart-leds              = "0.4"
 
+[features]
+# TRUE TN board-to-board run-loop. Off by default (production sensor build is
+# unchanged). Flash a TN board with `--features tn` + R2_TN_* build env.
+tn = ["r2-esp/tn"]
+
 [build-dependencies]
 embuild = { version = "0.32", features = ["espidf"] }

@@ -34,3 +34,5 @@ anyhow = "1"
 [features]
 default = ["ble"]
 ble = ["dep:esp32-nimble"]
+# TRUE TN run-loop (crate::tn). Off by default; a TN board enables it.
+tn = []

@@ -33,6 +33,10 @@ pub mod wifi_prov;
 // send seam for core's RouteEngine. See docs/tn-routeengine-smallest-path.md.
 pub mod peer_wifi_udp;
 
+// TRUE TN run-loop (feature `tn`, off by default — production firmware unchanged).
+#[cfg(feature = "tn")]
+pub mod tn;
+
 #[cfg(feature = "ble")]
 pub mod l2cap;
 
