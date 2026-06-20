@@ -5,27 +5,37 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
 (Relocated 2026-06-18 from `claude-fleet/fleet-context/`; claude-fleet is now tooling-code-only.)
 
 ## ACTIVE: TRUE TN — RouteEngine over my transports (branch `tn-routeengine-bringup`)
-**Frame ROUTES board-to-board through core's RouteEngine — done on Alfred, pushed.**
-- **Branch `tn-routeengine-bringup`** (origin pushed). HEAD `2d83417`.
-- **`crates/r2-tn` (new, host-buildable):** `RouteNode` driver glue — `originate()`
-  + `on_inbound()` (parse → deliver-if `target_hive==self` → `plan_forward` →
-  `prepare_relay_extended` → `Transport::send`). **`cargo test -p r2-tn` = 3/3:**
-  direct A→B, 2-hop relay A→R→C (asserts TTL−1), not-for-us.
-- **`crates/r2-esp/peer_wifi_udp.rs` (new):** `WifiUdpTransport` impl of
-  `r2-transport::Transport` (datagram send+broadcast, non-blocking recv,
-  hive_id→addr table). Compiles for ESP32-S3. r2-esp now deps r2-route+r2-transport.
-- **Seam = core's, applied verbatim** (line-cited answers): originate TTL=5,
-  K=15 (FLOOD_SENTINEL — floods new dest, downgrades to Directed once a path is
-  learned; NOT K=1=hold), full-u32 `target_hive` addressing, `source_hop=(id>>16)`
-  INLINED (canonical r2-wire has no `compress_hive_id_16`; our vendored copy is
-  forked — watch the re-sync), relay via `prepare_relay_extended`. Ref loop:
-  `r2-harness::MeshNode`.
-- **NEXT (autonomous):** (1) wire `RouteNode`+`WifiUdpTransport` into the firmware
-  main loop (instantiate + recv loop + R2-BEACON→`ingest_observation` +
-  hive_id↔IP); (2) add a **DFR1195 carrier** (ESP32-S3 → my Path-A extends;
-  sim-sensor fallback, LCD ignored). **FORK flagged:** SX1262 LoRa = net-new
-  driver (r2-route has a Lora TransportId, my stack has no SX1262) — defer;
-  WiFi-UDP TN needs none of it. (3) hardware first-light A→B when tuxedo frees.
+**Frame ROUTES board-to-board through core's RouteEngine — incl. over REAL UDP
+sockets — done on Alfred, pushed.** Branch HEAD `ff01a04`.
+- **`crates/r2-tn` (new, host-buildable) — `cargo test -p r2-tn` = 5/5:**
+  - `RouteNode<N,P,D>` driver glue (+ `McuRouteNode = <16,16,32>`): `originate()`
+    + `on_inbound()` (parse → deliver-if `target_hive==self` → learn-peer +
+    reverse-path → `plan_forward` → `prepare_relay_extended` → `Transport::send`;
+    flood excludes the inbound peer). Tests: direct A→B, 2-hop relay A→R→C
+    (asserts TTL−1), not-for-us.
+  - `udp::UdpTransport` (pure-std `r2-transport::Transport`): send/broadcast,
+    non-blocking recv, hive_id↔addr both ways. Test `routes_a_to_b_over_real_udp`
+    routes a frame A→B over **actual loopback UDP**.
+  - `node::Node`/`McuNode` (firmware-facing): `poll(now)`→`Delivered` +
+    `originate(...)`. Test `node_api_routes_a_to_b_over_udp` over real UDP.
+- **`crates/r2-esp/peer_wifi_udp.rs`:** re-exports `r2_tn::udp::UdpTransport as
+  WifiUdpTransport` (single source). r2-esp deps r2-route/r2-transport/r2-tn.
+  **devkitc `cargo check` (ESP32-S3) green** with the full dep graph.
+- **Seam = core's, applied verbatim:** originate TTL=5, K=15 (FLOOD_SENTINEL —
+  floods new dest, downgrades to Directed once a path is learned; NOT K=1=hold),
+  full-u32 `target_hive` addressing, `source_hop=(id>>16)` INLINED (canonical
+  r2-wire has no `compress_hive_id_16`; our vendored copy is forked — watch the
+  re-sync), relay via `prepare_relay_extended`. Ref loop `r2-harness::MeshNode`.
+- **NEXT (hardware-gated, code is flash-ready):** (1) thin firmware run-loop —
+  construct `McuNode`, `set_peer` (static seed from env for first light) /
+  R2-BEACON→`set_peer`, spawn a thread calling `poll(now)`/`originate`; feature-
+  gated so production firmware stays pristine. (2) **DFR1195 carrier** (ESP32-S3 →
+  my Path-A extends; sim-sensor fallback, LCD ignored). **FORK flagged:** SX1262
+  LoRa = net-new driver (r2-route has a Lora TransportId, my stack has no SX1262)
+  — defer; WiFi-UDP TN needs none. (3) hardware first-light A→B when tuxedo frees
+  + FireBeetle/Beetle SKU confirmed.
+- **Open SPEC-refinement candidate (route to specs when hit):** delivery-dedup
+  origin id for a direct frame with no route stack (origin not in header).
 - **Working mode:** any on-hardware divergence → refine SPEC first (specs), then code.
 - **Doctrine:** [[fleet-operating-doctrine]] — branch experiment; not for `main`
   until proven on hardware. The OTA-gate fix (`699ee32`) is already on `main`.
