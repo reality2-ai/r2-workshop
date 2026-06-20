@@ -94,7 +94,11 @@ sockets — done on Alfred, pushed.** Branch HEAD `ff01a04`.
   dfr1195 main now calls `ota_tcp::start_listener()` (recv→verify sha→inactive
   slot→reboot; 2-OTA slots already in the table) + `ota_tcp::mark_app_valid()`
   (anti-brick on boot+WiFi+node self-proof) in both AP/STA branches. CMD_QUERY
-  serves fw version (#18). **Fleet blob refreshed → sha `343d1ab2…`** (canon dedup
+  serves fw version (#18 PULL). **#18 PUSH pending composer's contract:** a periodic
+  `r2.hb.health` (CBOR Compact: role/ip/fw_version/fw_sha/sync_state/link_q/transports)
+  matching hive's shape — asked composer for exact fields/CBOR/cadence/transport;
+  will add R2_GIT_SHA stamping to dfr1195 build.rs (like devkitc) for fw_sha.
+  **Fleet blob refreshed → sha `343d1ab2…`** (canon dedup
   + OTA receiver; on Alfred + tuxedo /tmp/dfr1195-merged.bin; composer flashes it
   via esptool@0x0, role-by-MAC b60aa0=AP). Supersedes b5749be8.
 - **Deferred refinement (core, scale-only, not urgent):** local DedupCache key is
