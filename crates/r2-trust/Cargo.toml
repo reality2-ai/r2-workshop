@@ -22,6 +22,7 @@ subtle = { version = "2.5", default-features = false }
 displaydoc = { version = "0.2", default-features = false }
 r2-wire = { path = "../r2-wire" }
 r2-fnv = { path = "../r2-fnv" }  # derive_hive_id wire hash (vendor re-sync @ abde165)
+zeroize = { version = "1.8", default-features = false, features = ["derive"] }  # SEC-01: zeroize key structs on drop (canonical r2-trust)
 
 [dev-dependencies]
 rand_chacha = "0.3"

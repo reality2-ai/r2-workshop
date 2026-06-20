@@ -8,7 +8,7 @@ use crate::error::Result;
 use crate::types::KEY_LEN;
 
 /// Derived trust group keys (DEK + HK).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, zeroize::Zeroize, zeroize::ZeroizeOnDrop)]
 pub struct DerivedGroupKeys {
     /// Data encryption key (for payload encryption within the trust group).
     pub dek: [u8; 32],
@@ -16,13 +16,31 @@ pub struct DerivedGroupKeys {
     pub hk: [u8; 32],
 }
 
+impl core::fmt::Debug for DerivedGroupKeys {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("DerivedGroupKeys")
+            .field("dek", &"[REDACTED; 32]")
+            .field("hk", &"[REDACTED; 32]")
+            .finish()
+    }
+}
+
 /// Derived entanglement (peering) keys for cross-group communication.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, zeroize::Zeroize, zeroize::ZeroizeOnDrop)]
 pub struct PeeringKeys {
     /// HMAC key for cross-group message authentication.
     pub hmac: [u8; 32],
     /// Encryption key for cross-group payload encryption.
     pub enc: [u8; 32],
+}
+
+impl core::fmt::Debug for PeeringKeys {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("PeeringKeys")
+            .field("hmac", &"[REDACTED; 32]")
+            .field("enc", &"[REDACTED; 32]")
+            .finish()
+    }
 }
 
 /// Derive trust group DEK and HK from the signing key.
