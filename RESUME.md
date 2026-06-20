@@ -24,30 +24,24 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
     from hive's next reflash for fnv cross-check). UDP 21042 confirmed.
   • hive ADDING explicit L3 relay (re-broadcast on plan_forward, TTL−1, dedup) so
     cross-arch STA↔STA is guaranteed; raising SoftAP max_connections ≥8.
-  **REBAKE = 4 changes** (supervisor "re-bake NOW"):
-  1. JOIN r2-fieldlab — (a) BROADCAST transport **DONE host-side** (`b663b65`,
-     UdpTransport.set_broadcast_addr + TnConfig.broadcast_addr; r2-tn 18/18); (b)
-     STATIC-IP STA (no DHCP, self-assign 192.168.4.<lowMAC>) — esp-only, NEXT,
-     untestable solo → metal-test loop w/ composer/hive. Then wire the .255 bcast
-     value + static IP into main's fielded path.
-  2. PERSONA-READER + canonical `derive_hive_id` (TG 4b3df45d trusted):
-     • derive_hive_id RE-SYNCED from core (`b68e756`, abde165 raw-hyphen no-v4).
-     • PERSONA PARSER **DONE + host-tested** (`<persona commit>`, r2-tn 20/20):
-       `r2_tn::persona::parse_persona` decodes composer's map(7) {0:tg_id,1:dek,
-       2:hk,3:master_secret,4:cert,5:tg_pk,6:issued_at}; `trust_params()` →
-       (derive_hive_id wire id, tg=fnv1a_32(tg_id), hk). Round-trips composer's
-       build_persona_bundle. (In r2-tn = no canon-drift; lift to shared r2-trust
-       if core/hive want — code ready.)
-     • REMAINING (esp-only glue, metal-test pass): raw flash-read @0x12000 (NO
-       partition line — espflash panics; read by offset via esp flash API; composer
-       write-bins the blob, size ≤0x2000 in the phy_init→ota_0 gap) + wire trust
-       into the node (Node/TnConfig hk) + static-IP STA.
-  3. LIGHT beat-LED — hive's beat = **MsgType::Heartbeat, target_group==my_tg**
-     (payload conductor4B+ver4B), NOT an event hash → filter Heartbeat frame → blink.
-     **C6 LED VERIFIED = GPIO15/D13, MONO blue** (DFR1075 wiki; no NeoPixel;
-     polarity likely active-high, verify on metal). Remaining: filter Heartbeat in
-     C6 deliver path → drive GPIO15. No PLL.
+  **REBAKE — CODE-COMPLETE (`e241067`) except beat-LED; both carriers compile:**
+  1. JOIN r2-fieldlab — DONE: broadcast transport (`b663b65`) + static-IP STA
+     (`wifi_sta::connect_static`, `3eef46b`) + `run_fielded` main path (early-return
+     when R2_TN_AP_ID baked; self-assign 192.168.4.<lowMAC>, bcast .255:21042,
+     target AP 0x480e900e). Standalone r2-tn-lab untouched.
+  2. PERSONA + trust — DONE: derive_hive_id re-synced (`b68e756`); host-tested
+     `r2_tn::persona::parse_persona` (r2-tn 21/21, round-trips composer's bundle);
+     `r2_esp::persona_flash::read_persona()` raw esp_flash_read @0x12000;
+     `Node::new_with_trust` + TnConfig.trust. Fielded: persona→trusted TG-4b3df45d
+     (hive_id+hk), else canonical untrusted (B1 routing-join).
+  3. LIGHT beat-LED — **TODO (only remaining rebake item):** hive's beat =
+     `MsgType::Heartbeat, target_group==my_tg` (payload conductor4B+ver4B), NOT an
+     event hash → filter Heartbeat in C6 deliver path → drive **GPIO15/D13 mono**
+     (DFR1075; polarity verify on metal). Needs node to surface Heartbeat frames.
+     No PLL. Separable — flash the trusted-join blob first.
   4. #18 health-emit — DONE.
+  **FIELDED C6 BLOB** built (R2_TN_AP_ID=0x480e900e R2_TN_AP_SSID=r2-fieldlab
+  R2_TN_AP_PSK=r2fieldlab) → composer write-bins per-C6 persona @0x12000 + flashes.
   **BAKE: R2_TN_AP_ID=0x480e900e** (hive post-abde165; supersedes supervisor's
   earlier pre-abde165 0x3e0d688f — confirm w/ hive on metal). SSID r2-fieldlab /
   PSK r2fieldlab / ch6. Routing/relay trust-agnostic (B1); persona = SECURE
