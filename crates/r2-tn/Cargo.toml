@@ -15,3 +15,5 @@ r2-transport = { path = "../r2-transport", features = ["alloc"] }
 r2-wire = { path = "../r2-wire", features = ["alloc"] }
 # Trust tier: GroupHmac / PeeringHmac (SHA256 HMAC) for the deliver-gate.
 r2-trust = { path = "../r2-trust" }
+# Health telemetry (#18 r2.hb.health) — no_std int-keyed CBOR.
+r2-cbor = { path = "../r2-cbor" }

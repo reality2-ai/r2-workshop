@@ -17,6 +17,7 @@
 //! (questions in the smallest-path doc). The *structure* is stable; only these
 //! values may change.
 
+pub mod health;
 pub mod node;
 pub mod udp;
 
