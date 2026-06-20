@@ -34,6 +34,10 @@ use r2_wire::{
     MsgType,
 };
 use r2_trust::wire_hmac::{GroupHmac, PeeringHmac};
+use chacha20poly1305::{aead::Aead, KeyInit, XChaCha20Poly1305, XNonce};
+
+/// XChaCha20 nonce length (24 bytes) — rides at the front of a cross-TG payload.
+pub const XNONCE_LEN: usize = 24;
 
 /// A live inter-TG entanglement (R2-TRUST §7.5). Holds the peering HMAC key the
 /// deliver-gate trial-verifies cross-TG frames against. `live=false` = retired
@@ -41,8 +45,12 @@ use r2_trust::wire_hmac::{GroupHmac, PeeringHmac};
 /// stable but stop authorising crossings).
 #[derive(Clone)]
 pub struct Entanglement {
-    /// Peering HMAC key = `derive_peering_keys(PS, tg_lo_pub, tg_hi_pub).hmac`.
+    /// Peering HMAC key = `derive_peering_keys(PS, tg_a_pub, tg_b_pub).hmac`
+    /// (the derive sorts the pubkeys internally — pass any order).
     pub peering_hmac: [u8; 32],
+    /// Peering ENC key = the same `derive_peering_keys(..).enc` — XChaCha20-Poly1305
+    /// key for cross-TG payload confidentiality (rung-2b).
+    pub enc_key: [u8; 32],
     /// Whether this entanglement currently authorises crossings.
     pub live: bool,
 }
@@ -157,13 +165,14 @@ impl<const N: usize, const P: usize, const D: usize> RouteNode<N, P, D> {
         self
     }
 
-    /// Add a live inter-TG entanglement (its peering HMAC key). Cross-TG frames
-    /// that verify under it become deliverable (R2-TRUST §7.5). No-op if this
-    /// node has no trust context.
-    pub fn entangle(&mut self, peering_hmac: [u8; 32]) {
+    /// Add a live inter-TG entanglement (its peering HMAC + ENC keys, from
+    /// `derive_peering_keys`). Cross-TG frames that verify + decrypt under it
+    /// become deliverable (R2-TRUST §7.5). No-op if untrusted.
+    pub fn entangle(&mut self, peering_hmac: [u8; 32], enc_key: [u8; 32]) {
         if let Some(t) = &mut self.trust {
             t.entanglements.push(Entanglement {
                 peering_hmac,
+                enc_key,
                 live: true,
             });
         }
@@ -235,25 +244,37 @@ impl<const N: usize, const P: usize, const D: usize> RouteNode<N, P, D> {
         self.emit_signed(dest_hive, event_hash, payload, tx, now, tg, hmac.as_ref())
     }
 
-    /// Originate a CROSS-TG frame to `dest_hive` in `dest_tg` (the peer group),
-    /// signing with the peering HMAC. `target_group = dest_tg` (canon: DEST tg,
-    /// authenticated in the span — R2-TRUST v0.7 §7.5.4); the receiver's gate
-    /// trial-verifies it after GroupHmac fails. Rung-2a auth-only (plaintext
-    /// payload); rung-2b adds XChaCha20.
+    /// Originate a CROSS-TG frame to `dest_hive` in `dest_tg`, ENCRYPTED for the
+    /// entangled peer group (R2-TRUST §7.5 rung-2b canon). The plaintext is
+    /// sealed with XChaCha20-Poly1305 under `enc_key` + a FRESH random `nonce`
+    /// (caller-supplied: esp_random / OsRng — never reuse a nonce with a key),
+    /// wire payload = `[nonce:24][ciphertext+tag]`, then signed with the peering
+    /// HMAC over header||nonce||ciphertext. `target_group = dest_tg` (canon).
+    /// Two MACs by design: PeeringHmac authenticates the header + binds the ct;
+    /// the AEAD tag gives payload confidentiality+integrity.
     pub fn originate_cross<T: Transport>(
         &mut self,
         dest_hive: u32,
         dest_tg: u32,
         peering_hmac: [u8; 32],
+        enc_key: [u8; 32],
+        nonce: [u8; XNONCE_LEN],
         event_hash: u32,
-        payload: &[u8],
+        plaintext: &[u8],
         tx: &T,
         now: u32,
     ) -> Result<u32, &'static str> {
+        let cipher = XChaCha20Poly1305::new_from_slice(&enc_key).map_err(|_| "bad enc key")?;
+        let ct = cipher
+            .encrypt(XNonce::from_slice(&nonce), plaintext)
+            .map_err(|_| "encrypt failed")?;
+        let mut wire = Vec::with_capacity(XNONCE_LEN + ct.len());
+        wire.extend_from_slice(&nonce);
+        wire.extend_from_slice(&ct);
         self.emit_signed(
             dest_hive,
             event_hash,
-            payload,
+            &wire,
             tx,
             now,
             dest_tg,
@@ -408,29 +429,47 @@ impl<const N: usize, const P: usize, const D: usize> RouteNode<N, P, D> {
         // DELIVER branch is gated; relay below stays trust-agnostic). Intra-TG:
         // deliver iff target_group == my_tg AND the group HMAC verifies.
         if dest == self.my_hive_id {
-            if let Some(t) = &self.trust {
-                // Canon deliver-gate (R2-TRUST v0.7 §7.5.4, specs-ratified):
-                // verify GroupHmac(my hk) FIRST (intra-TG); on fail, trial-verify
-                // PeeringHmac against EACH live entanglement (the key that
-                // verifies identifies the origin TG); else drop. target_group is
-                // DEST (authenticated in the span) but is NOT the path selector —
-                // forging either path needs the key, so the 2nd eval admits
-                // nothing. No E-flag (R2-WIRE byte0 has no free flag bit).
-                let intra = verify_extended(&msg, &GroupHmac::new(t.hk));
-                let cross = !intra
-                    && t
-                        .entanglements
-                        .iter()
-                        .filter(|e| e.live)
-                        .any(|e| verify_extended(&msg, &PeeringHmac::new(e.peering_hmac)));
-                if !intra && !cross {
-                    return Inbound::Dropped("auth failed");
+            // Untrusted node: deliver as-is (open routing).
+            let Some(t) = &self.trust else {
+                return Inbound::Deliver {
+                    event_hash,
+                    payload: msg.payload.to_vec(),
+                };
+            };
+            // Canon deliver-gate (R2-TRUST v0.7 §7.5.4): GroupHmac(my hk) FIRST
+            // (intra-TG, plaintext payload); on fail, trial-verify PeeringHmac
+            // against EACH live entanglement — the key that verifies identifies
+            // the origin TG AND its enc_key decrypts the payload. target_group is
+            // DEST (authenticated, not the selector). Forging either path needs
+            // the key, so the 2nd eval admits nothing. No E-flag.
+            if verify_extended(&msg, &GroupHmac::new(t.hk)) {
+                return Inbound::Deliver {
+                    event_hash,
+                    payload: msg.payload.to_vec(),
+                };
+            }
+            for e in t.entanglements.iter().filter(|e| e.live) {
+                if verify_extended(&msg, &PeeringHmac::new(e.peering_hmac)) {
+                    // rung-2b: payload = [nonce:24][ciphertext]; decrypt with this
+                    // entanglement's enc_key (PeeringHmac already authenticated it).
+                    if msg.payload.len() < XNONCE_LEN {
+                        return Inbound::Dropped("short cross frame");
+                    }
+                    let (nonce, ct) = msg.payload.split_at(XNONCE_LEN);
+                    let cipher = match XChaCha20Poly1305::new_from_slice(&e.enc_key) {
+                        Ok(c) => c,
+                        Err(_) => return Inbound::Dropped("bad enc key"),
+                    };
+                    return match cipher.decrypt(XNonce::from_slice(nonce), ct) {
+                        Ok(pt) => Inbound::Deliver {
+                            event_hash,
+                            payload: pt,
+                        },
+                        Err(_) => Inbound::Dropped("decrypt failed"),
+                    };
                 }
             }
-            return Inbound::Deliver {
-                event_hash,
-                payload: msg.payload.to_vec(),
-            };
+            return Inbound::Dropped("auth failed");
         }
 
         let req = ForwardRequest {
@@ -673,6 +712,9 @@ mod tests {
     // ── Inter-TG entanglement (R2-TRUST §7.5 rung-2a, auth-only PeeringHmac) ──
     const PK_AB: [u8; 32] = [0x33; 32]; // shared TG_A<->TG_B peering hmac key
     const PK_X: [u8; 32] = [0x44; 32]; // an unrelated peering key
+    const ENC_AB: [u8; 32] = [0x55; 32]; // shared TG_A<->TG_B peering enc key
+    const ENC_X: [u8; 32] = [0x66; 32]; // an unrelated enc key
+    const NONCE: [u8; 24] = [0x77; 24]; // fixed test nonce (fresh-random in fw)
 
     // A (TG1) and B (TG2) are ENTANGLED (share PK_AB): A's cross-TG frame crosses.
     #[test]
@@ -682,10 +724,10 @@ mod tests {
         let txb = MockTransport { net: net.clone(), reachable: vec![A] };
         let mut a = RouteNode::<64, 64, 64>::new(A).with_trust(TG1, HK1);
         let mut b = RouteNode::<64, 64, 64>::new(B).with_trust(TG2, HK2);
-        b.entangle(PK_AB);
+        b.entangle(PK_AB, ENC_AB);
         a.seed_direct(B, RTransport::Wifi, 1);
 
-        a.originate_cross(B, TG2, PK_AB, EV, b"cross", &txa, 1).unwrap();
+        a.originate_cross(B, TG2, PK_AB, ENC_AB, NONCE, EV, b"cross", &txa, 1).unwrap();
         let frame = drain(&net, B).remove(0);
         assert_eq!(
             b.on_inbound(&frame, A, &txb, 1),
@@ -703,7 +745,7 @@ mod tests {
         let mut b = RouteNode::<64, 64, 64>::new(B).with_trust(TG2, HK2); // no entangle
         a.seed_direct(B, RTransport::Wifi, 1);
 
-        a.originate_cross(B, TG2, PK_AB, EV, b"cross", &txa, 1).unwrap();
+        a.originate_cross(B, TG2, PK_AB, ENC_AB, NONCE, EV, b"cross", &txa, 1).unwrap();
         let frame = drain(&net, B).remove(0);
         assert_eq!(b.on_inbound(&frame, A, &txb, 1), Inbound::Dropped("auth failed"));
     }
@@ -716,11 +758,11 @@ mod tests {
         let txb = MockTransport { net: net.clone(), reachable: vec![A] };
         let mut a = RouteNode::<64, 64, 64>::new(A).with_trust(TG1, HK1);
         let mut b = RouteNode::<64, 64, 64>::new(B).with_trust(TG2, HK2);
-        b.entangle(PK_AB);
+        b.entangle(PK_AB, ENC_AB);
         assert!(b.retire_entanglement(&PK_AB));
         a.seed_direct(B, RTransport::Wifi, 1);
 
-        a.originate_cross(B, TG2, PK_AB, EV, b"cross", &txa, 1).unwrap();
+        a.originate_cross(B, TG2, PK_AB, ENC_AB, NONCE, EV, b"cross", &txa, 1).unwrap();
         let frame = drain(&net, B).remove(0);
         assert_eq!(b.on_inbound(&frame, A, &txb, 1), Inbound::Dropped("auth failed"));
     }
@@ -733,12 +775,29 @@ mod tests {
         let txb = MockTransport { net: net.clone(), reachable: vec![A] };
         let mut a = RouteNode::<64, 64, 64>::new(A).with_trust(TG1, HK1);
         let mut b = RouteNode::<64, 64, 64>::new(B).with_trust(TG2, HK2);
-        b.entangle(PK_X); // entangled, but with a DIFFERENT key
+        b.entangle(PK_X, ENC_X); // entangled, but with DIFFERENT keys
         a.seed_direct(B, RTransport::Wifi, 1);
 
-        a.originate_cross(B, TG2, PK_AB, EV, b"cross", &txa, 1).unwrap();
+        a.originate_cross(B, TG2, PK_AB, ENC_AB, NONCE, EV, b"cross", &txa, 1).unwrap();
         let frame = drain(&net, B).remove(0);
         assert_eq!(b.on_inbound(&frame, A, &txb, 1), Inbound::Dropped("auth failed"));
+    }
+
+    // Right peering HMAC but wrong ENC key (AEAD tag mismatch) → decrypt fails.
+    // (Artificial split — canon pairs hmac+enc; covers the decrypt-fail path.)
+    #[test]
+    fn cross_tg_wrong_enc_key_dropped() {
+        let net: Net = Rc::new(RefCell::new(HashMap::new()));
+        let txa = MockTransport { net: net.clone(), reachable: vec![B] };
+        let txb = MockTransport { net: net.clone(), reachable: vec![A] };
+        let mut a = RouteNode::<64, 64, 64>::new(A).with_trust(TG1, HK1);
+        let mut b = RouteNode::<64, 64, 64>::new(B).with_trust(TG2, HK2);
+        b.entangle(PK_AB, ENC_X); // hmac matches, enc does NOT
+        a.seed_direct(B, RTransport::Wifi, 1);
+
+        a.originate_cross(B, TG2, PK_AB, ENC_AB, NONCE, EV, b"cross", &txa, 1).unwrap();
+        let frame = drain(&net, B).remove(0);
+        assert_eq!(b.on_inbound(&frame, A, &txb, 1), Inbound::Dropped("decrypt failed"));
     }
 
     // Multi-hop: A -> (relay B) -> C. Proves real routing + TTL decrement.

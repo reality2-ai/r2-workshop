@@ -17,3 +17,5 @@ r2-wire = { path = "../r2-wire", features = ["alloc"] }
 r2-trust = { path = "../r2-trust" }
 # Health telemetry (#18 r2.hb.health) — no_std int-keyed CBOR.
 r2-cbor = { path = "../r2-cbor" }
+# rung-2b: XChaCha20-Poly1305 cross-TG payload encryption (R2-TRUST §7.5).
+chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
