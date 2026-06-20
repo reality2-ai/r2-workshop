@@ -81,11 +81,16 @@ sockets — done on Alfred, pushed.** Branch HEAD `ff01a04`.
 - **DONE — #18 build-side** (`146003f`): dfr1195 build.rs bakes
   `R2_FW_VER=<semver>+<sha>` + boot-logs it. #18 PULL = CMD_QUERY. #18 PUSH
   (`r2.hb.health`) awaits composer's HEALTH-TELEMETRY-CONTRACT (asked).
-- **RUNG 2 — inter-TG PeeringHmac entanglement: BLOCKED on core's wire contract**
-  (asked core: target_group=dest-vs-origin + where origin_tg is carried;
-  PeeringHmac authenticated span + tag field; derive_peering_keys inputs/order;
-  entanglement state + retire/epoch model). Won't guess security-critical wire.
-  Host-testable in r2-tn once pinned.
+- **RUNG 2a — inter-TG PeeringHmac entanglement: DONE (auth-only)** (`9a3902d`):
+  per core's §7.5 contract. `entangle()`/`retire_entanglement()` (DROP-ON-RETIRE,
+  RAM-volatile HF-3); deliver-gate cross branch trial-verifies each LIVE
+  entanglement's PeeringHmac; `originate_cross()` signs with the peering key
+  (target_group=origin tg so the cross branch fires — flagged the dest-vs-origin
+  gap to core/specs). 4 tests (entangled/not/retired/wrong-key); r2-tn 15/15 +
+  ESP-compiles. **RUNG 2b (canon) = add XChaCha20 payload encryption** (payload=
+  [nonce:24][ciphertext], HMAC over hdr||nonce||ct) — after core confirms 2a.
+  Real provisioning = lexicographically-ordered X25519 derive_peering_keys
+  (host test uses a shared peering key directly).
 - **Trust-tier reference** (core TRUST-INTEGRATION-BRIEF @ r2-core 5f8798b; not in
   my workspace — relayed summary only). Entry points:
   - Gate ONLY at RouteNode's DELIVER branch (lib.rs ~234); relay stays
