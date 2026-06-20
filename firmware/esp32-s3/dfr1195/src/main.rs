@@ -35,12 +35,18 @@ const AP_PSK: &str = match option_env!("R2_TN_AP_PSK") {
     None => "r2tnlab1234",
 };
 
+/// Firmware version for telemetry (#18): `<semver>+<git-sha>`, baked by build.rs.
+const FW_VER: &str = match option_env!("R2_FW_VER") {
+    Some(s) => s,
+    None => env!("CARGO_PKG_VERSION"),
+};
+
 fn main() -> Result<()> {
     link_patches();
     esp_idf_svc::log::EspLogger::initialize_default();
 
     info!("==================================================");
-    info!("r2-workshop TN node (dfr1195 / ESP32-S3 4MB) v{}", env!("CARGO_PKG_VERSION"));
+    info!("r2-workshop TN node (dfr1195 / ESP32-S3 4MB) fw_ver={}", FW_VER);
     info!("==================================================");
 
     let peripherals = Peripherals::take()?;
