@@ -44,7 +44,9 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
        into the node (Node/TnConfig hk) + static-IP STA.
   3. LIGHT beat-LED — hive's beat = **MsgType::Heartbeat, target_group==my_tg**
      (payload conductor4B+ver4B), NOT an event hash → filter Heartbeat frame → blink.
-     BLOCKED on C6 FireBeetle-2-C6 LED pin (I'll VERIFY, not fabricate). No PLL.
+     **C6 LED VERIFIED = GPIO15/D13, MONO blue** (DFR1075 wiki; no NeoPixel;
+     polarity likely active-high, verify on metal). Remaining: filter Heartbeat in
+     C6 deliver path → drive GPIO15. No PLL.
   4. #18 health-emit — DONE.
   **BAKE: R2_TN_AP_ID=0x480e900e** (hive post-abde165; supersedes supervisor's
   earlier pre-abde165 0x3e0d688f — confirm w/ hive on metal). SSID r2-fieldlab /
