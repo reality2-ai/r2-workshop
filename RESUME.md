@@ -30,16 +30,26 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
      STATIC-IP STA (no DHCP, self-assign 192.168.4.<lowMAC>) — esp-only, NEXT,
      untestable solo → metal-test loop w/ composer/hive. Then wire the .255 bcast
      value + static IP into main's fielded path.
-  2. PERSONA-READER + canonical `derive_hive_id` (TG 4b3df45d trusted) — BLOCKED:
-     (a) composer persona r2_cbor schema + partitions.csv line for 0x12000, (b)
-     vendored r2-trust LACKS derive_hive_id → re-sync (core), (c) SHARED reader in
-     r2-esp (north-star, not a fork) — where?
-  3. LIGHT beat-LED — flash lub-dub on receiving conductor `r2.hb.beat`
-     (deliver-hook on event=fnv("r2.hb.beat")); BLOCKED on C6 LED pin/polarity.
-     No conductor-PLL port (heartbeat-PLL is hive no_std only).
+  2. PERSONA-READER + canonical `derive_hive_id` (TG 4b3df45d trusted):
+     • derive_hive_id RE-SYNCED from core (`b68e756`, abde165 raw-hyphen no-v4).
+     • PERSONA PARSER **DONE + host-tested** (`<persona commit>`, r2-tn 20/20):
+       `r2_tn::persona::parse_persona` decodes composer's map(7) {0:tg_id,1:dek,
+       2:hk,3:master_secret,4:cert,5:tg_pk,6:issued_at}; `trust_params()` →
+       (derive_hive_id wire id, tg=fnv1a_32(tg_id), hk). Round-trips composer's
+       build_persona_bundle. (In r2-tn = no canon-drift; lift to shared r2-trust
+       if core/hive want — code ready.)
+     • REMAINING (esp-only glue, metal-test pass): raw flash-read @0x12000 (NO
+       partition line — espflash panics; read by offset via esp flash API; composer
+       write-bins the blob, size ≤0x2000 in the phy_init→ota_0 gap) + wire trust
+       into the node (Node/TnConfig hk) + static-IP STA.
+  3. LIGHT beat-LED — hive's beat = **MsgType::Heartbeat, target_group==my_tg**
+     (payload conductor4B+ver4B), NOT an event hash → filter Heartbeat frame → blink.
+     BLOCKED on C6 FireBeetle-2-C6 LED pin (I'll VERIFY, not fabricate). No PLL.
   4. #18 health-emit — DONE.
-  Routing/relay is trust-agnostic (B1) so an interim unprovisioned C6 (trust:None)
-  still routes + receives beat; persona makes it a SECURE TG-4b3df45d member.
+  **BAKE: R2_TN_AP_ID=0x480e900e** (hive post-abde165; supersedes supervisor's
+  earlier pre-abde165 0x3e0d688f — confirm w/ hive on metal). SSID r2-fieldlab /
+  PSK r2fieldlab / ch6. Routing/relay trust-agnostic (B1); persona = SECURE
+  TG-4b3df45d member. Conductor = global-lowest canonical id (C6 won't run PLL).
 
 
 - **8-board mesh blobs SHIPPED to composer:** S3 `dfr1195` (default 124739a5 /
