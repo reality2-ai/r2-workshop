@@ -197,8 +197,26 @@ impl RouteNode {
         let dest = msg.header.target_hive;
         let event_hash = msg.header.event_hash;
 
+        // Learn the immediate sender as a neighbour + reverse path (MeshNode
+        // step 2a) so the engine can route back toward it without separate
+        // discovery. Real WiFi datagram → Ideal/Infrastructure per core's Q4.
+        self.engine.ingest_observation(Observation {
+            hive_id: from_hive_id,
+            transport: RTransport::Wifi,
+            timestamp: now,
+            quality: QualitySample::Ideal,
+            rssi: None,
+            mcu_origin: false,
+            mobility: MobilityClass::Infrastructure,
+        });
+        self.engine
+            .record_delivery_success(from_hive_id, from_hive_id, now);
+
         // Addressed to us → deliver locally. (Broadcast handling is a later
         // milestone; first light is unicast A->B / A->R->B.)
+        // TODO(delivery-dedup): own a seen-set keyed on (origin, msg_id) before
+        // multi-path flood delivery — open seam q for direct frames with no
+        // route stack (origin not in header); candidate spec refinement.
         if dest == self.my_hive_id {
             return Inbound::Deliver {
                 event_hash,
@@ -237,6 +255,12 @@ impl RouteNode {
                 Ok(relayed) => {
                     let mut last = 0u32;
                     for h in &hops {
+                        // Never bounce back to the peer we received it from
+                        // (MeshNode flood rule; avoids the relay-only-neighbour
+                        // == inbound-peer dead-end core flagged).
+                        if h.neighbour == from_hive_id {
+                            continue;
+                        }
                         if tx.send(h.neighbour, &relayed).is_ok() {
                             last = h.neighbour;
                         }
