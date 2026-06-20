@@ -20,6 +20,20 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
   (esp_random/OsRng). **r2-tn 17/17 + S3/C6 ESP-compile.** Sent core the frame to
   vet the HMAC span. ⇒ **FULL TRUST LADDER COMPLETE in canon code** (routing →
   intra-TG → inter-TG auth → inter-TG encryption).
+- **rung-2b CORE-VALIDATED** ("ship it"): sign_extended span = §7.5's immutable
+  header (msg_type||event_hash||target_group||target_hive) || nonce || ct — same
+  exclusion as GroupHmac (§10.6), REQUIRED because B1 relays rewrite ttl/k/route
+  in flight. Verify-then-decrypt correct. **Watch (specs-level, NOT mine):**
+  msg_id excluded from span → MITM-rewrite-msg_id replay (harmless idempotent;
+  matters for non-idempotent cross-TG commands; 60s dedup mitigates). core asking
+  specs if msg_id should join the authenticated span; if ratified → r2-wire span
+  change, then I adopt. No change now.
+- **DEFERRED — LoRa carrier work (#21, post-WiFi-mesh):** encode SX1262 PINOUT
+  per carrier in the board profile (DFR1195 integrated SX1262 vs XIAO Wio-SX1262
+  separate module — different SPI/NSS/RST/BUSY/DIO1/ant-switch; FETCH Seeed
+  Wio-SX1262 datasheet). core building a PIN-PARAMETRIC SX1262 driver (reads
+  per-carrier PinConfig) + per-carrier LED pin (composer §12.3 r2.hw.led). Stage
+  when I reach LoRa; my current TN carriers are WiFi-only (r2.hw.lora absent).
 - **Small firmware canon TODOs (next touch):** (1) R2-WIFI v0.6 MUST-NOT-hardcode:
   drop the `192.168.71.1` STA fallback → skip-if-no-DHCP-gateway (rarely triggers;
   gateway-read already primary). (2) hive_id §6.2.1 (drop MAC shortcut, needs TG
