@@ -13,24 +13,30 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
   canonical §6.2.1 hive_id (fnv of load_identity UUID; mints master_secret+TG-of-one
   in NVS) + baked AP id (canonical id not MAC-derivable). Standalone r2-tn-lab mode
   unchanged (MAC-FNV). Health-emit already in fw.
-  **REBAKE BLOCKED on hive (asked via fleet ask):** (1) r2-fieldlab PSK + SSID
-  confirm, (2) hive's AP board CANONICAL wire hive_id (= R2_TN_AP_ID), (3) AP runs
-  RouteEngine relay + UDP 21042. Then build R2_TN_AP_SSID=r2-fieldlab R2_TN_AP_PSK=…
-  R2_TN_AP_ID=… R2_TN_AP_MAC="" (all-STA) → composer re-flash/OTA.
-  **PIVOT (composer owns provisioning):** C6 become TRUSTED members of REAL TG
-  `4b3df45d` (not untrusted routing). composer gen-persona → per-C6 PERSONA BLOB
-  @ flash 0x12000; my fw reads it → `r2_trust::derive_hive_id` (canon §6.2.1,
-  abde165) + `with_trust(hk)`. My fielded scaffold (R2_TN_AP_ID/all-STA/SSID) is
-  the right shell; id-source swaps load_identity → persona-read.
-  **BLOCKED on contracts (asked composer/hive/core):** (1) persona r2_cbor schema
-  + the partitions.csv line for 0x12000; (2) **vendored r2-trust LACKS
-  derive_hive_id → needs re-sync** (have only derive_group/peering_keys); (3)
-  north-star: a SHARED persona-reader in r2-esp that BOTH hive's DFR1195 + my C6
-  call (no fork) — does hive have it / where?
-  **BEAT-AS-ONE = composer's (iii+):** routing + LIGHT visual sync (flash lub-dub
-  LED on receiving the conductor's `r2.hb.beat` frame; no PLL). My std C6 can do it
-  (deliver-hook on event=fnv("r2.hb.beat")) once the per-carrier LED pin is known.
-  No full conductor-PLL port.
+  **VERIFIED FIELDED CONFIG (hive + supervisor confirmed on metal):**
+  • SSID=`r2-fieldlab` PSK=`r2fieldlab` (WPA2, 10ch). AP=hive S3 MAC 502698 @
+    **192.168.4.1** (embassy-net SoftAP).
+  • **NO DHCP** — each C6 STA SELF-ASSIGNS STATIC **192.168.4.(low MAC byte)**
+    (avoid .0/.1/.255), mask /24, gw 192.168.4.1.
+  • **TRANSPORT = BROADCAST** to **192.168.4.255:21042**; `target_hive` addresses
+    delivery (not unicast-to-AP). My UdpTransport must broadcast (SO_BROADCAST).
+  • Bake **R2_TN_AP_ID=0x3e0d688f** (hive AP canonical wire id; UUID string TBD
+    from hive's next reflash for fnv cross-check). UDP 21042 confirmed.
+  • hive ADDING explicit L3 relay (re-broadcast on plan_forward, TTL−1, dedup) so
+    cross-arch STA↔STA is guaranteed; raising SoftAP max_connections ≥8.
+  **REBAKE = 4 changes** (supervisor "re-bake NOW"):
+  1. JOIN r2-fieldlab — needs STATIC-IP STA (no DHCP) + BROADCAST transport. Code
+     UNBLOCKED (values known) but UNTESTABLE solo → metal-test loop w/ composer/hive.
+  2. PERSONA-READER + canonical `derive_hive_id` (TG 4b3df45d trusted) — BLOCKED:
+     (a) composer persona r2_cbor schema + partitions.csv line for 0x12000, (b)
+     vendored r2-trust LACKS derive_hive_id → re-sync (core), (c) SHARED reader in
+     r2-esp (north-star, not a fork) — where?
+  3. LIGHT beat-LED — flash lub-dub on receiving conductor `r2.hb.beat`
+     (deliver-hook on event=fnv("r2.hb.beat")); BLOCKED on C6 LED pin/polarity.
+     No conductor-PLL port (heartbeat-PLL is hive no_std only).
+  4. #18 health-emit — DONE.
+  Routing/relay is trust-agnostic (B1) so an interim unprovisioned C6 (trust:None)
+  still routes + receives beat; persona makes it a SECURE TG-4b3df45d member.
 
 
 - **8-board mesh blobs SHIPPED to composer:** S3 `dfr1195` (default 124739a5 /
