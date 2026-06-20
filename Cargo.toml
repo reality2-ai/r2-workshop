@@ -15,6 +15,9 @@ members = [
     "crates/r2-transport",
     "crates/r2-route",
     "crates/r2-engine",
+    # Workshop-original: host-testable TN node driver (RouteEngine + transport
+    # seam glue). The ESP firmware reuses it with the r2-esp WifiUdpTransport.
+    "crates/r2-tn",
     "dashboard",
     "tools/r2-workshop-tg",
     # r2-wasm has cdylib + wasm32-only deps (wasm-bindgen, getrandom/js).

@@ -29,6 +29,10 @@ pub mod reset_tcp;
 pub mod wifi_sta;
 pub mod wifi_prov;
 
+// TRUE TN: WiFi/UDP peer transport implementing r2-transport::Transport, the
+// send seam for core's RouteEngine. See docs/tn-routeengine-smallest-path.md.
+pub mod peer_wifi_udp;
+
 #[cfg(feature = "ble")]
 pub mod l2cap;
 

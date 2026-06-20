@@ -8,6 +8,9 @@ description = "Shared ESP-IDF modules for R2 firmware — OTA, WiFi, provisionin
 # R2 protocol crates (no_std compatible)
 r2-core = { path = "../r2-core", features = ["alloc"] }
 r2-wire = { path = "../r2-wire", features = ["alloc"] }
+# TRUE TN: routing engine + transport seam (docs/tn-routeengine-smallest-path.md)
+r2-route = { path = "../r2-route" }
+r2-transport = { path = "../r2-transport", features = ["alloc"] }
 
 # ESP-IDF framework
 esp-idf-svc = { version = "0.51", features = ["binstart"] }

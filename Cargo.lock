@@ -1631,6 +1631,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "r2-tn"
+version = "0.1.0"
+dependencies = [
+ "r2-route",
+ "r2-transport",
+ "r2-wire",
+]
+
+[[package]]
 name = "r2-transport"
 version = "0.1.0"
 dependencies = [

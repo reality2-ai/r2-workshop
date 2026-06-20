@@ -1,0 +1,15 @@
+[package]
+name = "r2-tn"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "R2 TN node driver — glues core's RouteEngine to a transport for board-to-board frame routing (workshop bring-up)"
+
+# Host-buildable (no esp-idf): RouteEngine + r2-wire framing + the Transport
+# seam. The ESP firmware instantiates RouteNode with r2-esp::peer_wifi_udp.
+# no_std-compatible so it can converge into the one hive codebase later.
+
+[dependencies]
+r2-route = { path = "../r2-route" }
+r2-transport = { path = "../r2-transport", features = ["alloc"] }
+r2-wire = { path = "../r2-wire", features = ["alloc"] }
