@@ -66,8 +66,18 @@ sockets — done on Alfred, pushed.** Branch HEAD `ff01a04`.
   → originate signs every frame with `GroupHmac` (SHA256, sets target_group=
   FNV(tg_uuid) + 32B tag); DELIVER gated on `target_group==my_tg && verify_extended`
   (else Dropped wrong-TG/HMAC-fail); RELAY untouched = trust-agnostic (B1).
-  r2-tn 10/10 host + **ESP32-S3 compiles** (r2-trust x25519/curve25519/chacha
+  r2-tn 11/11 host + **ESP32-S3 compiles** (r2-trust x25519/curve25519/chacha
   build for xtensa). r2-tn now deps r2-trust.
+- **DONE — #19 mesh address-learning + STA↔STA-via-AP relay variant** (`146003f`):
+  Node::poll learns sender hive_id→addr on recv (relay/route-back without static
+  seed); dfr1195 RELAY variant (bake R2_TN_STA_A_MAC/B → STAs originate to each
+  other, AP relays). Host test `ap_relays_sta_to_sta_with_address_learning` (real
+  UDP, 3 Nodes). **Two blobs to composer:** default STA→AP `124739a5`, relay
+  STA↔STA `5490c063` (one-image role-by-MAC; both have canon dedup + intra-TG
+  trust + learning + OTA receiver). Supersede 343d1ab2.
+- **DONE — #18 build-side** (`146003f`): dfr1195 build.rs bakes
+  `R2_FW_VER=<semver>+<sha>` + boot-logs it. #18 PULL = CMD_QUERY. #18 PUSH
+  (`r2.hb.health`) awaits composer's HEALTH-TELEMETRY-CONTRACT (asked).
 - **RUNG 2 — inter-TG PeeringHmac entanglement: BLOCKED on core's wire contract**
   (asked core: target_group=dest-vs-origin + where origin_tg is carried;
   PeeringHmac authenticated span + tag field; derive_peering_keys inputs/order;
