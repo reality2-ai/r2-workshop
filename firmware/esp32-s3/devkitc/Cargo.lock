@@ -1310,6 +1310,7 @@ dependencies = [
  "log",
  "r2-core",
  "r2-route",
+ "r2-tn",
  "r2-transport",
  "r2-wire",
  "sha2",
@@ -1325,6 +1326,15 @@ version = "0.1.0"
 dependencies = [
  "heapless",
  "libm",
+ "r2-wire",
+]
+
+[[package]]
+name = "r2-tn"
+version = "0.1.0"
+dependencies = [
+ "r2-route",
+ "r2-transport",
  "r2-wire",
 ]
 
