@@ -10,10 +10,13 @@
 
 use esp_idf_svc::eventloop::EspSystemEventLoop;
 use esp_idf_svc::hal::modem::Modem;
+use esp_idf_svc::ipv4;
+use esp_idf_svc::netif::{EspNetif, NetifConfiguration, NetifStack};
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
-use esp_idf_svc::wifi::{BlockingWifi, ClientConfiguration, Configuration, EspWifi};
+use esp_idf_svc::wifi::{BlockingWifi, ClientConfiguration, Configuration, EspWifi, WifiDriver};
 use log::{error, info, warn};
 
+use std::net::Ipv4Addr;
 use std::sync::Mutex;
 
 /// Global IP address — set on successful connection, read by other modules
@@ -132,6 +135,88 @@ pub fn connect(
         set_current_ip(Some(ip.clone()));
     }
 
+    Some(WifiConnection { wifi })
+}
+
+/// Connect in station mode with a STATIC IP (no DHCP).
+///
+/// Required to join an AP whose stack runs no DHCP server — e.g. hive's
+/// embassy-net SoftAP `r2-fieldlab` (AP 192.168.4.1). Each node self-assigns
+/// `ip` (convention: 192.168.4.<low MAC byte>) with `gateway` = the AP, /24.
+/// Returns None on failure; the handle must be kept alive.
+#[allow(clippy::too_many_arguments)]
+pub fn connect_static(
+    modem: Modem,
+    sysloop: EspSystemEventLoop,
+    nvs: EspDefaultNvsPartition,
+    ssid: &str,
+    password: &str,
+    ip: Ipv4Addr,
+    gateway: Ipv4Addr,
+) -> Option<WifiConnection> {
+    if ssid.is_empty() {
+        warn!("[WIFI] No SSID provided — WiFi disabled");
+        return None;
+    }
+    info!("[WIFI] Connecting to \"{ssid}\" with static IP {ip} (gw {gateway})...");
+
+    let driver = match WifiDriver::new(modem, sysloop.clone(), Some(nvs)) {
+        Ok(d) => d,
+        Err(e) => {
+            error!("[WIFI] WifiDriver::new failed: {e}");
+            return None;
+        }
+    };
+
+    // Static-IP STA netif (no DHCP client).
+    let sta_conf = NetifConfiguration {
+        ip_configuration: Some(ipv4::Configuration::Client(ipv4::ClientConfiguration::Fixed(
+            ipv4::ClientSettings {
+                ip,
+                subnet: ipv4::Subnet {
+                    gateway,
+                    mask: ipv4::Mask(24),
+                },
+                dns: None,
+                secondary_dns: None,
+            },
+        ))),
+        ..NetifConfiguration::wifi_default_client()
+    };
+    let sta_netif = EspNetif::new_with_conf(&sta_conf).ok()?;
+    let ap_netif = EspNetif::new(NetifStack::Ap).ok()?;
+
+    let esp_wifi = EspWifi::wrap_all(driver, sta_netif, ap_netif).ok()?;
+    let mut wifi = BlockingWifi::wrap(esp_wifi, sysloop).ok()?;
+
+    let config = Configuration::Client(ClientConfiguration {
+        ssid: ssid.try_into().unwrap_or_default(),
+        password: password.try_into().unwrap_or_default(),
+        ..Default::default()
+    });
+    if let Err(e) = wifi.set_configuration(&config) {
+        error!("[WIFI] set_configuration failed: {e}");
+        return None;
+    }
+    if let Err(e) = wifi.start() {
+        error!("[WIFI] start failed: {e}");
+        return None;
+    }
+    if let Err(e) = wifi.connect() {
+        error!("[WIFI] connect to \"{ssid}\" failed: {e}");
+        return None;
+    }
+    if let Err(e) = wifi.wait_netif_up() {
+        error!("[WIFI] netif up failed: {e}");
+        return None;
+    }
+
+    let ip_str = format!("{ip}");
+    set_current_ip(Some(ip_str.clone()));
+    if let Ok(mut g) = CURRENT_GATEWAY.lock() {
+        *g = Some(format!("{gateway}"));
+    }
+    info!("[WIFI] ✅ static IP {ip} on \"{ssid}\"");
     Some(WifiConnection { wifi })
 }
 
