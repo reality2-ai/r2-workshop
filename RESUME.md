@@ -13,9 +13,18 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
   (no self-emit). r2-esp re-exports r2_tn::health. Ships to fielded boards via #17
   OTA. (AP-forward-to-dashboard hop is composer's side.) The shipped C6 blob
   9a35b7f8 PREDATES this — re-flash or OTA (asked composer).
-- **NEXT: rung-2b XChaCha20** cross-TG encryption (specs-ratified v0.7 §7.5.4 /
-  R2-WIRE v0.5 §10.3; plan sent to core to vet — building the AEAD fresh once core
-  okays). Entanglement+enc_key, originate_cross encrypts [nonce][ct], gate decrypts.
+- **DONE — rung-2b XChaCha20 cross-TG encryption** (core-vetted plan): Entanglement
+  +enc_key; `originate_cross` seals [nonce:24][XChaCha20Poly1305(enc_key,nonce,pt)]
+  + PeeringHmac over hdr||nonce||ct; gate's verifying entanglement decrypts →
+  deliver plaintext (decrypt-fail→drop). Two MACs per §7.5. nonce caller-supplied
+  (esp_random/OsRng). **r2-tn 17/17 + S3/C6 ESP-compile.** Sent core the frame to
+  vet the HMAC span. ⇒ **FULL TRUST LADDER COMPLETE in canon code** (routing →
+  intra-TG → inter-TG auth → inter-TG encryption).
+- **Small firmware canon TODOs (next touch):** (1) R2-WIFI v0.6 MUST-NOT-hardcode:
+  drop the `192.168.71.1` STA fallback → skip-if-no-DHCP-gateway (rarely triggers;
+  gateway-read already primary). (2) hive_id §6.2.1 (drop MAC shortcut, needs TG
+  provisioning). (3) per-carrier LED pin/polarity for XIAO/C6 + composer §12.3
+  r2.hw.led (my TN nodes don't drive an LED yet — coordinate when relevant).
 - **XIAO prep — BLOCKED on clarification** (asked supervisor): (a) do the 4 XIAO
   run MY std blob (→ I bake r2-fieldlab creds + XIAO MACs) or HIVE's no_std binary
   (→ hive's bake)? (b) composer's board-info didn't read the 2 seeed-XIAO MACs
