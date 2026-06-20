@@ -19,15 +19,27 @@
 
 use r2_route::transport::{QualitySample, Transport as RTransport};
 use r2_route::{ForwardAction, ForwardRequest, MobilityClass, Observation, RouteEngine, Target};
-use r2_route::compress_hive_id_16;
 use r2_transport::Transport;
 use r2_wire::extended::prepare_relay_extended;
 use r2_wire::{decode_extended, encode_extended, ExtendedHeader, ExtendedMessage, Flags, MsgType};
 
-/// Initial TTL for an originated frame (provisional; see module docs).
-pub const DEFAULT_TTL: u8 = 4;
-/// Initial spray-and-wait K for an originated frame (provisional).
-pub const DEFAULT_K: u8 = 2;
+/// Initial TTL for an originated frame — canonical `DEFAULT_TTL`
+/// (r2-core constants.rs:4), confirmed by core.
+pub const DEFAULT_TTL: u8 = 5;
+/// Initial K for an originated frame — canonical `FLOOD_SENTINEL_K`
+/// (r2-core constants.rs:54): a new destination floods (R2-ROUTE §4.5); the
+/// engine downgrades to Directed once a path is learned. NOT K=1 (that is the
+/// spray-and-wait WAIT/hold phase).
+pub const DEFAULT_K: u8 = 15;
+
+/// Compressed 16-bit sender id used for dedup (`source_hop`): the high half of
+/// the 32-bit FNV hive id (canonical rule, r2-wire types.rs:136). Inlined here
+/// rather than via a helper — canonical r2-wire exposes no `compress_hive_id_16`
+/// fn (workshop's vendored copy is forked; this keeps us aligned to canon).
+#[inline]
+fn compress_hive_id_16(hive_id: u32) -> u16 {
+    (hive_id >> 16) as u16
+}
 
 /// Outcome of feeding an inbound frame to [`RouteNode::on_inbound`].
 #[derive(Debug, Clone, PartialEq, Eq)]
