@@ -79,6 +79,18 @@ sockets — done on Alfred, pushed.** Branch HEAD `ff01a04`.
   answers it). RouteNode gates the whole message on `(msg_id, SOURCE)` first;
   SOURCE = route_stack[0] (R2-WIRE §3.3) else transport source for a direct frame.
   Separate DedupCache from the engine's relay-dedup. r2-tn 6/6 green + ESP-compiles.
+- **DONE — DFR1195 network-OTA receiver + version query** (`d94a770`, Task #17/#18):
+  dfr1195 main now calls `ota_tcp::start_listener()` (recv→verify sha→inactive
+  slot→reboot; 2-OTA slots already in the table) + `ota_tcp::mark_app_valid()`
+  (anti-brick on boot+WiFi+node self-proof) in both AP/STA branches. CMD_QUERY
+  serves fw version (#18). **Fleet blob refreshed → sha `343d1ab2…`** (canon dedup
+  + OTA receiver; on Alfred + tuxedo /tmp/dfr1195-merged.bin; composer flashes it
+  via esptool@0x0, role-by-MAC b60aa0=AP). Supersedes b5749be8.
+- **Deferred refinement (core, scale-only, not urgent):** local DedupCache key is
+  u16 source (matches r2-route's relay cache); for a many-node mesh use the FULL
+  32-bit origin (~7.6% 16-bit collision @100 devices, spec-audit-2026-03-11) — a
+  small own (msg_id, u32 source) ring; compress to 16b only when WRITING a compact
+  route entry. Moot at 2-3 boards.
 - **Interop-canon flagged to specs (spec-first):** (a) `target_hive` =
   FNV-1a(§6.2.1 hive_id_uuid) — TG-scoped, required at the trust tier; both
   workshop-dfr1195 (FNV full-MAC) + hive (MAC-low3) must converge from their
