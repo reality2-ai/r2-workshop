@@ -8,16 +8,19 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
 - **C6 MESH UP** — composer flashed 3 C6 (exit 0; 6bd0=AP/7e44/6eb0=STA, blob
   9a35b7f8). But it's a SEPARATE mesh from the DFR1195/r2-fieldlab one (my C6 hosts
   its own r2-tn-lab AP).
-- **CROSS-ARCH UNIFY (8-board single mesh) — PENDING DECISION (composer+supervisor):**
-  recommend C6s ALL-STA on hive's r2-fieldlab AP (AP relays STA↔STA). Needs from
-  hive: (1) r2-fieldlab SSID/PSK, (2) AP hive_id (originate target + #18 collector),
-  (3) hive_id-scheme alignment = canon FNV(§6.2.1 uuid) via load_identity → C6
-  must be TG-PROVISIONED into r2-fieldlab's TG (the provisioning rung). Then I
-  rebake a C6 STA blob folding canon hive_id + the (done) health-emit.
-  **FORK (Roy's call):** "C6 beat-as-one with DFR1195" = conductor-PLL heartbeat =
-  HIVE's no_std feature; my std C6 lacks it. (i) C6 run hive's no_std binary, (ii)
-  port conductor-PLL to std (big), or (iii) "beat as one"=routing-participation
-  only (my std C6 does this now once on r2-fieldlab + §6.2.1 ids). Awaiting which.
+- **CROSS-ARCH UNIFY (8-board single mesh) — supervisor DECIDED: C6 join r2-fieldlab.**
+  FIELDED-MODE CODE DONE (`e5f0997`, both carriers compile): baked `R2_TN_AP_ID` →
+  canonical §6.2.1 hive_id (fnv of load_identity UUID; mints master_secret+TG-of-one
+  in NVS) + baked AP id (canonical id not MAC-derivable). Standalone r2-tn-lab mode
+  unchanged (MAC-FNV). Health-emit already in fw.
+  **REBAKE BLOCKED on hive (asked via fleet ask):** (1) r2-fieldlab PSK + SSID
+  confirm, (2) hive's AP board CANONICAL wire hive_id (= R2_TN_AP_ID), (3) AP runs
+  RouteEngine relay + UDP 21042. Then build R2_TN_AP_SSID=r2-fieldlab R2_TN_AP_PSK=…
+  R2_TN_AP_ID=… R2_TN_AP_MAC="" (all-STA) → composer re-flash/OTA.
+  Routing-join is UNTRUSTED (tg=0); true trust needs shared-TG provisioning (later).
+  **"beat as one" = conductor-PLL (hive's no_std feature); my std C6 lacks it** —
+  doing routing-participation now (confirming w/ hive); heartbeat-PLL on C6 would
+  need hive's binary or a std port.
 
 
 - **8-board mesh blobs SHIPPED to composer:** S3 `dfr1195` (default 124739a5 /
