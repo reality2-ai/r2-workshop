@@ -1331,6 +1331,7 @@ dependencies = [
 name = "r2-tn"
 version = "0.1.0"
 dependencies = [
+ "chacha20poly1305",
  "r2-cbor",
  "r2-route",
  "r2-transport",
@@ -1368,6 +1369,7 @@ dependencies = [
  "ed25519-dalek",
  "hkdf",
  "hmac",
+ "r2-fnv",
  "r2-wire",
  "rand_core",
  "sha2",

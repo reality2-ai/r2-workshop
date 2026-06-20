@@ -84,3 +84,41 @@ pub(crate) fn hkdf_expand(ikm: &[u8], salt: &[u8], info: &[u8]) -> Result<[u8; 3
     hk.expand(info, &mut okm)?;
     Ok(okm)
 }
+
+// ── VENDOR RE-SYNC from r2-core canonical r2-trust @ abde165 (derive_hive_id) ──
+// Single source of truth for the TG-scoped hive_id (R2-WIRE §6.2.1). composer
+// (bundle producer) + hive (firmware) + workshop (C6 reader) MUST all call this
+// so the hive_id can never drift. CRITICAL: RAW hyphenation, NOT RFC-4122-v4-bit-
+// forced — canon = specs' KS1 vector (8781037820950c4b… → 87810378-2095-0c4b-…,
+// NOT …-4c4b-…); v4-forcing would discard HKDF entropy + diverge from KS1.
+
+/// Derive a hive's TG-scoped mesh identity (R2-WIRE §6.2.1).
+/// `hive_id_bytes = HKDF-SHA256(ikm=master_secret, salt="r2-hive-id-v1",
+/// info=tg_id)[0:16]`; UUID = raw 8-4-4-4-12 hyphenation (no v4 forcing);
+/// `wire_u32 = FNV-1a-32(uuid_string)`. Deterministic + TG-scoped, alloc-free.
+pub fn derive_hive_id(master_secret: &[u8], tg_id: &str) -> Result<([u8; 36], u32)> {
+    let okm = hkdf_expand(master_secret, b"r2-hive-id-v1", tg_id.as_bytes())?;
+    let mut b = [0u8; 16];
+    b.copy_from_slice(&okm[..16]);
+    let uuid = format_uuid_raw(&b);
+    let wire = r2_fnv::fnv1a_32(&uuid);
+    Ok((uuid, wire))
+}
+
+/// Hyphenate 16 bytes as a lowercase `8-4-4-4-12` UUID string (36 bytes) — RAW,
+/// no version/variant bit forcing (canon: matches specs' KS1 vector).
+fn format_uuid_raw(b: &[u8; 16]) -> [u8; 36] {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = [0u8; 36];
+    let mut oi = 0usize;
+    for (i, &byte) in b.iter().enumerate() {
+        if i == 4 || i == 6 || i == 8 || i == 10 {
+            out[oi] = b'-';
+            oi += 1;
+        }
+        out[oi] = HEX[(byte >> 4) as usize];
+        out[oi + 1] = HEX[(byte & 0x0F) as usize];
+        oi += 2;
+    }
+    out
+}

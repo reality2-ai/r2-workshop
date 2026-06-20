@@ -53,7 +53,10 @@ pub mod persist;
 pub use cert::{DeviceCertificate, DeviceRole};
 pub use error::{Error, Result};
 pub use group_mgmt::{GroupMgmtMessage, GroupMgmtOpCode};
-pub use hkdf::{derive_group_keys, derive_peering_keys, DerivedGroupKeys, PeeringKeys};
+pub use hkdf::{
+    derive_group_keys, derive_group_keys_raw, derive_hive_id, derive_peering_keys,
+    DerivedGroupKeys, PeeringKeys,
+};
 pub use join::{
     decrypt_join_response, encrypt_join_response, EncryptedJoinResponse, JoinCode,
     JoinInvite, JoinRequestPayload, JoinResponseBundle,

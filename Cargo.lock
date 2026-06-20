@@ -1660,6 +1660,7 @@ dependencies = [
  "ed25519-dalek",
  "hkdf",
  "hmac",
+ "r2-fnv",
  "r2-wire",
  "rand_chacha 0.3.1",
  "rand_core 0.6.4",
