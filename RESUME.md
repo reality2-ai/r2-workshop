@@ -33,18 +33,30 @@ sockets — done on Alfred, pushed.** Branch HEAD `ff01a04`.
   (FNV of §6.2.1 hive_id UUID) + reads `R2_TN_PEER_ID/IP/PORT/ORIGINATE` via
   `option_env!`. **Verified ESP32-S3: `cargo check` default AND `--features tn`
   both green.**
-- **NEXT — BLOCKED on hardware info (do NOT guess):** (2) **DFR1195 carrier** —
-  no DFR1195 datasheet in repo (only DFR1117/C6); **flash size + pinout unknown**,
-  both load-bearing for a safe partitions.csv/sdkconfig. Recommend a **minimal
-  TN-only firmware** (WiFi + `tn` loop, no sensor GPIO → pinout irrelevant;
-  conservative ≤4MB-safe single-app partition). Need from Roy/supervisor:
-  DFR1195 **flash size** (+ confirm plain S3), and **how TN boards get WiFi
-  creds** (bake `wifi_config.toml` w/ SoftAP SSID/PSK, or BLE-provision). FORK:
-  SX1262 LoRa = deferred net-new driver (left uninit → no conflict). (3) flash
-  ttyACM9/10/11 + hardware first-light A→B — needs tuxedo SSH/flash access
-  (flaky) + serial to observe. Alt fast path (Popperian): flash devkitc
-  `--features tn` onto a DFR1195 and observe (sensor bits degrade gracefully;
-  espflash rejects safely if flash < 8MB) — needs creds provisioning too.
+- **DONE — DFR1195 carrier built + flash-ready** (`a0a1e1c`): `firmware/esp32-s3/dfr1195`,
+  a minimal TN-only carrier. Boards on ttyACM9/10/11 probed via `espflash board-info`:
+  **ESP32-S3, 4MB, no-PSRAM** (MACs f4:12:fa:b6:0a:a0 / 52:99:28 / 50:23:e4).
+  Config: esp32s3 / FLASHSIZE_4MB / NO SPIRAM / 4MB 2-OTA table / r2-esp `tn`
+  no-`ble`. **Board-hosted SoftAP + role-by-MAC** (ONE image): board whose MAC ==
+  `R2_TN_AP_MAC` hosts the AP (`r2_esp::wifi_ap`, default SSID r2-tn-lab) + listens;
+  others join STA + originate to the AP → STA→AP delivery = the hardware frame.
+  Aligned to hive field.lab: UDP **21042**, AP **192.168.4.1**, matching partition
+  table. **Builds GREEN for ESP32-S3.**
+- **Flash artifact ready:** built with `R2_TN_AP_MAC=f4:12:fa:b6:0a:a0` (ttyACM9=AP);
+  merged 4MB blob at `/tmp/r2-tn-node-dfr1195-merged.bin` (sha256 0a7f9a7b…, app 941KB).
+  Flash: `espflash write-bin 0x0 <blob>` (or `esptool.py --chip esp32s3 write_flash
+  0x0 <blob>`), or from ELF: `espflash flash --partition-table partitions.csv
+  --flash-size 4mb target/xtensa-esp32s3-espidf/release/r2-tn-node`.
+- **NEXT — the actual flash + frame (handed off):** scp/ssh-pipe transfer to tuxedo
+  is GATED for me even under skip-perms, and **composer owns the flash/provision
+  pipeline** — so composer (or Roy) flashes ttyACM9/10/11, then monitor the AP
+  board (ttyACM9) serial for `[tn] DELIVERED … HARDWARE FRAME`. Build once + flash
+  all 3 (role-by-MAC). For 3 boards = 1 AP + 2 STA; STA↔STA may be client-isolated
+  → AP relays (RouteNode does). Artifact + commands sent to composer.
+- **THEN — trust tier** (core's TRUST-INTEGRATION-BRIEF @ r2-core 905502c): add the
+  trust gate at RouteNode's DELIVER branch only (relay stays trust-agnostic):
+  intra-TG GroupHmac verify; inter-TG PeeringHmac entanglement. Host-testable in
+  r2-tn first.
 - **Open SPEC-refinement candidate (route to specs when hit):** delivery-dedup
   origin id for a direct frame with no route stack (origin not in header).
 - **Working mode:** any on-hardware divergence → refine SPEC first (specs), then code.
