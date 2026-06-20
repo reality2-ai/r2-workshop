@@ -11,7 +11,12 @@
 //!
 //! Build-time config (baked via env / build.rs):
 //!   * `R2_TN_AP_MAC`  — MAC of the board that should host the AP (role select).
-//!   * `R2_TN_AP_SSID` / `R2_TN_AP_PSK` — board-hosted AP creds (operator-chosen).
+//!   * `R2_TN_AP_SSID` / `R2_TN_AP_PSK` — AP creds. STANDALONE: the board-hosted
+//!     SoftAP we create. FIELDED: an EXTERNAL AP to join (e.g. hive's r2-fieldlab).
+//!   * `R2_TN_AP_ID`   (hex u32, optional) — the AP board's CANONICAL hive id.
+//!     Presence selects FIELDED mode: this node uses the §6.2.1 canonical hive_id
+//!     and targets this baked AP id (a canonical id is not MAC-derivable). Absent
+//!     = STANDALONE mode (MAC-FNV ids on both sides).
 //!   * `R2_TN_MY_ID`   (hex u32, optional) — override this node's hive id.
 //!   * `R2_TN_UDP_PORT` (optional) — peer UDP port (default 21050).
 
@@ -24,7 +29,7 @@ use esp_idf_svc::hal::peripherals::Peripherals;
 use esp_idf_svc::nvs::EspDefaultNvsPartition;
 use esp_idf_svc::sys::{esp_mac_type_t_ESP_MAC_WIFI_STA, esp_read_mac, link_patches};
 use log::{info, warn};
-use r2_esp::{ota_tcp, tn, wifi_ap, wifi_sta};
+use r2_esp::{hive_id, ota_tcp, tn, wifi_ap, wifi_sta};
 
 const AP_SSID: &str = match option_env!("R2_TN_AP_SSID") {
     Some(s) => s,
@@ -59,15 +64,39 @@ fn main() -> Result<()> {
     let nvs = EspDefaultNvsPartition::take()?;
 
     let my_mac = read_mac_str();
-    let my_hive_id = match option_env!("R2_TN_MY_ID") {
-        Some(s) => parse_hex_u32(s)?,
-        None => fnv_hex(&my_mac),
-    };
-    // The AP board's hive id is deterministic from its MAC — every node can
-    // compute it, so a STA knows what to target without discovery.
     let ap_mac = option_env!("R2_TN_AP_MAC").unwrap_or("");
-    let ap_hive_id = fnv_hex(&normalize_mac(ap_mac));
     let is_ap = !ap_mac.is_empty() && normalize_mac(&my_mac) == normalize_mac(ap_mac);
+
+    // hive_id derivation, two modes:
+    //  • FIELDED (R2_TN_AP_ID baked = joining an external AP, e.g. hive's
+    //    r2-fieldlab): CANONICAL §6.2.1 hive_id = fnv1a_32 of the persisted UUID
+    //    identity (mints master_secret + TG-of-one in NVS on first boot). The AP
+    //    id is BAKED — a canonical UUID id is not MAC-derivable, so a STA can't
+    //    compute hive's AP id; hive supplies it.
+    //  • STANDALONE (no R2_TN_AP_ID = board-hosted r2-tn-lab): MAC-FNV ids on
+    //    both sides so a STA derives the AP id from its MAC without baking.
+    // R2_TN_MY_ID always overrides. (Replaces the unconditional MAC hand-roll per
+    // R2-WIRE §6.2.1 canon, while keeping the standalone demo derivable.)
+    let (my_hive_id, ap_hive_id) = match option_env!("R2_TN_AP_ID") {
+        Some(ap_id) => {
+            let my = match option_env!("R2_TN_MY_ID") {
+                Some(s) => parse_hex_u32(s)?,
+                None => {
+                    let id = hive_id::load_identity(nvs.clone())?;
+                    info!("[boot] canonical §6.2.1 hive_id_uuid={}", id.hive_id_uuid);
+                    r2_core::fnv::r2_hash(&id.hive_id_uuid).unwrap_or(0)
+                }
+            };
+            (my, parse_hex_u32(ap_id)?)
+        }
+        None => {
+            let my = match option_env!("R2_TN_MY_ID") {
+                Some(s) => parse_hex_u32(s)?,
+                None => fnv_hex(&my_mac),
+            };
+            (my, fnv_hex(&normalize_mac(ap_mac)))
+        }
+    };
 
     info!("[boot] my_mac={my_mac} my_hive_id={my_hive_id:08x} role={}",
           if is_ap { "AP" } else { "STA" });
