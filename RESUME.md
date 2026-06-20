@@ -5,6 +5,21 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
 (Relocated 2026-06-18 from `claude-fleet/fleet-context/`; claude-fleet is now tooling-code-only.)
 
 ## FRONTIER (2026-06-20, post-DELIVERED)
+- **C6 MESH UP** — composer flashed 3 C6 (exit 0; 6bd0=AP/7e44/6eb0=STA, blob
+  9a35b7f8). But it's a SEPARATE mesh from the DFR1195/r2-fieldlab one (my C6 hosts
+  its own r2-tn-lab AP).
+- **CROSS-ARCH UNIFY (8-board single mesh) — PENDING DECISION (composer+supervisor):**
+  recommend C6s ALL-STA on hive's r2-fieldlab AP (AP relays STA↔STA). Needs from
+  hive: (1) r2-fieldlab SSID/PSK, (2) AP hive_id (originate target + #18 collector),
+  (3) hive_id-scheme alignment = canon FNV(§6.2.1 uuid) via load_identity → C6
+  must be TG-PROVISIONED into r2-fieldlab's TG (the provisioning rung). Then I
+  rebake a C6 STA blob folding canon hive_id + the (done) health-emit.
+  **FORK (Roy's call):** "C6 beat-as-one with DFR1195" = conductor-PLL heartbeat =
+  HIVE's no_std feature; my std C6 lacks it. (i) C6 run hive's no_std binary, (ii)
+  port conductor-PLL to std (big), or (iii) "beat as one"=routing-participation
+  only (my std C6 does this now once on r2-fieldlab + §6.2.1 ids). Awaiting which.
+
+
 - **8-board mesh blobs SHIPPED to composer:** S3 `dfr1195` (default 124739a5 /
   relay 5490c063, AP=b60aa0) + C6 `c6-tn` (default **9a35b7f8**, AP=f0:f5:bd:07:6b:d0,
   STAs 7e44/6eb0) — all on tuxedo /tmp/. composer flashes (5 DFR1195 + 3 C6 → 8).
