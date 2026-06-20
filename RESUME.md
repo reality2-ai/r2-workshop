@@ -26,14 +26,25 @@ sockets — done on Alfred, pushed.** Branch HEAD `ff01a04`.
   full-u32 `target_hive` addressing, `source_hop=(id>>16)` INLINED (canonical
   r2-wire has no `compress_hive_id_16`; our vendored copy is forked — watch the
   re-sync), relay via `prepare_relay_extended`. Ref loop `r2-harness::MeshNode`.
-- **NEXT (hardware-gated, code is flash-ready):** (1) thin firmware run-loop —
-  construct `McuNode`, `set_peer` (static seed from env for first light) /
-  R2-BEACON→`set_peer`, spawn a thread calling `poll(now)`/`originate`; feature-
-  gated so production firmware stays pristine. (2) **DFR1195 carrier** (ESP32-S3 →
-  my Path-A extends; sim-sensor fallback, LCD ignored). **FORK flagged:** SX1262
-  LoRa = net-new driver (r2-route has a Lora TransportId, my stack has no SX1262)
-  — defer; WiFi-UDP TN needs none. (3) hardware first-light A→B when tuxedo frees
-  + FireBeetle/Beetle SKU confirmed.
+- **DONE — firmware run-loop wired** (`069ed0e`): `r2_esp::tn::spawn(TnConfig)`
+  (feature `tn`, off by default → production build byte-identical) binds
+  `WifiUdpTransport` on the SoftAP IP, builds `McuNode`, seeds static peers,
+  runs `poll`/`originate` on a thread. devkitc `tn_start()` derives my_hive_id
+  (FNV of §6.2.1 hive_id UUID) + reads `R2_TN_PEER_ID/IP/PORT/ORIGINATE` via
+  `option_env!`. **Verified ESP32-S3: `cargo check` default AND `--features tn`
+  both green.**
+- **NEXT — BLOCKED on hardware info (do NOT guess):** (2) **DFR1195 carrier** —
+  no DFR1195 datasheet in repo (only DFR1117/C6); **flash size + pinout unknown**,
+  both load-bearing for a safe partitions.csv/sdkconfig. Recommend a **minimal
+  TN-only firmware** (WiFi + `tn` loop, no sensor GPIO → pinout irrelevant;
+  conservative ≤4MB-safe single-app partition). Need from Roy/supervisor:
+  DFR1195 **flash size** (+ confirm plain S3), and **how TN boards get WiFi
+  creds** (bake `wifi_config.toml` w/ SoftAP SSID/PSK, or BLE-provision). FORK:
+  SX1262 LoRa = deferred net-new driver (left uninit → no conflict). (3) flash
+  ttyACM9/10/11 + hardware first-light A→B — needs tuxedo SSH/flash access
+  (flaky) + serial to observe. Alt fast path (Popperian): flash devkitc
+  `--features tn` onto a DFR1195 and observe (sensor bits degrade gracefully;
+  espflash rejects safely if flash < 8MB) — needs creds provisioning too.
 - **Open SPEC-refinement candidate (route to specs when hit):** delivery-dedup
   origin id for a direct frame with no route stack (origin not in header).
 - **Working mode:** any on-hardware divergence → refine SPEC first (specs), then code.
