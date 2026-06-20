@@ -39,6 +39,8 @@ pub mod group_mgmt;
 pub mod hkdf;
 /// Join protocol — X25519 key exchange + encrypted response (SPEC.md §4).
 pub mod join;
+/// Persona bundle parser (consume side) — vendor re-sync of canonical r2-trust.
+pub mod persona;
 /// Certificate revocation (SPEC.md §6).
 pub mod revocation;
 /// Algorithm identifiers and wire-format constants (SPEC.md §1).
@@ -57,6 +59,7 @@ pub use hkdf::{
     derive_group_keys, derive_group_keys_raw, derive_hive_id, derive_peering_keys,
     DerivedGroupKeys, PeeringKeys,
 };
+pub use persona::{parse_persona, Persona};
 pub use join::{
     decrypt_join_response, encrypt_join_response, EncryptedJoinResponse, JoinCode,
     JoinInvite, JoinRequestPayload, JoinResponseBundle,

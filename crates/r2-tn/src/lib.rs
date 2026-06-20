@@ -19,7 +19,6 @@
 
 pub mod health;
 pub mod node;
-pub mod persona;
 pub mod udp;
 
 pub use node::{Delivered, McuNode, Node};

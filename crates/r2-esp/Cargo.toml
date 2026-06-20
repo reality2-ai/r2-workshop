@@ -14,6 +14,8 @@ r2-transport = { path = "../r2-transport", features = ["alloc"] }
 # TN node driver + the pure-std UDP transport (host-tested in r2-tn; the firmware
 # re-exports it as peer_wifi_udp::WifiUdpTransport).
 r2-tn = { path = "../r2-tn" }
+# Shared, PV1-locked persona parser (TG provisioning) — persona_flash calls it.
+r2-trust = { path = "../r2-trust" }
 
 # ESP-IDF framework
 esp-idf-svc = { version = "0.51", features = ["binstart"] }

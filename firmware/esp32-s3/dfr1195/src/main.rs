@@ -235,9 +235,8 @@ fn run_fielded(
     // §6.2.1 id, untrusted routing-join (B1 relay still works; deliver-gate open).
     let (my_hive_id, trust) = match r2_esp::persona_flash::read_persona() {
         Ok(p) => {
-            let (hid, tg, hk) = p.trust_params().map_err(|e| anyhow!(e))?;
-            info!("[boot] FIELDED trusted: hive={hid:08x} tg={tg:08x} (persona {})", p.tg_id);
-            (hid, Some((tg, hk)))
+            info!("[boot] FIELDED trusted: hive={:08x} tg={:08x}", p.hive_id, p.tg_hash);
+            (p.hive_id, Some((p.tg_hash, p.hk)))
         }
         Err(e) => {
             warn!("[boot] no persona ({e}) — untrusted routing-join");

@@ -1310,6 +1310,7 @@ dependencies = [
  "r2-route",
  "r2-tn",
  "r2-transport",
+ "r2-trust",
  "r2-wire",
  "sha2",
 ]
@@ -1333,7 +1334,6 @@ version = "0.1.0"
 dependencies = [
  "chacha20poly1305",
  "r2-cbor",
- "r2-fnv",
  "r2-route",
  "r2-transport",
  "r2-trust",
@@ -1370,6 +1370,7 @@ dependencies = [
  "ed25519-dalek",
  "hkdf",
  "hmac",
+ "r2-cbor",
  "r2-fnv",
  "r2-wire",
  "rand_core",
