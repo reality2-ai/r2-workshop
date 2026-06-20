@@ -1636,6 +1636,7 @@ version = "0.1.0"
 dependencies = [
  "r2-route",
  "r2-transport",
+ "r2-trust",
  "r2-wire",
 ]
 

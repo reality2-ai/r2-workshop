@@ -27,10 +27,25 @@ use r2_route::dedup::DedupCache;
 use r2_route::{ForwardAction, ForwardRequest, MobilityClass, Observation, RouteEngine, Target};
 use r2_transport::Transport;
 use r2_wire::extended::prepare_relay_extended;
+use r2_wire::hmac::{sign_extended, verify_extended};
 use r2_wire::{
     decode_extended, encode_extended, ExtendedHeader, ExtendedMessage, ExtendedRouteStack, Flags,
     MsgType,
 };
+use r2_trust::wire_hmac::GroupHmac;
+
+/// Trust-group context for the deliver-gate (R2-TRUST B1: relay is
+/// trust-agnostic, DELIVERY is trust-gated). When set, this node signs every
+/// frame it originates with the group HMAC and only delivers frames whose
+/// `target_group` matches AND whose group-HMAC verifies. When `None`, the node
+/// is untrusted (open routing demo) — no signing, no deliver-gate.
+#[derive(Clone)]
+pub struct TrustContext {
+    /// This node's trust-group id = FNV-1a-32(tg_uuid_string) (R2-WIRE §6.2.1).
+    pub my_tg: u32,
+    /// Group HMAC key (DerivedGroupKeys.hk, 32 bytes).
+    pub hk: [u8; 32],
+}
 
 /// Initial TTL for an originated frame — canonical `DEFAULT_TTL`
 /// (r2-core constants.rs:4), confirmed by core.
@@ -80,6 +95,10 @@ pub struct RouteNode<const N: usize = 64, const P: usize = 64, const D: usize = 
     /// so the same message arriving via two paths delivers once. Separate from
     /// the engine's internal relay-dedup.
     dedup: DedupCache<D>,
+    /// Trust-group context. Some → sign on originate + gate on deliver; None →
+    /// untrusted open routing (no signing, no gate). Relay is ALWAYS
+    /// trust-agnostic (R2-TRUST B1).
+    trust: Option<TrustContext>,
     seq: u32,
 }
 
@@ -90,8 +109,16 @@ impl<const N: usize, const P: usize, const D: usize> RouteNode<N, P, D> {
             my_hive_id,
             engine: RouteEngine::new(),
             dedup: DedupCache::new(),
+            trust: None,
             seq: 0,
         }
+    }
+
+    /// Attach a trust-group context (enables signing on originate + the
+    /// deliver-gate). Builder style: `RouteNode::new(id).with_trust(tg, hk)`.
+    pub fn with_trust(mut self, my_tg: u32, hk: [u8; 32]) -> Self {
+        self.trust = Some(TrustContext { my_tg, hk });
+        self
     }
 
     /// This node's hive id.
@@ -159,7 +186,9 @@ impl<const N: usize, const P: usize, const D: usize> RouteNode<N, P, D> {
             msg_id,
             event_hash,
             payload_len: payload.len() as u32,
-            target_group: 0,
+            // TG discriminator (0 = untrusted/open). Set to our TG when trusted
+            // so the receiver can gate delivery on (target_group == my_tg).
+            target_group: self.trust.as_ref().map(|t| t.my_tg).unwrap_or(0),
             target_hive: dest_hive,
         };
         // Stamp our own hive id as the originator (route_stack[0]). Extended
@@ -168,13 +197,21 @@ impl<const N: usize, const P: usize, const D: usize> RouteNode<N, P, D> {
         let mut route = ExtendedRouteStack::new();
         route.len = 1;
         route.entries[0] = self.my_hive_id;
-        let msg = ExtendedMessage {
+        let mut msg = ExtendedMessage {
             header,
             route: Some(route),
             payload,
             hmac_tag: None,
         };
-        let mut buf = vec![0u8; 22 + payload.len() + 8];
+        // Trust tier: sign the frame with the group HMAC (covers the immutable
+        // header fields + payload, not ttl/k which mutate in transit). Sets
+        // has_hmac + the 32-byte tag, preserving has_route.
+        if let Some(t) = &self.trust {
+            let (flags, tag) = sign_extended(&msg, &GroupHmac::new(t.hk));
+            msg.header.flags = flags;
+            msg.hmac_tag = Some(tag);
+        }
+        let mut buf = vec![0u8; 64 + payload.len()];
         let n = encode_extended(&msg, &mut buf).map_err(|_| "encode failed")?;
         buf.truncate(n);
 
@@ -269,9 +306,18 @@ impl<const N: usize, const P: usize, const D: usize> RouteNode<N, P, D> {
         self.engine
             .record_delivery_success(from_hive_id, from_hive_id, now);
 
-        // Addressed to us → deliver locally. (Broadcast handling is a later
-        // milestone; first light is unicast A->B / A->R->B.)
+        // Addressed to us → deliver locally, TRUST-GATED (R2-TRUST B1: only the
+        // DELIVER branch is gated; relay below stays trust-agnostic). Intra-TG:
+        // deliver iff target_group == my_tg AND the group HMAC verifies.
         if dest == self.my_hive_id {
+            if let Some(t) = &self.trust {
+                if msg.header.target_group != t.my_tg {
+                    return Inbound::Dropped("wrong TG");
+                }
+                if !verify_extended(&msg, &GroupHmac::new(t.hk)) {
+                    return Inbound::Dropped("HMAC verify failed");
+                }
+            }
             return Inbound::Deliver {
                 event_hash,
                 payload: msg.payload.to_vec(),
@@ -436,6 +482,82 @@ mod tests {
         // First arrival delivers; a re-arrival of the identical frame dedups.
         assert!(matches!(b.on_inbound(&frame, A, &txb, 1), Inbound::Deliver { .. }));
         assert_eq!(b.on_inbound(&frame, A, &txb, 1), Inbound::Dropped("duplicate"));
+    }
+
+    // ── Trust tier (R2-TRUST B1: DELIVER gated, RELAY trust-agnostic) ──
+    const TG1: u32 = 0x7611_0001;
+    const TG2: u32 = 0x7622_0002;
+    const HK1: [u8; 32] = [0x11; 32];
+    const HK2: [u8; 32] = [0x22; 32];
+
+    // Same TG + same group key: signed frame verifies and delivers.
+    #[test]
+    fn intra_tg_signed_frame_delivers() {
+        let net: Net = Rc::new(RefCell::new(HashMap::new()));
+        let txa = MockTransport { net: net.clone(), reachable: vec![B] };
+        let txb = MockTransport { net: net.clone(), reachable: vec![A] };
+        let mut a = RouteNode::<64, 64, 64>::new(A).with_trust(TG1, HK1);
+        let mut b = RouteNode::<64, 64, 64>::new(B).with_trust(TG1, HK1);
+        a.seed_direct(B, RTransport::Wifi, 1);
+
+        a.originate(B, EV, b"trusted", &txa, 1).unwrap();
+        let frame = drain(&net, B).remove(0);
+        assert_eq!(
+            b.on_inbound(&frame, A, &txb, 1),
+            Inbound::Deliver { event_hash: EV, payload: b"trusted".to_vec() }
+        );
+    }
+
+    // Frame from a different TG is dropped at the deliver-gate (not our TG).
+    #[test]
+    fn wrong_tg_dropped() {
+        let net: Net = Rc::new(RefCell::new(HashMap::new()));
+        let txa = MockTransport { net: net.clone(), reachable: vec![B] };
+        let txb = MockTransport { net: net.clone(), reachable: vec![A] };
+        let mut a = RouteNode::<64, 64, 64>::new(A).with_trust(TG1, HK1);
+        let mut b = RouteNode::<64, 64, 64>::new(B).with_trust(TG2, HK1); // different TG
+        a.seed_direct(B, RTransport::Wifi, 1);
+
+        a.originate(B, EV, b"x", &txa, 1).unwrap();
+        let frame = drain(&net, B).remove(0);
+        assert_eq!(b.on_inbound(&frame, A, &txb, 1), Inbound::Dropped("wrong TG"));
+    }
+
+    // Same TG but wrong group key → HMAC verify fails → dropped.
+    #[test]
+    fn bad_hmac_dropped() {
+        let net: Net = Rc::new(RefCell::new(HashMap::new()));
+        let txa = MockTransport { net: net.clone(), reachable: vec![B] };
+        let txb = MockTransport { net: net.clone(), reachable: vec![A] };
+        let mut a = RouteNode::<64, 64, 64>::new(A).with_trust(TG1, HK1);
+        let mut b = RouteNode::<64, 64, 64>::new(B).with_trust(TG1, HK2); // same TG, wrong key
+        a.seed_direct(B, RTransport::Wifi, 1);
+
+        a.originate(B, EV, b"x", &txa, 1).unwrap();
+        let frame = drain(&net, B).remove(0);
+        assert_eq!(b.on_inbound(&frame, A, &txb, 1), Inbound::Dropped("HMAC verify failed"));
+    }
+
+    // B1: a relay in a DIFFERENT TG still forwards a frame addressed elsewhere —
+    // relay is trust-agnostic; only DELIVERY is gated.
+    #[test]
+    fn relay_is_trust_agnostic() {
+        let net: Net = Rc::new(RefCell::new(HashMap::new()));
+        let txa = MockTransport { net: net.clone(), reachable: vec![B] };
+        let txb = MockTransport { net: net.clone(), reachable: vec![A, C] };
+        let mut a = RouteNode::<64, 64, 64>::new(A).with_trust(TG1, HK1);
+        let mut b = RouteNode::<64, 64, 64>::new(B).with_trust(TG2, HK2); // foreign TG relay
+        a.seed_direct(B, RTransport::Wifi, 1);
+        a.seed_path_via(C, B, 1);
+        b.seed_direct(C, RTransport::Wifi, 1);
+
+        a.originate(C, EV, b"relayme", &txa, 1).unwrap();
+        let at_b = drain(&net, B).remove(0);
+        assert_eq!(
+            b.on_inbound(&at_b, A, &txb, 1),
+            Inbound::Forwarded { next_hop: C },
+            "a foreign-TG relay must still forward (B1)"
+        );
     }
 
     // Multi-hop: A -> (relay B) -> C. Proves real routing + TTL decrement.
