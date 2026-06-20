@@ -4,6 +4,32 @@ _Owned by this session. Keep current. Last updated 2026-06-09._
 Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan + DEV_STATUS).
 (Relocated 2026-06-18 from `claude-fleet/fleet-context/`; claude-fleet is now tooling-code-only.)
 
+## ACTIVE: TRUE TN — RouteEngine over my transports (branch `tn-routeengine-bringup`)
+**Frame ROUTES board-to-board through core's RouteEngine — done on Alfred, pushed.**
+- **Branch `tn-routeengine-bringup`** (origin pushed). HEAD `2d83417`.
+- **`crates/r2-tn` (new, host-buildable):** `RouteNode` driver glue — `originate()`
+  + `on_inbound()` (parse → deliver-if `target_hive==self` → `plan_forward` →
+  `prepare_relay_extended` → `Transport::send`). **`cargo test -p r2-tn` = 3/3:**
+  direct A→B, 2-hop relay A→R→C (asserts TTL−1), not-for-us.
+- **`crates/r2-esp/peer_wifi_udp.rs` (new):** `WifiUdpTransport` impl of
+  `r2-transport::Transport` (datagram send+broadcast, non-blocking recv,
+  hive_id→addr table). Compiles for ESP32-S3. r2-esp now deps r2-route+r2-transport.
+- **Seam = core's, applied verbatim** (line-cited answers): originate TTL=5,
+  K=15 (FLOOD_SENTINEL — floods new dest, downgrades to Directed once a path is
+  learned; NOT K=1=hold), full-u32 `target_hive` addressing, `source_hop=(id>>16)`
+  INLINED (canonical r2-wire has no `compress_hive_id_16`; our vendored copy is
+  forked — watch the re-sync), relay via `prepare_relay_extended`. Ref loop:
+  `r2-harness::MeshNode`.
+- **NEXT (autonomous):** (1) wire `RouteNode`+`WifiUdpTransport` into the firmware
+  main loop (instantiate + recv loop + R2-BEACON→`ingest_observation` +
+  hive_id↔IP); (2) add a **DFR1195 carrier** (ESP32-S3 → my Path-A extends;
+  sim-sensor fallback, LCD ignored). **FORK flagged:** SX1262 LoRa = net-new
+  driver (r2-route has a Lora TransportId, my stack has no SX1262) — defer;
+  WiFi-UDP TN needs none of it. (3) hardware first-light A→B when tuxedo frees.
+- **Working mode:** any on-hardware divergence → refine SPEC first (specs), then code.
+- **Doctrine:** [[fleet-operating-doctrine]] — branch experiment; not for `main`
+  until proven on hardware. The OTA-gate fix (`699ee32`) is already on `main`.
+
 ## Roles
 1. **Build & release owner.** Alfred (this `/remote-control workshop` session,
    host `Alfred`, x86_64, checkout `~/Development/R2/r2-workshop`) builds and
