@@ -64,46 +64,37 @@ fn main() -> Result<()> {
     let nvs = EspDefaultNvsPartition::take()?;
 
     let my_mac = read_mac_str();
-    let ap_mac = option_env!("R2_TN_AP_MAC").unwrap_or("");
-    let is_ap = !ap_mac.is_empty() && normalize_mac(&my_mac) == normalize_mac(ap_mac);
-
-    // hive_id derivation, two modes:
-    //  • FIELDED (R2_TN_AP_ID baked = joining an external AP, e.g. hive's
-    //    r2-fieldlab): CANONICAL §6.2.1 hive_id = fnv1a_32 of the persisted UUID
-    //    identity (mints master_secret + TG-of-one in NVS on first boot). The AP
-    //    id is BAKED — a canonical UUID id is not MAC-derivable, so a STA can't
-    //    compute hive's AP id; hive supplies it.
-    //  • STANDALONE (no R2_TN_AP_ID = board-hosted r2-tn-lab): MAC-FNV ids on
-    //    both sides so a STA derives the AP id from its MAC without baking.
-    // R2_TN_MY_ID always overrides. (Replaces the unconditional MAC hand-roll per
-    // R2-WIRE §6.2.1 canon, while keeping the standalone demo derivable.)
-    let (my_hive_id, ap_hive_id) = match option_env!("R2_TN_AP_ID") {
-        Some(ap_id) => {
-            let my = match option_env!("R2_TN_MY_ID") {
-                Some(s) => parse_hex_u32(s)?,
-                None => {
-                    let id = hive_id::load_identity(nvs.clone())?;
-                    info!("[boot] canonical §6.2.1 hive_id_uuid={}", id.hive_id_uuid);
-                    r2_core::fnv::r2_hash(&id.hive_id_uuid).unwrap_or(0)
-                }
-            };
-            (my, parse_hex_u32(ap_id)?)
-        }
-        None => {
-            let my = match option_env!("R2_TN_MY_ID") {
-                Some(s) => parse_hex_u32(s)?,
-                None => fnv_hex(&my_mac),
-            };
-            (my, fnv_hex(&normalize_mac(ap_mac)))
-        }
-    };
-
-    info!("[boot] my_mac={my_mac} my_hive_id={my_hive_id:08x} role={}",
-          if is_ap { "AP" } else { "STA" });
-
     let port = option_env!("R2_TN_UDP_PORT")
         .and_then(|s| s.parse::<u16>().ok())
         .unwrap_or(r2_esp::peer_wifi_udp::R2_TN_UDP_PORT);
+
+    // FIELDED mode (R2_TN_AP_ID baked): join an EXTERNAL AP (hive's r2-fieldlab)
+    // as a STA — persona-provisioned trust + static IP + broadcast transport.
+    // Diverges (returns), so the standalone path below only runs otherwise.
+    if let Some(ap_id) = option_env!("R2_TN_AP_ID") {
+        return run_fielded(
+            peripherals,
+            sysloop,
+            nvs,
+            &my_mac,
+            parse_hex_u32(ap_id)?,
+            port,
+        );
+    }
+
+    // STANDALONE mode (board-hosted r2-tn-lab): role auto-selected by MAC; MAC-FNV
+    // ids on both sides so a STA derives the AP id from R2_TN_AP_MAC without baking.
+    // R2_TN_MY_ID overrides this node's id.
+    let ap_mac = option_env!("R2_TN_AP_MAC").unwrap_or("");
+    let is_ap = !ap_mac.is_empty() && normalize_mac(&my_mac) == normalize_mac(ap_mac);
+    let my_hive_id = match option_env!("R2_TN_MY_ID") {
+        Some(s) => parse_hex_u32(s)?,
+        None => fnv_hex(&my_mac),
+    };
+    let ap_hive_id = fnv_hex(&normalize_mac(ap_mac));
+
+    info!("[boot] my_mac={my_mac} my_hive_id={my_hive_id:08x} role={}",
+          if is_ap { "AP" } else { "STA" });
 
     if is_ap {
         // ── AP role: host the SoftAP, then listen (STA originates to us). ──
@@ -212,6 +203,85 @@ fn hello_event() -> u32 {
 /// #18 health event hash = fnv1a_32("r2.hb.health").
 fn health_event() -> u32 {
     r2_core::fnv::r2_hash(r2_esp::health::HEALTH_EVENT_NAME).unwrap_or(0)
+}
+
+/// Last octet of a "xx:xx:xx:xx:xx:xx" MAC string (for the self-assigned static
+/// IP host byte). Avoids .0/.1/.255 by clamping into 2..=254.
+fn mac_host_octet(mac: &str) -> u8 {
+    let last = mac
+        .rsplit(':')
+        .next()
+        .and_then(|h| u8::from_str_radix(h, 16).ok())
+        .unwrap_or(2);
+    match last {
+        0 | 1 => 2,
+        255 => 254,
+        n => n,
+    }
+}
+
+/// FIELDED path: join hive's r2-fieldlab as a STA (static IP, no DHCP), with the
+/// persona-provisioned trust (TG 4b3df45d) if a persona is present at flash
+/// 0x12000, else an untrusted canonical identity. Broadcasts to 192.168.4.255.
+fn run_fielded(
+    peripherals: Peripherals,
+    sysloop: EspSystemEventLoop,
+    nvs: EspDefaultNvsPartition,
+    my_mac: &str,
+    ap_hive_id: u32,
+    port: u16,
+) -> Result<()> {
+    // Identity + trust: persona @0x12000 → trusted TG member; else canonical
+    // §6.2.1 id, untrusted routing-join (B1 relay still works; deliver-gate open).
+    let (my_hive_id, trust) = match r2_esp::persona_flash::read_persona() {
+        Ok(p) => {
+            let (hid, tg, hk) = p.trust_params().map_err(|e| anyhow!(e))?;
+            info!("[boot] FIELDED trusted: hive={hid:08x} tg={tg:08x} (persona {})", p.tg_id);
+            (hid, Some((tg, hk)))
+        }
+        Err(e) => {
+            warn!("[boot] no persona ({e}) — untrusted routing-join");
+            let id = hive_id::load_identity(nvs.clone())?;
+            (r2_core::fnv::r2_hash(&id.hive_id_uuid).unwrap_or(0), None)
+        }
+    };
+    let tg = trust.as_ref().map(|(t, _)| *t).unwrap_or(0);
+
+    // Self-assign 192.168.4.<low MAC byte> on hive's DHCP-less r2-fieldlab AP.
+    let static_ip = Ipv4Addr::new(192, 168, 4, mac_host_octet(my_mac));
+    let gw = Ipv4Addr::new(192, 168, 4, 1);
+    let _wifi = wifi_sta::connect_static(
+        peripherals.modem, sysloop, nvs, AP_SSID, AP_PSK, static_ip, gw,
+    )
+    .ok_or_else(|| anyhow!("static STA join of \"{AP_SSID}\" failed"))?;
+    info!("[boot] FIELDED on \"{AP_SSID}\" static {static_ip}; AP id {ap_hive_id:08x}");
+
+    let bcast = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(192, 168, 4, 255), port));
+    let ap_addr = SocketAddr::V4(SocketAddrV4::new(gw, port));
+    tn::spawn(tn::TnConfig {
+        my_hive_id,
+        local_ip: static_ip,
+        peers: vec![(ap_hive_id, ap_addr)], // seed the AP for routing/route-back
+        originate_to: Some(ap_hive_id),
+        originate_period: core::time::Duration::from_secs(3),
+        event_hash: hello_event(),
+        payload: b"hello-tn".to_vec(),
+        collector: Some(ap_hive_id), // #18 health → the AP/collector
+        health_event: health_event(),
+        health_every: 5,
+        role: r2_esp::health::role::STA,
+        tg,
+        fw_version: FW_VER,
+        fw_sha: GIT_SHA,
+        broadcast_addr: Some(bcast), // r2-fieldlab is a broadcast mesh
+        trust,
+    })?;
+    ota_tcp::start_listener();
+    ota_tcp::mark_app_valid();
+    info!("[boot] OTA receiver listening (TCP 21043); image marked valid");
+    loop {
+        FreeRtos::delay_ms(60_000);
+    }
 }
 
 /// Read the WiFi-STA MAC as a lowercase colon-separated string.
