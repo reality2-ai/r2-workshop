@@ -13,11 +13,14 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
 - **DONE this session:** SEC-01 zeroize hardening (`9550821`, key structs
   non-Copy + zeroize-on-drop + redacted Debug; r2-tn 21/21). Sizing safe: firmware
   McuNode=RouteNode<16,16,32> (16 neighbours ≥ 8 for 9-board; DEDUP 32).
-- **TODO when C6 resumes:** (1) switch `r2_esp::persona_flash` to call the SHARED
-  `r2_trust::parse_persona` (core 1b93108; core re-syncing it + r2-cbor into my
-  vendored r2-trust) — retire my `r2_tn::persona` fork (north-star, PV1-locked).
-  (2) beat-LED = filter **MsgType::Heartbeat + target_group==my_tg** (NOT
-  fnv("r2.hb.beat") — hive is authoritative) → GPIO15/D13 mono. Both via OTA.
+- **DONE — shared parse_persona adopted** (`8fe10d9`): `persona_flash` calls
+  `r2_trust::parse_persona` (PV1-locked to composer's producer); my `r2_tn::persona`
+  fork + r2-fnv dep REMOVED; r2-esp +r2-trust dep. r2-trust 30/30, r2-tn 19/19.
+- **TODO when C6 resumes:** (1) beat-LED = filter **MsgType::Heartbeat +
+  target_group==my_tg** (NOT fnv("r2.hb.beat") — hive authoritative) → GPIO15/D13
+  mono; needs node Heartbeat-frame exposure; OTA-ships. (2) REBUILD the fielded C6
+  blob (3416cbfd predates the shared-parser switch — functionally equiv but rebuild
+  for the PV1-locked parser) with R2_TN_AP_ID=0x480e900e/r2-fieldlab/r2fieldlab.
 
 - **C6 MESH UP** — composer flashed 3 C6 (exit 0; 6bd0=AP/7e44/6eb0=STA, blob
   9a35b7f8). But it's a SEPARATE mesh from the DFR1195/r2-fieldlab one (my C6 hosts
