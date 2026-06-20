@@ -54,6 +54,10 @@ pub struct TnConfig {
     /// (e.g. 192.168.4.255:21042) — hive's r2-fieldlab transport. `None` =
     /// per-peer unicast (the board-hosted r2-tn-lab demo).
     pub broadcast_addr: Option<SocketAddr>,
+    /// Trust context `(tg, hk)` from the persona bundle: when set, the node signs
+    /// every originated frame with the group HMAC and gates delivery (a TRUSTED
+    /// member of TG `tg`). `None` = untrusted open routing.
+    pub trust: Option<(u32, [u8; 32])>,
 }
 
 /// Bind the transport, build the node, and run the receive/originate loop on a
@@ -63,7 +67,10 @@ pub fn spawn(cfg: TnConfig) -> Result<()> {
     for (id, addr) in &cfg.peers {
         tx.set_peer(*id, *addr);
     }
-    let mut node = McuNode::new(cfg.my_hive_id, tx);
+    let mut node = match cfg.trust {
+        Some((tg, hk)) => McuNode::new_with_trust(cfg.my_hive_id, tx, tg, hk),
+        None => McuNode::new(cfg.my_hive_id, tx),
+    };
     for (id, _) in &cfg.peers {
         node.seed_direct(*id, 0);
     }

@@ -42,6 +42,10 @@ pub mod tn;
 #[cfg(feature = "tn")]
 pub use r2_tn::health;
 
+// Persona-bundle flash reader (TG provisioning, feature `tn`).
+#[cfg(feature = "tn")]
+pub mod persona_flash;
+
 #[cfg(feature = "ble")]
 pub mod l2cap;
 

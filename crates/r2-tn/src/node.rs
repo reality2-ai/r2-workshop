@@ -34,13 +34,31 @@ pub struct Node<const N: usize = 64, const P: usize = 64, const D: usize = 64> {
 pub type McuNode = Node<16, 16, 32>;
 
 impl<const N: usize, const P: usize, const D: usize> Node<N, P, D> {
-    /// Build a node from its hive id and a bound transport.
+    /// Build a node from its hive id and a bound transport (untrusted — open
+    /// routing; no signing, no deliver-gate).
     pub fn new(my_hive_id: u32, tx: UdpTransport) -> Self {
         Self {
             route: RouteNode::new(my_hive_id),
             tx,
             buf: vec![0u8; 1500],
         }
+    }
+
+    /// Build a TRUSTED node: signs every originated frame with the group HMAC
+    /// and gates delivery (R2-TRUST B1). `my_tg` = `fnv1a_32(tg_id)`, `hk` = the
+    /// group HMAC key — both from the persona bundle ([`crate::persona`]).
+    pub fn new_with_trust(my_hive_id: u32, tx: UdpTransport, my_tg: u32, hk: [u8; 32]) -> Self {
+        Self {
+            route: RouteNode::new(my_hive_id).with_trust(my_tg, hk),
+            tx,
+            buf: vec![0u8; 1500],
+        }
+    }
+
+    /// Add a live inter-TG entanglement (peering HMAC + ENC keys) to a trusted
+    /// node, for cross-TG delivery (rung-2a/2b). No-op if untrusted.
+    pub fn entangle(&mut self, peering_hmac: [u8; 32], enc_key: [u8; 32]) {
+        self.route.entangle(peering_hmac, enc_key);
     }
 
     /// Access the transport (e.g. to `set_peer` from discovery / static seed).
@@ -131,6 +149,31 @@ mod tests {
                 event_hash: EV,
                 payload: b"node-api".to_vec()
             })
+        );
+    }
+
+    // TRUSTED node end-to-end: A and B share tg+hk; A's signed frame verifies at
+    // B's GroupHmac gate and delivers. Proves new_with_trust wires the gate.
+    #[test]
+    fn trusted_node_signed_frame_delivers_over_udp() {
+        const TG: u32 = 0x4B3D_F45D;
+        const HK: [u8; 32] = [0x9A; 32];
+        let lo = SocketAddr::from(([127, 0, 0, 1], 0));
+        let txa = UdpTransport::bind_addr(lo).unwrap();
+        let txb = UdpTransport::bind_addr(lo).unwrap();
+        let a_addr = txa.local_addr().unwrap();
+        let b_addr = txb.local_addr().unwrap();
+        txa.set_peer(B, b_addr);
+        txb.set_peer(A, a_addr);
+
+        let mut a: McuNode = Node::new_with_trust(A, txa, TG, HK);
+        let mut b: McuNode = Node::new_with_trust(B, txb, TG, HK);
+        a.seed_direct(B, 0);
+
+        assert_eq!(a.originate(B, EV, b"trusted", 0).unwrap(), B);
+        assert_eq!(
+            pump(&mut b),
+            Some(Delivered { event_hash: EV, payload: b"trusted".to_vec() }),
         );
     }
 
