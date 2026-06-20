@@ -17,7 +17,10 @@
 //! (questions in the smallest-path doc). The *structure* is stable; only these
 //! values may change.
 
+pub mod node;
 pub mod udp;
+
+pub use node::{Delivered, McuNode, Node};
 
 use r2_route::transport::{QualitySample, Transport as RTransport};
 use r2_route::{ForwardAction, ForwardRequest, MobilityClass, Observation, RouteEngine, Target};
