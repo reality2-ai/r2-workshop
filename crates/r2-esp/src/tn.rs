@@ -50,6 +50,10 @@ pub struct TnConfig {
     pub fw_version: &'static str,
     /// Firmware git sha.
     pub fw_sha: &'static str,
+    /// FIELDED broadcast mode: when set, all frames go to this subnet broadcast
+    /// (e.g. 192.168.4.255:21042) — hive's r2-fieldlab transport. `None` =
+    /// per-peer unicast (the board-hosted r2-tn-lab demo).
+    pub broadcast_addr: Option<SocketAddr>,
 }
 
 /// Bind the transport, build the node, and run the receive/originate loop on a
@@ -62,6 +66,11 @@ pub fn spawn(cfg: TnConfig) -> Result<()> {
     let mut node = McuNode::new(cfg.my_hive_id, tx);
     for (id, _) in &cfg.peers {
         node.seed_direct(*id, 0);
+    }
+    // FIELDED: broadcast every frame to the subnet (hive's r2-fieldlab); the
+    // RouteEngine advice still computed, receivers filter by target_hive.
+    if let Some(bcast) = cfg.broadcast_addr {
+        node.transport().set_broadcast_addr(Some(bcast));
     }
 
     std::thread::Builder::new()

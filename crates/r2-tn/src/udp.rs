@@ -30,6 +30,12 @@ pub struct UdpTransport {
     peers: Mutex<HashMap<u32, SocketAddr>>,
     /// peer addr → hive_id (reverse, for recv → on_inbound's from_hive_id).
     by_addr: Mutex<HashMap<SocketAddr, u32>>,
+    /// FIELDED broadcast mode: when set, EVERY frame is sent to this subnet
+    /// broadcast addr (e.g. 192.168.4.255:21042) regardless of `target` — the
+    /// receivers filter by `target_hive`. Used on hive's r2-fieldlab (no per-peer
+    /// unicast; matches hive's broadcast transport). `None` = unicast (the
+    /// board-hosted r2-tn-lab demo, addr-per-peer).
+    broadcast_addr: Mutex<Option<SocketAddr>>,
     state: Mutex<TransportState>,
 }
 
@@ -48,8 +54,16 @@ impl UdpTransport {
             sock,
             peers: Mutex::new(HashMap::new()),
             by_addr: Mutex::new(HashMap::new()),
+            broadcast_addr: Mutex::new(None),
             state: Mutex::new(TransportState::Available),
         })
+    }
+
+    /// Enable FIELDED broadcast mode: every frame is sent to `addr` (the subnet
+    /// broadcast, e.g. 192.168.4.255:21042) regardless of target. `None` reverts
+    /// to per-peer unicast.
+    pub fn set_broadcast_addr(&self, addr: Option<SocketAddr>) {
+        *self.broadcast_addr.lock().unwrap() = addr;
     }
 
     /// The socket's local address (resolves an ephemeral port).
@@ -102,6 +116,16 @@ impl Transport for UdpTransport {
     fn send(&self, target: u32, frame: &[u8]) -> Result<(), SendError> {
         if frame.len() > self.current_mtu() {
             return Err(SendError::PayloadTooLarge);
+        }
+        // FIELDED broadcast mode: one datagram to the subnet broadcast; the
+        // RouteEngine's Directed/Flood advice still computed, but on a broadcast
+        // medium every send is a broadcast and receivers filter by target_hive.
+        if let Some(bcast) = *self.broadcast_addr.lock().unwrap() {
+            return self
+                .sock
+                .send_to(frame, bcast)
+                .map(|_| ())
+                .map_err(|_| SendError::IoError);
         }
         let peers = self.peers.lock().unwrap();
         if target == 0 {
@@ -184,5 +208,36 @@ mod tests {
                 payload: b"hi-over-udp".to_vec()
             }
         );
+    }
+
+    // FIELDED broadcast mode: with a broadcast addr set and NO per-peer mapping,
+    // a send to an arbitrary target still reaches the broadcast addr. (Uses a
+    // concrete loopback addr as the "broadcast" target — loopback can't do real
+    // subnet broadcast, but this proves the send path ignores target/peer-map and
+    // hits the configured addr, which is the fielded behaviour.)
+    #[test]
+    fn broadcast_mode_sends_regardless_of_target() {
+        let lo = |p: u16| SocketAddr::from(([127, 0, 0, 1], p));
+        let txa = UdpTransport::bind_addr(lo(0)).unwrap();
+        let txb = UdpTransport::bind_addr(lo(0)).unwrap();
+        let b_addr = txb.local_addr().unwrap();
+        // No set_peer at all; just point broadcast at B's addr.
+        txa.set_broadcast_addr(Some(b_addr));
+
+        // Target is an unknown hive id — unicast would return Unreachable, but
+        // broadcast mode sends anyway.
+        txa.send(0xDEAD_BEEF, b"bcast-frame").expect("broadcast send ok");
+
+        let mut buf = [0u8; 64];
+        let mut got = None;
+        for _ in 0..200 {
+            if let Some((_src, n)) = txb.recv(&mut buf) {
+                got = Some(n);
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        let n = got.expect("B should receive the broadcast datagram");
+        assert_eq!(&buf[..n], b"bcast-frame");
     }
 }

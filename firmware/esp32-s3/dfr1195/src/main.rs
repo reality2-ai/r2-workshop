@@ -128,6 +128,7 @@ fn main() -> Result<()> {
             tg: 0,
             fw_version: FW_VER,
             fw_sha: GIT_SHA,
+            broadcast_addr: None, // standalone unicast; fielded broadcasts to .255
         })?;
         // Task #17: network-OTA receiver (recv over WiFi -> verify sha ->
         // write inactive OTA slot -> reboot). #18: CMD_QUERY serves fw version.
@@ -180,6 +181,7 @@ fn main() -> Result<()> {
                         tg: 0,
                         fw_version: FW_VER,
                         fw_sha: GIT_SHA,
+                        broadcast_addr: None, // standalone unicast; fielded broadcasts to .255
                     })?;
                     // Task #17: network-OTA receiver + #18 version query (CMD_QUERY).
                     ota_tcp::start_listener();
