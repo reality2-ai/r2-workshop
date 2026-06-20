@@ -95,12 +95,14 @@ fn main() -> Result<()> {
                     warn!("[boot] no IP from AP — cannot run TN");
                 } else {
                     let ip: Ipv4Addr = local_ip.parse()?;
-                    // The AP board's IP = the ESP-IDF SoftAP default gateway
-                    // (192.168.4.1), which is also the STA's default gateway.
-                    let ap_addr = SocketAddr::V4(SocketAddrV4::new(
-                        Ipv4Addr::new(192, 168, 4, 1),
-                        port,
-                    ));
+                    // The AP board's IP = the STA's default gateway. Read it
+                    // from the netif rather than hardcoding — esp-idf-svc's
+                    // SoftAP is 192.168.71.1, embassy-net's is 192.168.4.1;
+                    // the gateway is authoritative regardless of stack.
+                    let ap_ip: Ipv4Addr = wifi_sta::get_gateway()
+                        .and_then(|g| g.parse().ok())
+                        .unwrap_or(Ipv4Addr::new(192, 168, 71, 1));
+                    let ap_addr = SocketAddr::V4(SocketAddrV4::new(ap_ip, port));
                     info!("[boot] STA -> AP {ap_hive_id:08x} @ {ap_addr}; originating");
                     tn::spawn(tn::TnConfig {
                         my_hive_id,

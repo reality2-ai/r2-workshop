@@ -18,6 +18,16 @@ use std::sync::Mutex;
 
 /// Global IP address — set on successful connection, read by other modules
 static CURRENT_IP: Mutex<Option<String>> = Mutex::new(None);
+/// Default gateway of the joined network — for a board-hosted SoftAP this IS
+/// the AP board's IP (platform-dependent: esp-idf-svc 192.168.71.1), so TN
+/// nodes target it instead of hardcoding a constant.
+static CURRENT_GATEWAY: Mutex<Option<String>> = Mutex::new(None);
+
+/// Get the default gateway IP of the joined network (the AP board, for a
+/// board-hosted SoftAP), or None if not connected.
+pub fn get_gateway() -> Option<String> {
+    CURRENT_GATEWAY.lock().ok()?.clone()
+}
 
 /// WiFi connection handle. Must be kept alive for the duration of the connection.
 pub struct WifiConnection {
@@ -145,6 +155,9 @@ fn log_ip_info(wifi: &BlockingWifi<EspWifi<'_>>, ssid: &str) -> Option<String> {
             info!("[WIFI]   IP:      {}", info.ip);
             info!("[WIFI]   Gateway: {}", info.subnet.gateway);
             info!("[WIFI]   Mask:    {}", info.subnet.mask);
+            if let Ok(mut g) = CURRENT_GATEWAY.lock() {
+                *g = Some(format!("{}", info.subnet.gateway));
+            }
             Some(ip_str)
         }
         Err(e) => {
