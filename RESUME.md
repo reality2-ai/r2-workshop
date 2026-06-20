@@ -8,13 +8,14 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
 - **8-board mesh blobs SHIPPED to composer:** S3 `dfr1195` (default 124739a5 /
   relay 5490c063, AP=b60aa0) + C6 `c6-tn` (default **9a35b7f8**, AP=f0:f5:bd:07:6b:d0,
   STAs 7e44/6eb0) — all on tuxedo /tmp/. composer flashes (5 DFR1195 + 3 C6 → 8).
-- **NEXT ITERATION (both UNBLOCKED, OTA-able via #17 receiver):**
-  1. **#18 r2.hb.health EMIT** — collector=AP (composer-confirmed). Add to
-     `r2_esp::tn`: TnConfig{collector,role,fw_version,fw_sha,tg} + emit every-5th
-     beat (+on-change) `node.originate(collector, fnv("r2.hb.health"), HealthReport
-     ::encode())`, unicast, sync_state=0. Both S3+C6 mains. (encoder DONE, 16/16.)
-  2. **rung-2b XChaCha20** cross-TG encryption (specs-ratified; plan with core to
-     vet). Build AEAD fresh.
+- **DONE — #18 r2.hb.health EMIT** (`41aa8da`): both S3+C6. STA unicasts to AP
+  collector every 5th beat (~15s), full 13-key payload, sync_state=0; AP=collector
+  (no self-emit). r2-esp re-exports r2_tn::health. Ships to fielded boards via #17
+  OTA. (AP-forward-to-dashboard hop is composer's side.) The shipped C6 blob
+  9a35b7f8 PREDATES this — re-flash or OTA (asked composer).
+- **NEXT: rung-2b XChaCha20** cross-TG encryption (specs-ratified v0.7 §7.5.4 /
+  R2-WIRE v0.5 §10.3; plan sent to core to vet — building the AEAD fresh once core
+  okays). Entanglement+enc_key, originate_cross encrypts [nonce][ct], gate decrypts.
 - **XIAO prep — BLOCKED on clarification** (asked supervisor): (a) do the 4 XIAO
   run MY std blob (→ I bake r2-fieldlab creds + XIAO MACs) or HIVE's no_std binary
   (→ hive's bake)? (b) composer's board-info didn't read the 2 seeed-XIAO MACs
