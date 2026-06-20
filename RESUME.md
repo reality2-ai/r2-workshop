@@ -5,6 +5,20 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
 (Relocated 2026-06-18 from `claude-fleet/fleet-context/`; claude-fleet is now tooling-code-only.)
 
 ## FRONTIER (2026-06-20, post-DELIVERED)
+- **⏸ C6 rebake PAUSED (supervisor):** Roy may pull the FireBeetles/C6 for the
+  9-board all-S3 mesh (5 DFR1195 + 4 XIAO, composer's flash). C6 fielded work is
+  CODE-COMPLETE + blob shipped (`/tmp/c6-tn-fielded.bin` 3416cbfd, AP_ID=0x480e900e
+  ✓metal-confirmed) — resumes when boards reconnect, no loss. Refocus = rung-2b
+  (done+core-validated) + trust tier (done) + XIAO support if composer asks.
+- **DONE this session:** SEC-01 zeroize hardening (`9550821`, key structs
+  non-Copy + zeroize-on-drop + redacted Debug; r2-tn 21/21). Sizing safe: firmware
+  McuNode=RouteNode<16,16,32> (16 neighbours ≥ 8 for 9-board; DEDUP 32).
+- **TODO when C6 resumes:** (1) switch `r2_esp::persona_flash` to call the SHARED
+  `r2_trust::parse_persona` (core 1b93108; core re-syncing it + r2-cbor into my
+  vendored r2-trust) — retire my `r2_tn::persona` fork (north-star, PV1-locked).
+  (2) beat-LED = filter **MsgType::Heartbeat + target_group==my_tg** (NOT
+  fnv("r2.hb.beat") — hive is authoritative) → GPIO15/D13 mono. Both via OTA.
+
 - **C6 MESH UP** — composer flashed 3 C6 (exit 0; 6bd0=AP/7e44/6eb0=STA, blob
   9a35b7f8). But it's a SEPARATE mesh from the DFR1195/r2-fieldlab one (my C6 hosts
   its own r2-tn-lab AP).
