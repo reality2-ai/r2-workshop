@@ -27,7 +27,10 @@ use r2_route::dedup::DedupCache;
 use r2_route::{ForwardAction, ForwardRequest, MobilityClass, Observation, RouteEngine, Target};
 use r2_transport::Transport;
 use r2_wire::extended::prepare_relay_extended;
-use r2_wire::{decode_extended, encode_extended, ExtendedHeader, ExtendedMessage, Flags, MsgType};
+use r2_wire::{
+    decode_extended, encode_extended, ExtendedHeader, ExtendedMessage, ExtendedRouteStack, Flags,
+    MsgType,
+};
 
 /// Initial TTL for an originated frame — canonical `DEFAULT_TTL`
 /// (r2-core constants.rs:4), confirmed by core.
@@ -144,7 +147,13 @@ impl<const N: usize, const P: usize, const D: usize> RouteNode<N, P, D> {
         let header = ExtendedHeader {
             version: 0,
             msg_type: MsgType::Event,
-            flags: Flags::default(),
+            // R flag set: the originator self-stamps route_stack[0] so the origin
+            // is frame-carried on EVERY dedupable event (R2-WIRE v0.4 §6.2.1
+            // SHOULD->MUST). Without it the frame is non-conformant for dedup.
+            flags: Flags {
+                has_route: true,
+                ..Default::default()
+            },
             ttl: DEFAULT_TTL,
             k: DEFAULT_K,
             msg_id,
@@ -153,9 +162,15 @@ impl<const N: usize, const P: usize, const D: usize> RouteNode<N, P, D> {
             target_group: 0,
             target_hive: dest_hive,
         };
+        // Stamp our own hive id as the originator (route_stack[0]). Extended
+        // route stack carries the full u32; relays append their hop after,
+        // leaving the originator at entry[0].
+        let mut route = ExtendedRouteStack::new();
+        route.len = 1;
+        route.entries[0] = self.my_hive_id;
         let msg = ExtendedMessage {
             header,
-            route: None,
+            route: Some(route),
             payload,
             hmac_tag: None,
         };
@@ -217,21 +232,26 @@ impl<const N: usize, const P: usize, const D: usize> RouteNode<N, P, D> {
         let dest = msg.header.target_hive;
         let event_hash = msg.header.event_hash;
 
-        // Whole-message dedup FIRST (core HF guidance / R2-WIRE dedup + R2-ROUTE
-        // §6): key = (msg_id, SOURCE). SOURCE = route-stack originator (entry[0],
-        // R2-WIRE §3.3) or, for a direct frame with no route stack, the transport
-        // source (the immediate sender == originator). Compressed to 16 bits
-        // (types.rs §3.3 rule). The same message via two paths dedups because
-        // SOURCE is the ORIGINATOR, not the relay hop.
+        // Whole-message dedup FIRST (R2-WIRE v0.4 §6.2.1, landed 2eff5d8 from this
+        // hardware finding): key = (msg_id, origin_hive_id) where the origin is
+        // FRAME-CARRIED — route_stack[0] (the originator self-stamps it on every
+        // event). The transport source is NO LONGER a discriminator (it collapsed
+        // to 0 on LoRa and differed direct-vs-relayed). A frame with no carried
+        // origin is non-conformant: MUST NOT collapse to origin=0 — we treat it as
+        // un-deduplicatable (deliver/relay once, no dedup record) rather than drop.
         let msg_id16 = msg.header.msg_id as u16;
-        let source16 = msg
-            .route
-            .as_ref()
-            .filter(|r| r.len > 0)
-            .map(|r| (r.entries[0] >> 16) as u16)
-            .unwrap_or_else(|| compress_hive_id_16(from_hive_id));
-        if self.dedup.is_duplicate(now, msg_id16, source16) {
-            return Inbound::Dropped("duplicate");
+        match msg.route.as_ref().filter(|r| r.len > 0).map(|r| r.entries[0]) {
+            Some(origin) => {
+                if self.dedup.is_duplicate(now, msg_id16, (origin >> 16) as u16) {
+                    return Inbound::Dropped("duplicate");
+                }
+            }
+            None => {
+                // No frame-carried origin (R flag clear) — non-conformant for
+                // dedup. Proceed without a dedup record (un-deduplicatable);
+                // never collapse to origin=0 (the LoRa-source-0 bug this finding
+                // fixed). Returns Inbound below as normal.
+            }
         }
 
         // Learn the immediate sender as a neighbour + reverse path (MeshNode
