@@ -40,19 +40,28 @@ sockets — done on Alfred, pushed.** Branch HEAD `ff01a04`.
   no-`ble`. **Board-hosted SoftAP + role-by-MAC** (ONE image): board whose MAC ==
   `R2_TN_AP_MAC` hosts the AP (`r2_esp::wifi_ap`, default SSID r2-tn-lab) + listens;
   others join STA + originate to the AP → STA→AP delivery = the hardware frame.
-  Aligned to hive field.lab: UDP **21042**, AP **192.168.4.1**, matching partition
-  table. **Builds GREEN for ESP32-S3.**
-- **Flash artifact ready:** built with `R2_TN_AP_MAC=f4:12:fa:b6:0a:a0` (ttyACM9=AP);
-  merged 4MB blob at `/tmp/r2-tn-node-dfr1195-merged.bin` (sha256 0a7f9a7b…, app 941KB).
-  Flash: `espflash write-bin 0x0 <blob>` (or `esptool.py --chip esp32s3 write_flash
-  0x0 <blob>`), or from ELF: `espflash flash --partition-table partitions.csv
-  --flash-size 4mb target/xtensa-esp32s3-espidf/release/r2-tn-node`.
-- **NEXT — the actual flash + frame (handed off):** scp/ssh-pipe transfer to tuxedo
-  is GATED for me even under skip-perms, and **composer owns the flash/provision
-  pipeline** — so composer (or Roy) flashes ttyACM9/10/11, then monitor the AP
-  board (ttyACM9) serial for `[tn] DELIVERED … HARDWARE FRAME`. Build once + flash
-  all 3 (role-by-MAC). For 3 boards = 1 AP + 2 STA; STA↔STA may be client-isolated
-  → AP relays (RouteNode does). Artifact + commands sent to composer.
+  Aligned to hive field.lab: UDP **21042**, matching partition table.
+- **HARDWARE FIRST-LIGHT — RUNNING ON REAL BOARDS (link-gated on final confirm).**
+  Flashed ttyACM9 (AP, f4:12:fa:b6:0a:a0) + ttyACM10 (STA) over SSH→tuxedo with
+  the role-by-MAC image (`R2_TN_AP_MAC` baked). **Serial-confirmed over the real
+  radio:** AP boots → SoftAP `r2-tn-lab` up → TN node on 192.168.71.1; STA boots →
+  **joins the AP** → IP 192.168.71.2 → **originates R2-WIRE frames every 3s**
+  through RouteNode (`[tn] originated ev=8127232d -> next_hop 4767b7f3`). Board-to-
+  board TN over real WiFi works end-to-end **except final delivery**.
+- **BUG FOUND + FIXED (`9c5709f`, blob sha b5749be8):** STA targeted **192.168.4.1**
+  (hive's *embassy-net* AP IP) but **esp-idf-svc's SoftAP is 192.168.71.1** → frames
+  missed the AP. Fixed: `wifi_sta::get_gateway()` — STA targets its actual gateway
+  (= the AP board) regardless of stack. Rebuilt + re-flashed both boards.
+- **SPEC finding (route to specs):** the SoftAP/TN AP IP is **platform-stack
+  dependent** (esp-idf-svc 192.168.71.1 vs embassy-net 192.168.4.1) — interop needs
+  the AP IP discoverable (gateway), not assumed.
+- **NEXT — confirm DELIVERED (link-blocked, not code-blocked):** tuxedo's Tailscale
+  link went too flaky to hold a serial-monitor session after the re-flash. To finish:
+  on tuxedo, monitor the AP `espflash monitor --port /dev/ttyACM9` while both boards
+  run → expect `[tn] DELIVERED ev=8127232d … HARDWARE FRAME`. (Boards already hold
+  the fixed image b5749be8; just need a stable monitor window or someone at tuxedo.)
+  Merged blob: `/tmp/dfr1195-merged.bin` (Alfred + tuxedo). For 3 boards = 1 AP +
+  2 STA; STA↔STA may be client-isolated → AP relays (RouteNode does).
 - **THEN — trust tier** (core's TRUST-INTEGRATION-BRIEF @ r2-core 905502c): add the
   trust gate at RouteNode's DELIVER branch only (relay stays trust-agnostic):
   intra-TG GroupHmac verify; inter-TG PeeringHmac entanglement. Host-testable in
