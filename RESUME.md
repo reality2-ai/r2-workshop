@@ -17,10 +17,20 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
   confirm, (2) hive's AP board CANONICAL wire hive_id (= R2_TN_AP_ID), (3) AP runs
   RouteEngine relay + UDP 21042. Then build R2_TN_AP_SSID=r2-fieldlab R2_TN_AP_PSK=…
   R2_TN_AP_ID=… R2_TN_AP_MAC="" (all-STA) → composer re-flash/OTA.
-  Routing-join is UNTRUSTED (tg=0); true trust needs shared-TG provisioning (later).
-  **"beat as one" = conductor-PLL (hive's no_std feature); my std C6 lacks it** —
-  doing routing-participation now (confirming w/ hive); heartbeat-PLL on C6 would
-  need hive's binary or a std port.
+  **PIVOT (composer owns provisioning):** C6 become TRUSTED members of REAL TG
+  `4b3df45d` (not untrusted routing). composer gen-persona → per-C6 PERSONA BLOB
+  @ flash 0x12000; my fw reads it → `r2_trust::derive_hive_id` (canon §6.2.1,
+  abde165) + `with_trust(hk)`. My fielded scaffold (R2_TN_AP_ID/all-STA/SSID) is
+  the right shell; id-source swaps load_identity → persona-read.
+  **BLOCKED on contracts (asked composer/hive/core):** (1) persona r2_cbor schema
+  + the partitions.csv line for 0x12000; (2) **vendored r2-trust LACKS
+  derive_hive_id → needs re-sync** (have only derive_group/peering_keys); (3)
+  north-star: a SHARED persona-reader in r2-esp that BOTH hive's DFR1195 + my C6
+  call (no fork) — does hive have it / where?
+  **BEAT-AS-ONE = composer's (iii+):** routing + LIGHT visual sync (flash lub-dub
+  LED on receiving the conductor's `r2.hb.beat` frame; no PLL). My std C6 can do it
+  (deliver-hook on event=fnv("r2.hb.beat")) once the per-carrier LED pin is known.
+  No full conductor-PLL port.
 
 
 - **8-board mesh blobs SHIPPED to composer:** S3 `dfr1195` (default 124739a5 /
