@@ -23,6 +23,7 @@ pub mod udp;
 pub use node::{Delivered, McuNode, Node};
 
 use r2_route::transport::{QualitySample, Transport as RTransport};
+use r2_route::dedup::DedupCache;
 use r2_route::{ForwardAction, ForwardRequest, MobilityClass, Observation, RouteEngine, Target};
 use r2_transport::Transport;
 use r2_wire::extended::prepare_relay_extended;
@@ -71,6 +72,11 @@ pub type McuRouteNode = RouteNode<16, 16, 32>;
 pub struct RouteNode<const N: usize = 64, const P: usize = 64, const D: usize = 64> {
     my_hive_id: u32,
     engine: RouteEngine<N, P, D>,
+    /// Whole-message DELIVERY dedup (R2-WIRE dedup + R2-ROUTE §6): keyed on
+    /// (msg_id, SOURCE) where SOURCE is the originator, not the immediate hop —
+    /// so the same message arriving via two paths delivers once. Separate from
+    /// the engine's internal relay-dedup.
+    dedup: DedupCache<D>,
     seq: u32,
 }
 
@@ -80,6 +86,7 @@ impl<const N: usize, const P: usize, const D: usize> RouteNode<N, P, D> {
         Self {
             my_hive_id,
             engine: RouteEngine::new(),
+            dedup: DedupCache::new(),
             seq: 0,
         }
     }
@@ -210,6 +217,23 @@ impl<const N: usize, const P: usize, const D: usize> RouteNode<N, P, D> {
         let dest = msg.header.target_hive;
         let event_hash = msg.header.event_hash;
 
+        // Whole-message dedup FIRST (core HF guidance / R2-WIRE dedup + R2-ROUTE
+        // §6): key = (msg_id, SOURCE). SOURCE = route-stack originator (entry[0],
+        // R2-WIRE §3.3) or, for a direct frame with no route stack, the transport
+        // source (the immediate sender == originator). Compressed to 16 bits
+        // (types.rs §3.3 rule). The same message via two paths dedups because
+        // SOURCE is the ORIGINATOR, not the relay hop.
+        let msg_id16 = msg.header.msg_id as u16;
+        let source16 = msg
+            .route
+            .as_ref()
+            .filter(|r| r.len > 0)
+            .map(|r| (r.entries[0] >> 16) as u16)
+            .unwrap_or_else(|| compress_hive_id_16(from_hive_id));
+        if self.dedup.is_duplicate(now, msg_id16, source16) {
+            return Inbound::Dropped("duplicate");
+        }
+
         // Learn the immediate sender as a neighbour + reverse path (MeshNode
         // step 2a) so the engine can route back toward it without separate
         // discovery. Real WiFi datagram → Ideal/Infrastructure per core's Q4.
@@ -227,9 +251,6 @@ impl<const N: usize, const P: usize, const D: usize> RouteNode<N, P, D> {
 
         // Addressed to us → deliver locally. (Broadcast handling is a later
         // milestone; first light is unicast A->B / A->R->B.)
-        // TODO(delivery-dedup): own a seen-set keyed on (origin, msg_id) before
-        // multi-path flood delivery — open seam q for direct frames with no
-        // route stack (origin not in header); candidate spec refinement.
         if dest == self.my_hive_id {
             return Inbound::Deliver {
                 event_hash,
@@ -376,6 +397,25 @@ mod tests {
                 payload: b"hello".to_vec()
             }
         );
+    }
+
+    // The SAME frame arriving twice delivers once, then dedups (R2-WIRE dedup
+    // + R2-ROUTE §6: key (msg_id, SOURCE)).
+    #[test]
+    fn duplicate_frame_delivered_once() {
+        let net: Net = Rc::new(RefCell::new(HashMap::new()));
+        let txa = MockTransport { net: net.clone(), reachable: vec![B] };
+        let txb = MockTransport { net: net.clone(), reachable: vec![A] };
+        let mut a = RouteNode::<64, 64, 64>::new(A);
+        let mut b = RouteNode::<64, 64, 64>::new(B);
+        a.seed_direct(B, RTransport::Wifi, 1);
+
+        a.originate(B, EV, b"dup", &txa, 1).unwrap();
+        let frame = drain(&net, B).remove(0);
+
+        // First arrival delivers; a re-arrival of the identical frame dedups.
+        assert!(matches!(b.on_inbound(&frame, A, &txb, 1), Inbound::Deliver { .. }));
+        assert_eq!(b.on_inbound(&frame, A, &txb, 1), Inbound::Dropped("duplicate"));
     }
 
     // Multi-hop: A -> (relay B) -> C. Proves real routing + TTL decrement.
