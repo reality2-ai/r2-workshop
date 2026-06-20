@@ -27,12 +27,24 @@ use r2_route::dedup::DedupCache;
 use r2_route::{ForwardAction, ForwardRequest, MobilityClass, Observation, RouteEngine, Target};
 use r2_transport::Transport;
 use r2_wire::extended::prepare_relay_extended;
-use r2_wire::hmac::{sign_extended, verify_extended};
+use r2_wire::hmac::{sign_extended, verify_extended, HmacProvider};
 use r2_wire::{
     decode_extended, encode_extended, ExtendedHeader, ExtendedMessage, ExtendedRouteStack, Flags,
     MsgType,
 };
-use r2_trust::wire_hmac::GroupHmac;
+use r2_trust::wire_hmac::{GroupHmac, PeeringHmac};
+
+/// A live inter-TG entanglement (R2-TRUST §7.5). Holds the peering HMAC key the
+/// deliver-gate trial-verifies cross-TG frames against. `live=false` = retired
+/// (DROP-ON-RETIRE for RAM-volatile boards, HF-3 — keep the slot so the index is
+/// stable but stop authorising crossings).
+#[derive(Clone)]
+pub struct Entanglement {
+    /// Peering HMAC key = `derive_peering_keys(PS, tg_lo_pub, tg_hi_pub).hmac`.
+    pub peering_hmac: [u8; 32],
+    /// Whether this entanglement currently authorises crossings.
+    pub live: bool,
+}
 
 /// Trust-group context for the deliver-gate (R2-TRUST B1: relay is
 /// trust-agnostic, DELIVERY is trust-gated). When set, this node signs every
@@ -45,6 +57,10 @@ pub struct TrustContext {
     pub my_tg: u32,
     /// Group HMAC key (DerivedGroupKeys.hk, 32 bytes).
     pub hk: [u8; 32],
+    /// Live inter-TG entanglements (R2-TRUST §7.5). A cross-TG frame
+    /// (target_group != my_tg) is delivered iff one of these is live AND its
+    /// PeeringHmac verifies (trial-verify; entanglements are few).
+    pub entanglements: Vec<Entanglement>,
 }
 
 /// Initial TTL for an originated frame — canonical `DEFAULT_TTL`
@@ -130,8 +146,39 @@ impl<const N: usize, const P: usize, const D: usize> RouteNode<N, P, D> {
     /// Attach a trust-group context (enables signing on originate + the
     /// deliver-gate). Builder style: `RouteNode::new(id).with_trust(tg, hk)`.
     pub fn with_trust(mut self, my_tg: u32, hk: [u8; 32]) -> Self {
-        self.trust = Some(TrustContext { my_tg, hk });
+        self.trust = Some(TrustContext {
+            my_tg,
+            hk,
+            entanglements: Vec::new(),
+        });
         self
+    }
+
+    /// Add a live inter-TG entanglement (its peering HMAC key). Cross-TG frames
+    /// that verify under it become deliverable (R2-TRUST §7.5). No-op if this
+    /// node has no trust context.
+    pub fn entangle(&mut self, peering_hmac: [u8; 32]) {
+        if let Some(t) = &mut self.trust {
+            t.entanglements.push(Entanglement {
+                peering_hmac,
+                live: true,
+            });
+        }
+    }
+
+    /// Retire an entanglement by its peering key: drop authorisation (live=false)
+    /// — RAM-volatile DROP-ON-RETIRE (HF-3), no wire epoch needed. Returns true
+    /// if a matching live entanglement was found.
+    pub fn retire_entanglement(&mut self, peering_hmac: &[u8; 32]) -> bool {
+        if let Some(t) = &mut self.trust {
+            for e in t.entanglements.iter_mut() {
+                if e.live && &e.peering_hmac == peering_hmac {
+                    e.live = false;
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     /// This node's hive id.
@@ -170,9 +217,8 @@ impl<const N: usize, const P: usize, const D: usize> RouteNode<N, P, D> {
         self.engine.seed_path(destination, next_hop, now, 1.0);
     }
 
-    /// Originate a frame to `dest_hive` and send it toward the chosen next hop.
-    ///
-    /// Returns the next-hop hive id the frame was sent to.
+    /// Originate a frame to `dest_hive`, signing intra-TG with the group HMAC
+    /// when trusted. Returns the next-hop hive id the frame was sent to.
     pub fn originate<T: Transport>(
         &mut self,
         dest_hive: u32,
@@ -181,15 +227,56 @@ impl<const N: usize, const P: usize, const D: usize> RouteNode<N, P, D> {
         tx: &T,
         now: u32,
     ) -> Result<u32, &'static str> {
+        let tg = self.trust.as_ref().map(|t| t.my_tg).unwrap_or(0);
+        let hmac = self.trust.as_ref().map(|t| GroupHmac::new(t.hk));
+        self.emit_signed(dest_hive, event_hash, payload, tx, now, tg, hmac.as_ref())
+    }
+
+    /// Originate a CROSS-TG frame to `dest_hive` in an entangled peer group,
+    /// signing with the peering HMAC (R2-TRUST §7.5 rung-2a, auth-only — no
+    /// XChaCha20 yet). `target_group` is set to OUR tg so the receiver hits the
+    /// non-intra branch and trial-verifies its live entanglements.
+    pub fn originate_cross<T: Transport>(
+        &mut self,
+        dest_hive: u32,
+        peering_hmac: [u8; 32],
+        event_hash: u32,
+        payload: &[u8],
+        tx: &T,
+        now: u32,
+    ) -> Result<u32, &'static str> {
+        let tg = self.trust.as_ref().map(|t| t.my_tg).unwrap_or(0);
+        self.emit_signed(
+            dest_hive,
+            event_hash,
+            payload,
+            tx,
+            now,
+            tg,
+            Some(&PeeringHmac::new(peering_hmac)),
+        )
+    }
+
+    /// Build (route-stamp + optional HMAC sign) and send a frame toward the
+    /// engine-chosen next hop.
+    fn emit_signed<T: Transport, H: HmacProvider>(
+        &mut self,
+        dest_hive: u32,
+        event_hash: u32,
+        payload: &[u8],
+        tx: &T,
+        now: u32,
+        target_group: u32,
+        hmac: Option<&H>,
+    ) -> Result<u32, &'static str> {
         self.seq = self.seq.wrapping_add(1);
         let msg_id = self.seq;
 
         let header = ExtendedHeader {
             version: 0,
             msg_type: MsgType::Event,
-            // R flag set: the originator self-stamps route_stack[0] so the origin
-            // is frame-carried on EVERY dedupable event (R2-WIRE v0.4 §6.2.1
-            // SHOULD->MUST). Without it the frame is non-conformant for dedup.
+            // R flag set: originator self-stamps route_stack[0] so the origin is
+            // frame-carried on EVERY dedupable event (R2-WIRE v0.4 §6.2.1).
             flags: Flags {
                 has_route: true,
                 ..Default::default()
@@ -199,14 +286,9 @@ impl<const N: usize, const P: usize, const D: usize> RouteNode<N, P, D> {
             msg_id,
             event_hash,
             payload_len: payload.len() as u32,
-            // TG discriminator (0 = untrusted/open). Set to our TG when trusted
-            // so the receiver can gate delivery on (target_group == my_tg).
-            target_group: self.trust.as_ref().map(|t| t.my_tg).unwrap_or(0),
+            target_group,
             target_hive: dest_hive,
         };
-        // Stamp our own hive id as the originator (route_stack[0]). Extended
-        // route stack carries the full u32; relays append their hop after,
-        // leaving the originator at entry[0].
         let mut route = ExtendedRouteStack::new();
         route.len = 1;
         route.entries[0] = self.my_hive_id;
@@ -216,11 +298,10 @@ impl<const N: usize, const P: usize, const D: usize> RouteNode<N, P, D> {
             payload,
             hmac_tag: None,
         };
-        // Trust tier: sign the frame with the group HMAC (covers the immutable
-        // header fields + payload, not ttl/k which mutate in transit). Sets
+        // Sign (covers immutable header fields + payload, not ttl/k). Sets
         // has_hmac + the 32-byte tag, preserving has_route.
-        if let Some(t) = &self.trust {
-            let (flags, tag) = sign_extended(&msg, &GroupHmac::new(t.hk));
+        if let Some(h) = hmac {
+            let (flags, tag) = sign_extended(&msg, h);
             msg.header.flags = flags;
             msg.hmac_tag = Some(tag);
         }
@@ -324,11 +405,25 @@ impl<const N: usize, const P: usize, const D: usize> RouteNode<N, P, D> {
         // deliver iff target_group == my_tg AND the group HMAC verifies.
         if dest == self.my_hive_id {
             if let Some(t) = &self.trust {
-                if msg.header.target_group != t.my_tg {
-                    return Inbound::Dropped("wrong TG");
-                }
-                if !verify_extended(&msg, &GroupHmac::new(t.hk)) {
-                    return Inbound::Dropped("HMAC verify failed");
+                if msg.header.target_group == t.my_tg {
+                    // Intra-TG: group HMAC must verify.
+                    if !verify_extended(&msg, &GroupHmac::new(t.hk)) {
+                        return Inbound::Dropped("HMAC verify failed");
+                    }
+                } else {
+                    // Cross-TG (R2-TRUST §7.5): trial-verify each LIVE
+                    // entanglement's PeeringHmac; the one that verifies
+                    // authorises the crossing (entanglements are few). No live
+                    // entanglement verifies => drop (relay still happened below
+                    // is N/A — this is the deliver branch; B1 relay is upstream).
+                    let crossed = t
+                        .entanglements
+                        .iter()
+                        .filter(|e| e.live)
+                        .any(|e| verify_extended(&msg, &PeeringHmac::new(e.peering_hmac)));
+                    if !crossed {
+                        return Inbound::Dropped("no live entanglement");
+                    }
                 }
             }
             return Inbound::Deliver {
@@ -533,7 +628,8 @@ mod tests {
 
         a.originate(B, EV, b"x", &txa, 1).unwrap();
         let frame = drain(&net, B).remove(0);
-        assert_eq!(b.on_inbound(&frame, A, &txb, 1), Inbound::Dropped("wrong TG"));
+        // Different TG + no entanglement => not deliverable.
+        assert_eq!(b.on_inbound(&frame, A, &txb, 1), Inbound::Dropped("no live entanglement"));
     }
 
     // Same TG but wrong group key → HMAC verify fails → dropped.
@@ -571,6 +667,77 @@ mod tests {
             Inbound::Forwarded { next_hop: C },
             "a foreign-TG relay must still forward (B1)"
         );
+    }
+
+    // ── Inter-TG entanglement (R2-TRUST §7.5 rung-2a, auth-only PeeringHmac) ──
+    const PK_AB: [u8; 32] = [0x33; 32]; // shared TG_A<->TG_B peering hmac key
+    const PK_X: [u8; 32] = [0x44; 32]; // an unrelated peering key
+
+    // A (TG1) and B (TG2) are ENTANGLED (share PK_AB): A's cross-TG frame crosses.
+    #[test]
+    fn cross_tg_entangled_delivers() {
+        let net: Net = Rc::new(RefCell::new(HashMap::new()));
+        let txa = MockTransport { net: net.clone(), reachable: vec![B] };
+        let txb = MockTransport { net: net.clone(), reachable: vec![A] };
+        let mut a = RouteNode::<64, 64, 64>::new(A).with_trust(TG1, HK1);
+        let mut b = RouteNode::<64, 64, 64>::new(B).with_trust(TG2, HK2);
+        b.entangle(PK_AB);
+        a.seed_direct(B, RTransport::Wifi, 1);
+
+        a.originate_cross(B, PK_AB, EV, b"cross", &txa, 1).unwrap();
+        let frame = drain(&net, B).remove(0);
+        assert_eq!(
+            b.on_inbound(&frame, A, &txb, 1),
+            Inbound::Deliver { event_hash: EV, payload: b"cross".to_vec() }
+        );
+    }
+
+    // No entanglement on B → cross-TG frame is not deliverable.
+    #[test]
+    fn cross_tg_not_entangled_dropped() {
+        let net: Net = Rc::new(RefCell::new(HashMap::new()));
+        let txa = MockTransport { net: net.clone(), reachable: vec![B] };
+        let txb = MockTransport { net: net.clone(), reachable: vec![A] };
+        let mut a = RouteNode::<64, 64, 64>::new(A).with_trust(TG1, HK1);
+        let mut b = RouteNode::<64, 64, 64>::new(B).with_trust(TG2, HK2); // no entangle
+        a.seed_direct(B, RTransport::Wifi, 1);
+
+        a.originate_cross(B, PK_AB, EV, b"cross", &txa, 1).unwrap();
+        let frame = drain(&net, B).remove(0);
+        assert_eq!(b.on_inbound(&frame, A, &txb, 1), Inbound::Dropped("no live entanglement"));
+    }
+
+    // Retiring the entanglement stops crossings (DROP-ON-RETIRE).
+    #[test]
+    fn cross_tg_retired_dropped() {
+        let net: Net = Rc::new(RefCell::new(HashMap::new()));
+        let txa = MockTransport { net: net.clone(), reachable: vec![B] };
+        let txb = MockTransport { net: net.clone(), reachable: vec![A] };
+        let mut a = RouteNode::<64, 64, 64>::new(A).with_trust(TG1, HK1);
+        let mut b = RouteNode::<64, 64, 64>::new(B).with_trust(TG2, HK2);
+        b.entangle(PK_AB);
+        assert!(b.retire_entanglement(&PK_AB));
+        a.seed_direct(B, RTransport::Wifi, 1);
+
+        a.originate_cross(B, PK_AB, EV, b"cross", &txa, 1).unwrap();
+        let frame = drain(&net, B).remove(0);
+        assert_eq!(b.on_inbound(&frame, A, &txb, 1), Inbound::Dropped("no live entanglement"));
+    }
+
+    // Wrong peering key on B → PeeringHmac verify fails → dropped.
+    #[test]
+    fn cross_tg_wrong_peering_key_dropped() {
+        let net: Net = Rc::new(RefCell::new(HashMap::new()));
+        let txa = MockTransport { net: net.clone(), reachable: vec![B] };
+        let txb = MockTransport { net: net.clone(), reachable: vec![A] };
+        let mut a = RouteNode::<64, 64, 64>::new(A).with_trust(TG1, HK1);
+        let mut b = RouteNode::<64, 64, 64>::new(B).with_trust(TG2, HK2);
+        b.entangle(PK_X); // entangled, but with a DIFFERENT key
+        a.seed_direct(B, RTransport::Wifi, 1);
+
+        a.originate_cross(B, PK_AB, EV, b"cross", &txa, 1).unwrap();
+        let frame = drain(&net, B).remove(0);
+        assert_eq!(b.on_inbound(&frame, A, &txb, 1), Inbound::Dropped("no live entanglement"));
     }
 
     // Multi-hop: A -> (relay B) -> C. Proves real routing + TTL decrement.
