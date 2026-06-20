@@ -1,0 +1,14 @@
+# r2-workshop TN-node partition table — 4 MB flash (DFR1195 / ESP32-S3, 4MB,
+# no PSRAM). Two OTA slots, no factory, no internal FAT storage (TN node keeps
+# no capture data). Same 4MB layout as the C6 dfr1117 carrier — offsets are
+# arch-independent. Each OTA slot is 1.875 MB; ample for a WiFi-only TN image.
+#
+# First install must be a full USB flash (espflash flash) to write this table +
+# both slots; OTA updates only work after that.
+#
+# # Name,    Type, SubType, Offset,   Size,      Flags
+nvs,         data, nvs,     0x9000,   0x6000,
+otadata,     data, ota,     0xf000,   0x2000,
+phy_init,    data, phy,     0x11000,  0x1000,
+ota_0,       app,  ota_0,   0x20000,  0x1E0000,
+ota_1,       app,  ota_1,   0x200000, 0x1E0000,

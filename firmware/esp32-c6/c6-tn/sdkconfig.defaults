@@ -1,0 +1,24 @@
+# sdkconfig.defaults — ESP32-C6 (RISC-V) TN node, 4 MB flash, NO PSRAM.
+# TN-only firmware (WiFi-UDP RouteEngine). No BLE (NimBLE not built — r2-esp
+# `ble` feature off), no sensor/SD/LCD, NO LoRa (r2.hw.lora absent).
+
+CONFIG_IDF_TARGET="esp32c6"
+
+# Generous main-task stack for WiFi + R2 stack + TN loop.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=16000
+
+# 4 MB flash, no PSRAM (do NOT enable SPIRAM — hangs at boot on a no-PSRAM part).
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+
+# ─── Console routing ──────────────────────────────────────────────────────
+# ESP32-C6 native USB-Serial-JTAG: the flashing USB cable carries the monitor.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# ─── OTA / partition table ────────────────────────────────────────────────
+# Custom 4MB two-OTA-slot layout — see partitions.csv (staged into esp-idf-sys's
+# CMake build dir by build.rs each cycle). First install = full USB flash.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
+# (No CONFIG_BT_* — this TN node does not build NimBLE.)
