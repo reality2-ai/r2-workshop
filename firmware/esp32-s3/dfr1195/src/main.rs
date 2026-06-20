@@ -109,12 +109,18 @@ fn main() -> Result<()> {
                         .and_then(|g| g.parse().ok())
                         .unwrap_or(Ipv4Addr::new(192, 168, 71, 1));
                     let ap_addr = SocketAddr::V4(SocketAddrV4::new(ap_ip, port));
-                    info!("[boot] STA -> AP {ap_hive_id:08x} @ {ap_addr}; originating");
+                    // Originate target: default = the AP (clean STA->AP delivery).
+                    // RELAY variant (Roy #19): if both STA MACs are baked, target
+                    // the OTHER STA — the STA floods to the AP (its only seeded
+                    // peer), the AP RELAYS to the other STA (RouteEngine + learned
+                    // addr). One image; which STA I am is decided by MAC.
+                    let originate_to = relay_peer_hive_id(&my_mac).unwrap_or(ap_hive_id);
+                    info!("[boot] STA seeds AP {ap_hive_id:08x} @ {ap_addr}; originate_to={originate_to:08x}");
                     tn::spawn(tn::TnConfig {
                         my_hive_id,
                         local_ip: ip,
                         peers: vec![(ap_hive_id, ap_addr)],
-                        originate_to: Some(ap_hive_id),
+                        originate_to: Some(originate_to),
                         originate_period: core::time::Duration::from_secs(3),
                         event_hash: hello_event(),
                         payload: b"hello-tn".to_vec(),
@@ -169,4 +175,21 @@ fn fnv_hex(mac: &str) -> u32 {
 fn parse_hex_u32(s: &str) -> Result<u32> {
     u32::from_str_radix(s.trim().trim_start_matches("0x"), 16)
         .map_err(|e| anyhow!("not a hex u32 ({s:?}): {e}"))
+}
+
+/// RELAY variant (Roy #19): if both STA MACs are baked (R2_TN_STA_A_MAC /
+/// R2_TN_STA_B_MAC) and my MAC is one of them, return the OTHER STA's hive id
+/// so this STA originates to its peer STA (the AP relays). One image, symmetric.
+/// Returns None in the default variant (no STA pair baked) → STA targets the AP.
+fn relay_peer_hive_id(my_mac: &str) -> Option<u32> {
+    let a = option_env!("R2_TN_STA_A_MAC")?;
+    let b = option_env!("R2_TN_STA_B_MAC")?;
+    let me = normalize_mac(my_mac);
+    if me == normalize_mac(a) {
+        Some(fnv_hex(b))
+    } else if me == normalize_mac(b) {
+        Some(fnv_hex(a))
+    } else {
+        None
+    }
 }

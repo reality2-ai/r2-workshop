@@ -65,6 +65,19 @@ fn compress_hive_id_16(hive_id: u32) -> u16 {
     (hive_id >> 16) as u16
 }
 
+/// The immediate sender's hive id from a frame on the wire = the LAST route-stack
+/// entry (the originator for a direct frame, the most-recent relay otherwise).
+/// Used for mesh address-learning (map this hive_id to the datagram's src addr)
+/// so a node can route back / relay onward to peers it never statically seeded.
+pub(crate) fn immediate_sender(frame: &[u8]) -> Option<u32> {
+    let msg = decode_extended(frame).ok()?;
+    let r = msg.route.as_ref()?;
+    if r.len == 0 {
+        return None;
+    }
+    Some(r.entries[(r.len - 1) as usize])
+}
+
 /// Outcome of feeding an inbound frame to [`RouteNode::on_inbound`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Inbound {

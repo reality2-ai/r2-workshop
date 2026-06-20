@@ -71,7 +71,17 @@ impl<const N: usize, const P: usize, const D: usize> Node<N, P, D> {
     pub fn poll(&mut self, now: u32) -> Option<Delivered> {
         // Split borrows: recv into buf, then route using tx immutably.
         let (src, n) = self.tx.recv(&mut self.buf)?;
-        let from = self.tx.hive_for_addr(src).unwrap_or(0);
+        // Mesh address-learning: map the immediate sender's hive_id -> its src
+        // addr so we can route back / relay onward to peers we never statically
+        // seeded (needed for AP-relays-STA1->STA2 on the board-hosted SoftAP,
+        // where DHCP addrs aren't known ahead of time). Falls back to any
+        // statically-configured mapping if the frame carries no route stack.
+        let from = crate::immediate_sender(&self.buf[..n])
+            .or_else(|| self.tx.hive_for_addr(src))
+            .unwrap_or(0);
+        if from != 0 {
+            self.tx.set_peer(from, src);
+        }
         let Self { route, tx, buf } = self;
         match route.on_inbound(&buf[..n], from, tx, now) {
             Inbound::Deliver { event_hash, payload } => Some(Delivered { event_hash, payload }),
@@ -121,6 +131,59 @@ mod tests {
                 event_hash: EV,
                 payload: b"node-api".to_vec()
             })
+        );
+    }
+
+    // Drain a node a few times (loopback UDP is async).
+    fn pump<const N: usize, const P: usize, const D: usize>(node: &mut Node<N, P, D>) -> Option<Delivered> {
+        for _ in 0..100 {
+            if let Some(d) = node.poll(0) {
+                return Some(d);
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        None
+    }
+
+    // Roy's #19: AP relays STA1 -> STA2 over the board-hosted SoftAP, with the AP
+    // LEARNING each STA's addr dynamically (no static seed of STA addrs on the
+    // AP — exactly the DHCP-on-SoftAP case). Real UDP loopback, 3 Node()s.
+    #[test]
+    fn ap_relays_sta_to_sta_with_address_learning() {
+        const AP: u32 = 0x00AA_0001;
+        const S1: u32 = 0x0051_0002;
+        const S2: u32 = 0x0052_0003;
+        const EV2: u32 = 0x9999_0000;
+        let lo = || SocketAddr::from(([127, 0, 0, 1], 0));
+        let tap = UdpTransport::bind_addr(lo()).unwrap();
+        let t1 = UdpTransport::bind_addr(lo()).unwrap();
+        let t2 = UdpTransport::bind_addr(lo()).unwrap();
+        let ap_addr = tap.local_addr().unwrap();
+        // STAs know only their gateway (the AP). The AP seeds NOBODY — it learns
+        // both STAs' addresses from the frames they send.
+        t1.set_peer(AP, ap_addr);
+        t2.set_peer(AP, ap_addr);
+
+        let mut ap: McuNode = Node::new(AP, tap);
+        let mut s1: McuNode = Node::new(S1, t1);
+        let mut s2: McuNode = Node::new(S2, t2);
+        s1.seed_direct(AP, 0); // flood toward AP for unknown dests
+        s2.seed_direct(AP, 0);
+
+        // STA2 announces to the AP -> AP learns STA2 (addr + neighbour + path).
+        s2.originate(AP, EV, b"s2-hello", 0).unwrap();
+        let _ = pump(&mut ap); // AP processes STA2's hello (learns it)
+
+        // STA1 originates to STA2 (no direct path -> floods to the AP).
+        s1.originate(S2, EV2, b"s1->s2", 0).unwrap();
+        let _ = pump(&mut ap); // AP receives + relays toward STA2 (learned)
+
+        // STA2 receives the AP-relayed frame and delivers it.
+        let got = pump(&mut s2);
+        assert_eq!(
+            got,
+            Some(Delivered { event_hash: EV2, payload: b"s1->s2".to_vec() }),
+            "AP must relay STA1->STA2 using the address it learned"
         );
     }
 }
