@@ -66,8 +66,14 @@ sockets — done on Alfred, pushed.** Branch HEAD `ff01a04`.
   trust gate at RouteNode's DELIVER branch only (relay stays trust-agnostic):
   intra-TG GroupHmac verify; inter-TG PeeringHmac entanglement. Host-testable in
   r2-tn first.
-- **Open SPEC-refinement candidate (route to specs when hit):** delivery-dedup
-  origin id for a direct frame with no route stack (origin not in header).
+- **DONE — delivery-dedup** (`c64a354`): NOT a spec change (core: spec already
+  answers it). RouteNode gates the whole message on `(msg_id, SOURCE)` first;
+  SOURCE = route_stack[0] (R2-WIRE §3.3) else transport source for a direct frame.
+  Separate DedupCache from the engine's relay-dedup. r2-tn 6/6 green + ESP-compiles.
+- **Interop-canon flagged to specs (spec-first):** (a) `target_hive` =
+  FNV-1a(§6.2.1 hive_id_uuid) — TG-scoped, required at the trust tier; both
+  workshop-dfr1195 (FNV full-MAC) + hive (MAC-low3) must converge from their
+  shortcuts. (b) TN AP-IP must be discoverable ("AP = the gateway"), not constant.
 - **Working mode:** any on-hardware divergence → refine SPEC first (specs), then code.
 - **Doctrine:** [[fleet-operating-doctrine]] — branch experiment; not for `main`
   until proven on hardware. The OTA-gate fix (`699ee32`) is already on `main`.
