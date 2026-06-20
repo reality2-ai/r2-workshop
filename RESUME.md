@@ -88,16 +88,29 @@ sockets — done on Alfred, pushed.** Branch HEAD `ff01a04`.
 - **DONE — #18 build-side** (`146003f`): dfr1195 build.rs bakes
   `R2_FW_VER=<semver>+<sha>` + boot-logs it. #18 PULL = CMD_QUERY. #18 PUSH
   (`r2.hb.health`) awaits composer's HEALTH-TELEMETRY-CONTRACT (asked).
-- **RUNG 2a — inter-TG PeeringHmac entanglement: DONE (auth-only)** (`9a3902d`):
-  per core's §7.5 contract. `entangle()`/`retire_entanglement()` (DROP-ON-RETIRE,
-  RAM-volatile HF-3); deliver-gate cross branch trial-verifies each LIVE
-  entanglement's PeeringHmac; `originate_cross()` signs with the peering key
-  (target_group=origin tg so the cross branch fires — flagged the dest-vs-origin
-  gap to core/specs). 4 tests (entangled/not/retired/wrong-key); r2-tn 15/15 +
-  ESP-compiles. **RUNG 2b (canon) = add XChaCha20 payload encryption** (payload=
-  [nonce:24][ciphertext], HMAC over hdr||nonce||ct) — after core confirms 2a.
-  Real provisioning = lexicographically-ordered X25519 derive_peering_keys
-  (host test uses a shared peering key directly).
+- **RUNG 2a — inter-TG PeeringHmac entanglement: DONE + RATIFIED-CANON-ALIGNED**
+  (gate fix `<latest>`): per **specs R2-TRUST v0.7 §7.5.4** (ed7ffd6) + core.
+  Deliver-gate = GroupHmac(my hk) FIRST → on fail trial-verify PeeringHmac per
+  LIVE entanglement (verifying key identifies origin) → else Dropped("auth
+  failed"). **NO E-flag** (R2-WIRE byte0 has no free bit; trial-verify is canon,
+  zero wire change). `originate_cross(dest_tg)` sets **target_group=DEST** (origin
+  hack removed). `entangle()`/`retire_entanglement()` (DROP-ON-RETIRE, HF-3).
+  6 trust tests (intra deliver / wrong-key / cross entangled/not/retired/wrong-key
+  + relay-agnostic); r2-tn 16/16 + ESP-compiles.
+- **RUNG 2b (canon confidentiality) — PLANNED, with core for vetting:** add
+  chacha20poly1305 to r2-tn; Entanglement gains `enc_key`; `originate_cross`
+  encrypts payload=[nonce:24][XChaCha20Poly1305(enc_key,nonce,pt)] + signs
+  PeeringHmac over hdr||nonce||ct; gate cross branch decrypts with the verifying
+  entanglement's enc_key → deliver plaintext. nonce caller-supplied (esp_random/
+  OsRng). intra GroupHmac stays plaintext+auth (group-DEK is a later rung). Real
+  keys = lexicographically-ordered X25519 `derive_peering_keys`. (Doing it fresh —
+  security-critical AEAD, not rushing at session tail.)
+- **CANON firmware TODO (drop MAC hive_id shortcut):** dfr1195/c6-tn use
+  FNV-of-MAC for `my_hive_id`; canon = FNV(§6.2.1 hive_id_uuid via
+  `hive_id::load_identity`), TG-scoped. Requires TG identity provisioning in the
+  TN firmware (the trust-provisioning rung). r2-tn host logic is hive_id-agnostic
+  (unaffected). AP-IP: specs authoring R2-WIFI/R2-DISCOVERY "AP=gateway" rule —
+  don't hardcode (I already read the gateway).
 - **Trust-tier reference** (core TRUST-INTEGRATION-BRIEF @ r2-core 5f8798b; not in
   my workspace — relayed summary only). Entry points:
   - Gate ONLY at RouteNode's DELIVER branch (lib.rs ~234); relay stays
