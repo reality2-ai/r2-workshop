@@ -33,6 +33,23 @@ pub struct TnConfig {
     pub event_hash: u32,
     /// Payload for originated frames.
     pub payload: Vec<u8>,
+
+    // ── #18 health telemetry (r2.hb.health) ──
+    /// Collector hive id (the AP hub) to UNICAST health to; `None` disables
+    /// health emit (e.g. on the AP/collector itself).
+    pub collector: Option<u32>,
+    /// `fnv1a_32("r2.hb.health")` — health event hash (firmware computes it).
+    pub health_event: u32,
+    /// Emit health every N originate beats (5 per composer's contract → ~15s).
+    pub health_every: u32,
+    /// This node's role bitset (`r2_tn::health::role`).
+    pub role: u8,
+    /// Trust-group id (0 if untrusted).
+    pub tg: u32,
+    /// Firmware version + git sha (baked R2_FW_VER / R2_GIT_SHA).
+    pub fw_version: &'static str,
+    /// Firmware git sha.
+    pub fw_sha: &'static str,
 }
 
 /// Bind the transport, build the node, and run the receive/originate loop on a
@@ -58,8 +75,11 @@ pub fn spawn(cfg: TnConfig) -> Result<()> {
                 cfg.peers.len(),
                 cfg.originate_to.map(|d| format!("{d:08x}"))
             );
+            let ip_str = cfg.local_ip.to_string();
             let start = Instant::now();
             let mut next_originate = cfg.originate_period;
+            let mut beat: u32 = 0;
+            let health_every = cfg.health_every.max(1);
             loop {
                 let now = start.elapsed().as_secs() as u32;
 
@@ -80,6 +100,39 @@ pub fn spawn(cfg: TnConfig) -> Result<()> {
                                 cfg.event_hash, nh
                             ),
                             Err(e) => warn!("[tn] originate failed: {e}"),
+                        }
+                        beat = beat.wrapping_add(1);
+
+                        // #18: every 5th beat, UNICAST r2.hb.health to the
+                        // collector (the AP hub). sync_state=0 (free) until a
+                        // conductor-PLL exists; link_q placeholder until per-peer
+                        // RSSI. NO flood (originate -> Directed to the collector).
+                        if beat % health_every == 0 {
+                            if let Some(collector) = cfg.collector {
+                                let report = r2_tn::health::HealthReport {
+                                    hive_id: cfg.my_hive_id,
+                                    tg: cfg.tg,
+                                    role: cfg.role,
+                                    ip: &ip_str,
+                                    fw_version: cfg.fw_version,
+                                    fw_sha: cfg.fw_sha,
+                                    ota_status: r2_tn::health::ota_status::CURRENT,
+                                    sync_state: r2_tn::health::sync_state::FREE,
+                                    phase_err_ms: 0,
+                                    link_q: 100,
+                                    transports: r2_tn::health::transport_bit::WIFI,
+                                    uptime_s: now,
+                                    beat_seq: beat,
+                                };
+                                let mut hbuf = [0u8; 256];
+                                match report.encode(&mut hbuf) {
+                                    Ok(n) => match node.originate(collector, cfg.health_event, &hbuf[..n], now) {
+                                        Ok(_) => info!("[tn] health -> collector {collector:08x} ({n} B)"),
+                                        Err(e) => warn!("[tn] health emit failed: {e}"),
+                                    },
+                                    Err(e) => warn!("[tn] health encode failed: {e:?}"),
+                                }
+                            }
                         }
                         next_originate = start.elapsed() + cfg.originate_period;
                     }

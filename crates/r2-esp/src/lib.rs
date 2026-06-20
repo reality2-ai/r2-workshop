@@ -38,6 +38,10 @@ pub mod peer_wifi_udp;
 #[cfg(feature = "tn")]
 pub mod tn;
 
+// Re-export the health-telemetry types (#18) so firmware sets role/etc. cleanly.
+#[cfg(feature = "tn")]
+pub use r2_tn::health;
+
 #[cfg(feature = "ble")]
 pub mod l2cap;
 

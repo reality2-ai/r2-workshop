@@ -40,6 +40,11 @@ const FW_VER: &str = match option_env!("R2_FW_VER") {
     Some(s) => s,
     None => env!("CARGO_PKG_VERSION"),
 };
+/// Firmware git sha for telemetry (#18 key 5), baked by build.rs.
+const GIT_SHA: &str = match option_env!("R2_GIT_SHA") {
+    Some(s) => s,
+    None => "unknown",
+};
 
 fn main() -> Result<()> {
     link_patches();
@@ -86,6 +91,14 @@ fn main() -> Result<()> {
             originate_period: core::time::Duration::from_secs(3),
             event_hash: hello_event(),
             payload: b"hello-tn".to_vec(),
+            // #18: the AP IS the collector (aggregates + forwards) — no self-emit.
+            collector: None,
+            health_event: health_event(),
+            health_every: 5,
+            role: r2_esp::health::role::AP,
+            tg: 0,
+            fw_version: FW_VER,
+            fw_sha: GIT_SHA,
         })?;
         // Task #17: network-OTA receiver (recv over WiFi -> verify sha ->
         // write inactive OTA slot -> reboot). #18: CMD_QUERY serves fw version.
@@ -130,6 +143,14 @@ fn main() -> Result<()> {
                         originate_period: core::time::Duration::from_secs(3),
                         event_hash: hello_event(),
                         payload: b"hello-tn".to_vec(),
+                        // #18: STA unicasts r2.hb.health to the AP collector.
+                        collector: Some(ap_hive_id),
+                        health_event: health_event(),
+                        health_every: 5,
+                        role: r2_esp::health::role::STA,
+                        tg: 0,
+                        fw_version: FW_VER,
+                        fw_sha: GIT_SHA,
                     })?;
                     // Task #17: network-OTA receiver + #18 version query (CMD_QUERY).
                     ota_tcp::start_listener();
@@ -153,6 +174,11 @@ fn main() -> Result<()> {
 
 fn hello_event() -> u32 {
     r2_core::fnv::r2_hash("r2.tn.hello").unwrap_or(0)
+}
+
+/// #18 health event hash = fnv1a_32("r2.hb.health").
+fn health_event() -> u32 {
+    r2_core::fnv::r2_hash(r2_esp::health::HEALTH_EVENT_NAME).unwrap_or(0)
 }
 
 /// Read the WiFi-STA MAC as a lowercase colon-separated string.
