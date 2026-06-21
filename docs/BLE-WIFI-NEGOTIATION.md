@@ -52,6 +52,27 @@ accept of the *transport choice* (not just credentials), and keeping the beacon
 plane **active as a control channel while WiFi is up** (§4A.4(1)). Today beacon =
 presence advertising, not a persistent negotiation channel.
 
+## Data-plane MODES (architecture refinement, Roy)
+
+The data plane is **dual-mode**; negotiation / R2-ROUTE *selects* per situation:
+- **Mode 1 — INFRASTRUCTURE:** join a fixed/preferable AP (the workshop
+  computer-AP, or any hotspot). This is workshop's current `bring_up_provider`
+  (`wifi_ap::start` SoftAP) / `join_provider` (`wifi_sta::connect_static`). A
+  KEEPER for fixed cases — NOT a Linux-era artifact to drop.
+- **Mode 2 — MESH (general / mobile-wearable):** BLE + WiFi + LoRa true-mesh, no
+  fixed infra = the "reality2 mesh" / transient networking. WiFi leg via
+  ESP-NOW or WiFi-mesh (peer-to-peer, no AP) + LoRa (ties in the deferred #21 LoRa
+  carrier — LoRa is a mode-2 transport, not just a separate carrier).
+- **SELECTION** (infra-when-available/preferable ELSE form-mesh) = R2-ROUTE
+  transport-selection = hive/core's engine lane; the esp-idf radio just
+  IMPLEMENTS whichever data plane the engine picks.
+
+**Radio-side implication (flagged to core/hive):** the engine's `DataPlaneParams`
+is infra-specific today (`{ssid, psk, ap_hint}`); mode 2 needs a transport-KIND
+(`Infra{ssid,psk} | Mesh{espnow/wifi-mesh} | LoRa{…}`) so `bring_up`/`join` raise
+the right transport. Workshop impls each kind on the esp-idf radio when the engine
+models it. (Profile-A = mode 1; mode 2 additive.)
+
 ## Stage 2 — Data-plane bringup (WiFi)
 
 **Implemented (workshop building blocks):**

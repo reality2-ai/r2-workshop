@@ -51,6 +51,13 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
   hardware window (rig re-enumerated; hive blocked flashing). = cross-platform TN proof.
   BRANCH profile-a-pathdep NOT merged to tn-routeengine-bringup (deliberate, pending
   metal form validation).
+  **DUAL-MODE data plane (Roy refinement):** MODE 1 INFRASTRUCTURE (join fixed AP
+  — workshop computer-AP) = what Profile-A does NOW (wifi_ap/wifi_sta), a KEEPER;
+  MODE 2 MESH (BLE+WiFi+LoRa true-mesh, no infra = reality2 mesh / general case) =
+  ADDITIVE radio glue (ESP-NOW/WiFi-mesh + LoRa; ties in deferred #21 LoRa). SELECT
+  = R2-ROUTE (hive/core). Flagged core: DataPlaneParams needs a transport-KIND
+  (Infra|Mesh|LoRa) for mode 2; I impl each on the esp-idf radio when modeled.
+  See docs/BLE-WIFI-NEGOTIATION.md.
 
 - **PENDING beacon re-sync — LANDED upstream (`e77d66f`), DECIDED plan, DEFERRED
   (no-rush, ble-only):** core moved the beacon codec `r2-core` → `r2_discovery::beacon`
