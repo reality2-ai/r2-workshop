@@ -5,6 +5,19 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
 (Relocated 2026-06-18 from `claude-fleet/fleet-context/`; claude-fleet is now tooling-code-only.)
 
 ## FRONTIER (2026-06-20, post-DELIVERED)
+- **★ TOP PRIORITY (Roy/supervisor): self-forming BLE→WiFi transient network**
+  (discover→negotiate→form→fallback→reform) = THE central project deliverable.
+  HIVE DRIVES (engine + orchestration); WORKSHOP = flash/support. My offers (sent
+  supervisor+hive): (B) L2CAP + radio-glue lockstep to hive NOW (I own l2cap.rs =
+  the BLE control channel) · (C) flash carriers on demand · (A) build esp-idf
+  NegotiationRadio so WORKSHOP boards JOIN the mesh (cross-platform engine proof) —
+  ready on Roy-greenlight + after hive's trait settles. My read: B now, A later.
+  **CRUX for (A) — asked core:** r2-discovery integration. VENDOR=instant drift
+  (fast-moving crate); naive PATH-DEP=r2-fnv doubling (type mismatch); CLEAN=broader
+  path-dep migration (r2-core/wire/route/trust/fnv/cbor+discovery → ../r2-core,
+  esp-idf-build risk, deliberate). Awaiting core's integration call. TN work needs
+  none of this (builds on vendored); only gates workshop PARTICIPATING in the mesh.
+
 - **PENDING beacon re-sync — LANDED upstream (`e77d66f`), DECIDED plan, DEFERRED
   (no-rush, ble-only):** core moved the beacon codec `r2-core` → `r2_discovery::beacon`
   (r2-core/src/beacon.rs REMOVED upstream; power_state §7.2 bits 1-0 now decoded,
