@@ -5,16 +5,22 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
 (Relocated 2026-06-18 from `claude-fleet/fleet-context/`; claude-fleet is now tooling-code-only.)
 
 ## FRONTIER (2026-06-20, post-DELIVERED)
-- **PENDING re-sync (core-gated) — TARGET MOVING:** power_state decode/encode
-  (§7.2 bits 1-0) LANDED in core (`aa598a1`, my drift catch fixed, byte-exact to
-  regen'd vectors); provider_capable bit 2 still stubbed-0 (post-Roy). BUT core is
-  RELOCATING the beacon codec from `r2-core` → **`r2_discovery::beacon`** (canonical
-  home; hive needs it no-alloc + path-deps r2-discovery). So my re-sync is NOT a
-  simple field pull: my `crates/r2-esp/src/beacon.rs` imports `r2_core::beacon`
-  (BeaconFlags/build_legacy_beacon/etc.) → after the move I repoint to
-  `r2_discovery::beacon` + likely VENDOR r2-discovery (not vendored today). Await
-  core's exact path (pending hive's dep-path confirm); no action yet. Then surfaces
-  power_state+provider_capable into PeerObservation.flags. Feeds parked #24 Profile-A.
+- **PENDING beacon re-sync — LANDED upstream (`e77d66f`), DECIDED plan, DEFERRED
+  (no-rush, ble-only):** core moved the beacon codec `r2-core` → `r2_discovery::beacon`
+  (r2-core/src/beacon.rs REMOVED upstream; power_state §7.2 bits 1-0 now decoded,
+  byte-exact; provider_capable bit-2 stubbed pending Roy). **No breakage today** —
+  my `beacon.rs` is behind the `ble` feature (TN carriers are no-ble, unaffected) +
+  my vendored r2-core still has beacon.rs until I re-sync.
+  **DECISION: VENDOR r2-discovery** (no-alloc tier; deps r2-fnv[vendored]+hmac+sha2
+  align) — NOT path-dep (would double r2-fnv vs my vendored copy). **Re-sync steps
+  when done:** (1) vendor `crates/r2-discovery` (no-alloc/default features; point its
+  r2-fnv at `../r2-fnv`), (2) add r2-discovery dep to r2-esp, (3) repoint
+  `crates/r2-esp/src/beacon.rs` imports `r2_core::beacon` → `r2_discovery::beacon`
+  {BeaconFlags(+power_state), PowerState, LegacyBeacon, build/parse_legacy_beacon,
+  BEACON_VERSION, compute_rbid}, (4) drop dead vendored r2-core/beacon.rs, (5)
+  cargo check devkitc (ble). **Deferred:** only the devkitc SENSOR firmware uses it
+  (live-rig path, can't functionally test now); core said no rush. Do it when next
+  touching the sensor firmware or batching an r2-core re-sync. Feeds parked #24 Profile-A.
 - **#24 transport-negotiation (R2-DISCOVERY §4A) — RESOLVED: workshop CONFORMANT
   as Profile B** (specs split §4A.4 into A/B, commit 1175e66, after my ground-truth
   correction). Profile A (full two-plane) = hive; Profile B (simple WiFi data-plane
