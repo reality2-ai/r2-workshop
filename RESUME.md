@@ -5,6 +5,13 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
 (Relocated 2026-06-18 from `claude-fleet/fleet-context/`; claude-fleet is now tooling-code-only.)
 
 ## FRONTIER (2026-06-20, post-DELIVERED)
+- **PENDING re-sync (core-gated):** after core lands the R2-BEACON §7.2 flags-byte
+  fix in r2_core::beacon (power_state bits 1-0 decode/encode now + provider_capable
+  bit 2 post-Roy; I caught the code-vs-§7.2 drift), RE-SYNC vendored
+  `crates/r2-core` BeaconFlags from core (post specs vector-regen). Surfaces
+  power_state+provider_capable into PeerObservation.flags for free. core pings when
+  landed. Feeds the parked #24 Profile-A NegotiationRadio esp-idf impl. See
+  docs/BLE-WIFI-NEGOTIATION.md.
 - **#24 transport-negotiation (R2-DISCOVERY §4A) — RESOLVED: workshop CONFORMANT
   as Profile B** (specs split §4A.4 into A/B, commit 1175e66, after my ground-truth
   correction). Profile A (full two-plane) = hive; Profile B (simple WiFi data-plane
