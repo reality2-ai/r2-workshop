@@ -78,11 +78,18 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
   EspNow}) → I dispatch to my EspNowTransport. MY real prereq = sync VENDORED r2-route
   → canonical (my vendored r2-route LACKS Transport::EspNow + mesh_preset entirely; +
   the best_transport div-by-zero fix 44838ab; USB=0 is latent since my TN is WiFi).
-  r2-route is forked-with-extras → PATH-DEP (like r2-discovery) OR core's guided merge
-  (asked core which). THEN: multi-transport dispatch (route Directed by
-  DirectedHop.transport — r2-tn uses a single transport today) + EspNowTransport impl
-  (r2_transport::Transport, esp_now_send) + metal. ESP-NOW channel = platform-local
-  (beacon-advertised), not a core construct. Held for metal.
+  r2-route sync = PATH-DEP (core diffed: my vendored r2-route has ZERO extras, pure
+  behind-snapshot — NOT forked; gains EspNow id5+mesh_preset+§5.7 DataPlaneMode+v0.4
+  origin-dedup+SprayWait; 1 mechanical touch = ForwardRequest.origin, core walks it).
+  **CASCADE I found:** path-dep r2-route FORCES canonical r2-wire (r2-wire.workspace=true)
+  → must path-dep r2-wire TOO (drop vendored, repoint r2-tn/trust/esp). My vendored
+  r2-wire PUBLIC API == canonical (only internal extended/types/tests differ; v0.6 hmac
+  already synced) → likely clean superset like r2-fnv. AWAITING core's r2-wire-superset
+  verdict (any behavior my r2-tn dedup/relay relies on that canon lacks?) + supervisor
+  timing nod. If clean: path-dep BOTH r2-route+r2-wire together + ForwardRequest.origin.
+  THEN: multi-transport dispatch (route Directed by DirectedHop.transport — r2-tn uses
+  one transport today) + EspNowTransport impl + metal. ESP-NOW channel = platform-local.
+  Held on deep radio for metal.
   **RESOLUTION (core): MODE SPLIT — engine is Mode-1; KIND-tag is local-only.**
   specs ruled WifiOffer stays INFRA-ONLY (no wire kind-tag). Engine's
   negotiation::DataPlaneParams {ssid,psk,ap_hint} is the Mode-1 WifiOffer payload +
