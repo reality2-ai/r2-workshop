@@ -12,13 +12,18 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
   the BLE control channel) · (C) flash carriers on demand · (A) build esp-idf
   NegotiationRadio so WORKSHOP boards JOIN the mesh (cross-platform engine proof) —
   ready on Roy-greenlight + after hive's trait settles. My read: B now, A later.
-  **(B) UNDERWAY (supervisor-confirmed):** L2CAP CoC lockstep DELIVERED to hive —
-  proven l2cap.rs interop facts (PSM 0x00D2, MTU 512, R2-BLE §6.4 [len_lo,len_hi]
-  LE framing, send_to/drain_received multi-channel) + the HiveId↔BLE-addr bridge
-  (NegotiationRadio is HiveId-addressed, CoC is addr-addressed → map from beacon
-  scans). In docs/BLE-WIFI-NEGOTIATION.md. AWAITING hive's ControlMsg encoding →
-  I confirm it rides my CoC frame (≤MTU 512) + mirror any framing change into
-  l2cap.rs so esp-idf+esp-radio stay byte-compatible. Active-pairing mode.
+  **(B) CONFIRMED byte-clean (hive lockstep closed):** PSM 0x00D2/MTU512/LE
+  len-prefix verified vs l2cap.rs (recv strips prefix @471-485, returns payload
+  as-sent); ControlMsg = [tag] 0x01 WifiReq / 0x02 WifiOffer+ssid32||psk64||
+  ap_hint_be32 (101B) / 0x03 WifiDone, ≪512 no-frag; HiveId↔addr map from beacon
+  scans. OPEN sub-item: ControlMsg CODEC must be shared r2_discovery::ControlMsg
+  (not hand-rolled) for byte-exact decode — awaiting hive's confirm (else land it
+  in r2_discovery). In docs/BLE-WIFI-NEGOTIATION.md.
+  **(A) TRIGGER APPROACHING:** hive greenlit the 2nd-platform proof + will PING when
+  its esp-radio CoC is sending (trait-settle gate clears). Asked supervisor to line
+  up ROY's Profile-A greenlight so I'm not the blocker. On trigger: path-dep
+  {r2-discovery,r2-fnv} (core's call) → impl esp-idf NegotiationRadio (decode via
+  shared ControlMsg) → test esp-idf↔esp-radio control-plane. = cross-platform TN proof.
   **CRUX for (A) — core RULED: PATH-DEP {r2-discovery, r2-fnv} → ../r2-core/crates**
   (drop vendored r2-fnv; [patch] fallback). Vendoring r2-discovery = mesh-incompat
   (interop-critical fast-mover); r2-fnv tiny+stable so path-dep it too (kills the
