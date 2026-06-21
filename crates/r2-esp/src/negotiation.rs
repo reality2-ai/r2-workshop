@@ -164,19 +164,36 @@ impl NegotiationRadio for EspNegotiationRadio {
     }
 
     fn bring_up_provider(&mut self, params: &DataPlaneParams) -> bool {
-        let ssid = core::str::from_utf8(&params.ssid[..params.ssid_len as usize]).unwrap_or("");
-        let _psk = core::str::from_utf8(&params.psk[..params.psk_len as usize]).unwrap_or("");
-        // TODO(metal): wifi_ap::start (needs the modem, threaded by the firmware).
-        let ok = !ssid.is_empty();
+        // DataPlaneParams is the kind-tag enum (core 9376536). The engine only ever
+        // passes ::Infra (Mode-1/provider-star); Mesh/LoRa come from the r2-route
+        // Mode-2 path (params platform-local: ESP-NOW channel / LoRa build cfg).
+        let ok = match params {
+            DataPlaneParams::Infra(p) => {
+                let ssid = core::str::from_utf8(p.ssid()).unwrap_or("");
+                let _psk = core::str::from_utf8(p.psk()).unwrap_or("");
+                // TODO(metal): wifi_ap::start(ssid, _psk) — Mode-1 SoftAP provider.
+                !ssid.is_empty()
+            }
+            // TODO(metal, Mode-2 via r2-route): enable ESP-NOW on `channel`.
+            DataPlaneParams::Mesh { channel: _ } => false,
+            // TODO(metal, Mode-2 via r2-route): enable LoRa (build-time radio cfg).
+            DataPlaneParams::Lora { .. } => false,
+        };
         self.dp_state = if ok { DataPlaneState::Available } else { DataPlaneState::Failed };
         ok
     }
 
     fn join_provider(&mut self, params: &DataPlaneParams) -> bool {
-        let ssid = core::str::from_utf8(&params.ssid[..params.ssid_len as usize]).unwrap_or("");
-        let _psk = core::str::from_utf8(&params.psk[..params.psk_len as usize]).unwrap_or("");
-        // TODO(metal): wifi_sta::connect_static (no-DHCP self-assign per ap_hint).
-        let ok = !ssid.is_empty();
+        let ok = match params {
+            DataPlaneParams::Infra(p) => {
+                let ssid = core::str::from_utf8(p.ssid()).unwrap_or("");
+                let _psk = core::str::from_utf8(p.psk()).unwrap_or("");
+                // TODO(metal): wifi_sta::connect_static (no-DHCP self-assign per p.ap_hint).
+                !ssid.is_empty()
+            }
+            DataPlaneParams::Mesh { channel: _ } => false, // TODO(metal): join ESP-NOW
+            DataPlaneParams::Lora { .. } => false,         // TODO(metal): LoRa
+        };
         self.dp_state = if ok { DataPlaneState::Available } else { DataPlaneState::Failed };
         ok
     }
