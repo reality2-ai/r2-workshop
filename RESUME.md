@@ -19,11 +19,17 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
   scans. OPEN sub-item: ControlMsg CODEC must be shared r2_discovery::ControlMsg
   (not hand-rolled) for byte-exact decode — awaiting hive's confirm (else land it
   in r2_discovery). In docs/BLE-WIFI-NEGOTIATION.md.
-  **(A) TRIGGER APPROACHING:** hive greenlit the 2nd-platform proof + will PING when
-  its esp-radio CoC is sending (trait-settle gate clears). Asked supervisor to line
-  up ROY's Profile-A greenlight so I'm not the blocker. On trigger: path-dep
-  {r2-discovery,r2-fnv} (core's call) → impl esp-idf NegotiationRadio (decode via
-  shared ControlMsg) → test esp-idf↔esp-radio control-plane. = cross-platform TN proof.
+  **(A) PREP DONE — HOLDING for Roy-go + hive CoC-ping** (supervisor cleared prep,
+  recommending GO to Roy; routed core to provide shared r2_discovery::ControlMsg →
+  closes my codec point). RUNBOOK = **docs/PATHDEP-MIGRATION-PLAN.md** (execute
+  instantly on trigger): checkpoint → unify r2-fnv (repoint 6 consumers: r2-core/
+  trust/wire/engine/bootstrap/wasm → canonical, drop vendored r2-fnv) → path-dep
+  r2-discovery (alloc tier; std OK for esp-idf Path-A) → repoint beacon.rs
+  r2_core::beacon→r2_discovery::beacon → VERIFY builds (xtensa+riscv, one r2-fnv) →
+  impl `r2_esp::negotiation` esp-idf NegotiationRadio over my radio glue
+  (beacon/l2cap+HiveId↔addr map/wifi_ap/wifi_sta, decode via shared ControlMsg) →
+  test esp-idf↔esp-radio → rollback if it fights. Trait must be settled first
+  (hive's esp-radio impl). = cross-platform TN proof (north-star).
   **CRUX for (A) — core RULED: PATH-DEP {r2-discovery, r2-fnv} → ../r2-core/crates**
   (drop vendored r2-fnv; [patch] fallback). Vendoring r2-discovery = mesh-incompat
   (interop-critical fast-mover); r2-fnv tiny+stable so path-dep it too (kills the
