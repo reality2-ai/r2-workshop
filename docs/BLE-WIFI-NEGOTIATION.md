@@ -188,6 +188,16 @@ MUST agree on:
 - **Model:** `send_to(addr:[u8;6], payload)` / `drain_received()→[(payload,addr)]`;
   multi-channel per-peer; `connected_peers()`/`is_connected()`.
 
+**ControlMsg encoding (hive-confirmed, lockstep):** one ControlMsg per CoC SDU —
+`[tag:u8]`: `0x01`=WifiReq (no body) · `0x02`=WifiOffer + `ssid[32]||psk[64]||
+ap_hint_be32` (100B body, 101B total) · `0x03`=WifiDone. Max 101B ≪ MTU 512 → no
+fragmentation. Verified byte-clean over workshop's CoC frame (l2cap.rs:471-485
+strips the LE len-prefix, returns the payload as-sent). **Byte-EXACT decode caveat:**
+l2cap.rs is opaque transport (hands the raw payload up); the ControlMsg codec must
+be the SHARED `r2_discovery::ControlMsg` (not hand-rolled per platform) so esp-idf
++ esp-radio agree — confirming with hive whether the above is r2_discovery's
+canonical serialization (if hand-rolled, land it in r2_discovery, north-star).
+
 **HiveId↔addr bridge (the key integration point):** `NegotiationRadio`'s
 `send_control(peer: HiveId)` + `poll_control()→(HiveId, ControlMsg)` are
 **HiveId**-addressed, but L2CAP CoC is **BLE-addr**-addressed. The impl keeps a
