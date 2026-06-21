@@ -25,24 +25,24 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
   len-prefix all metal-confirmed both sides). So (A)'s control-plane TRANSPORT is
   de-risked BEFORE building NegotiationRadio. hive M8 (NegotiationRadio + shared
   ControlMsg 844d53e) next → pings when send_control is live.
-  **(A) PREP DONE — SOLE GATE = ROY's Profile-A greenlight** (+ hive's M8 ping);
-  (supervisor cleared prep,
-  recommending GO to Roy; routed core to provide shared r2_discovery::ControlMsg →
-  closes my codec point). RUNBOOK = **docs/PATHDEP-MIGRATION-PLAN.md** (execute
-  instantly on trigger): checkpoint → unify r2-fnv (repoint 6 consumers: r2-core/
-  trust/wire/engine/bootstrap/wasm → canonical, drop vendored r2-fnv) → path-dep
-  r2-discovery@53c1e58 (alloc tier; std OK for esp-idf Path-A) → repoint beacon.rs
-  r2_core::beacon→r2_discovery::beacon → VERIFY builds (xtensa+riscv, one r2-fnv) →
-  impl `r2_esp::negotiation` esp-idf NegotiationRadio over my radio glue
-  (beacon/l2cap+HiveId↔addr map/wifi_ap/wifi_sta, decode via shared ControlMsg) →
-  test esp-idf↔esp-radio → rollback if it fights. Trait must be settled first
-  (hive's esp-radio impl). = cross-platform TN proof (north-star).
-  **CRUX for (A) — core RULED: PATH-DEP {r2-discovery, r2-fnv} → ../r2-core/crates**
-  (drop vendored r2-fnv; [patch] fallback). Vendoring r2-discovery = mesh-incompat
-  (interop-critical fast-mover); r2-fnv tiny+stable so path-dep it too (kills the
-  doubling); hmac/sha2/hkdf dedup via crates.io. Execute AT (A)-start (not now —
-  churns working builds + trait settling). TN work needs none of this (builds on
-  vendored); only gates workshop PARTICIPATING in the mesh.
+  **★ (A) ROY-GREENLIT + EXECUTED THROUGH STEP 5** (branch `profile-a-pathdep`,
+  pushed; NOT yet merged to tn-routeengine-bringup — deliberate, pending metal test).
+  Steps 1-4 (migration) DONE+VERIFIED: r2-fnv unified → canonical ../r2-core/crates/
+  r2-fnv (dropped vendored, repointed 6 consumers+dashboard, one r2-fnv); r2-discovery
+  PATH-DEP'd `default-features=false` (no-alloc: beacon+negotiation+ControlMsg+
+  NegotiationRadio un-gated, std peer_table excluded, NO tokio); beacon.rs →
+  r2_discovery::beacon (+v0.6 BeaconFlags provider_capable/power_state). ALL 3
+  firmware compile clean: devkitc(xtensa+ble), c6-tn(riscv), dfr1195(xtensa) →
+  canonical r2-discovery builds esp-idf BOTH arches. Step 5: `crate::negotiation`
+  EspNegotiationRadio (impl NegotiationRadio over beacon/l2cap/wifi + shared
+  ControlMsg codec) COMPILES xtensa+esp-idf+ble (feature `negotiation=["ble"]`).
+  **REMAINING = metal-integration (hardware-loop, pairs w/ hive M8c + board window):**
+  NimBLE connectable-adv set (CoC connect addr) in beacon.rs; L2CAP central-connect
+  (joiner) in l2cap.rs; beacon-scan→resolve_rbid→on_peer queue feed; wifi-modem
+  threading into a negotiation-node firmware + the engine tick loop; then the
+  esp-idf↔esp-radio FORM test. See `// TODO(metal)` in negotiation.rs. Asked
+  supervisor: keep coding metal-integration (compile-only) or hold for hardware+M8c.
+  = the cross-platform TN proof (north-star, one engine esp-idf+esp-radio).
 
 - **PENDING beacon re-sync — LANDED upstream (`e77d66f`), DECIDED plan, DEFERRED
   (no-rush, ble-only):** core moved the beacon codec `r2-core` → `r2_discovery::beacon`
