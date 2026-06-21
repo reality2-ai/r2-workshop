@@ -141,6 +141,20 @@ the `Transport` trait — workshop provides the esp-idf `UdpTransport`, a no_std
 board would provide its own. Do #24 Profile A the same way and a future workshop
 Profile-A is just an esp-idf trait impl over hive's shared state machine.
 
+**LANDED:** `r2-discovery::negotiation` (core `03648fb`) — pure no_std heap-free
+S0-S4 + `NegotiationRadio` trait (advertise / poll_scan→NegObservation /
+send_control / poll_control / bring_up_provider / join_provider /
+data_plane_state→{Available,Failed} / teardown / now_ms) + `NegotiationEngine<N>`
+fixed-cap roster + a shared `lowest_live_id` election primitive (= conductor-PLL's).
+A workshop Profile-A = impl `NegotiationRadio` on esp-idf (hive does esp-radio).
+
+**Open protocol item before workshop Profile-A** (flagged to core): `NegObservation`
+needs caps + **power_state**, but the R2-BEACON advert carries no `power_state`
+field today (my `PeerObservation` = rbid/class_hash/flags/tx_power/rssi). `ap_capable`
+I can derive locally (class/flag); `power_state` needs an advert-format add (r2-core/
+specs) — shared by both platforms, not a per-platform tweak. Pending core/specs on
+where power_state is sourced.
+
 ## §4A.4 conformance summary
 
 The §4A.4(1-3) requirements below are **Profile A** (hive's reference). Workshop's
