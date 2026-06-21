@@ -25,6 +25,13 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
   needs the LED pin peripheral + boards). (2) REBUILD fielded C6 blob (3416cbfd
   predates shared-parser + beat-hook — functionally equiv; rebuild for PV1 parser)
   with R2_TN_AP_ID=0x480e900e/r2-fieldlab/r2fieldlab. Both OTA-ship.
+- **DEFERRED — r2-wire/r2-route vendored reconcile (core-led, post-msg_id):** core
+  scoped the drift. r2-wire hmac `sign/verify_extended_inner` = my alloc-vs-no_std
+  buffer split (canon-improvement, span UNCHANGED) — core folds it in, ideally
+  routed through `authenticated_bytes_extended` so the parked **msg_id-into-span**
+  change is one-line. Reconcile waits until msg_id lands (Roy-gated); core leads.
+  r2-route v0.4 origin-dedup = multi-hop/LoRa only, NOT a 9-board blocker (my
+  single-hop broadcast mesh already gets exactly-once via route_stack[0] dedup).
 
 - **C6 MESH UP** — composer flashed 3 C6 (exit 0; 6bd0=AP/7e44/6eb0=STA, blob
   9a35b7f8). But it's a SEPARATE mesh from the DFR1195/r2-fieldlab one (my C6 hosts
