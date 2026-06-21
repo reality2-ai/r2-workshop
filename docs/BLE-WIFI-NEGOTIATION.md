@@ -188,11 +188,14 @@ MUST agree on:
 - **Model:** `send_to(addr:[u8;6], payload)` / `drain_received()→[(payload,addr)]`;
   multi-channel per-peer; `connected_peers()`/`is_connected()`.
 
-**ControlMsg encoding (hive-confirmed, lockstep):** one ControlMsg per CoC SDU —
-`[tag:u8]`: `0x01`=WifiReq (no body) · `0x02`=WifiOffer + `ssid[32]||psk[64]||
-ap_hint_be32` (100B body, 101B total) · `0x03`=WifiDone. Max 101B ≪ MTU 512 → no
-fragmentation. Verified byte-clean over workshop's CoC frame (l2cap.rs:471-485
-strips the LE len-prefix, returns the payload as-sent). **Byte-EXACT decode — RESOLVED:**
+**ControlMsg codec (LANDED — core 844d53e, `r2_discovery::negotiation::ControlMsg`):**
+canonical no-alloc, total-safe (`decode→Option`, never panics). EXACT wire (explicit
+lengths, exact ssid/psk round-trip, no padding ambiguity):
+`WifiReq=[0x01]` · `WifiOffer=[0x02][ssid_len:1][ssid][psk_len:1][psk][ap_hint:4 BE]`
+· `WifiDone=[0x03]`. `MAX_ENCODED_LEN=103`; typical offer ~23B ≪ MTU 512 → no frag.
+One ControlMsg per CoC SDU; verified byte-clean over workshop's CoC frame
+(l2cap.rs:471-485 strips the LE len-prefix, returns the payload as-sent). API:
+`encode(&mut [0u8;MAX_ENCODED_LEN])->n` / `decode(payload)->Option<ControlMsg>`. **Byte-EXACT decode — RESOLVED:**
 l2cap.rs is opaque transport (hands the raw payload up); the ControlMsg codec is
 the SHARED `r2_discovery::ControlMsg`. hive + workshop agreed (north-star); hive
 asked **core to add `ControlMsg::encode/decode` to r2_discovery** (core owns the

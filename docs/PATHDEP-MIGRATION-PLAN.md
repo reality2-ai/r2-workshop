@@ -45,10 +45,14 @@ is interop-critical + fast-moving; a vendored snapshot = mesh incompatibility).
    - `poll_scan()->NegObservation` → from `beacon` scan; fill hive_id + ap_capable
      (BeaconFlags bit2 once Roy lands it) + power_state (BeaconFlags bits 1-0). Also
      populate the **HiveId↔BLE-addr map** here.
-   - `send_control(HiveId,&ControlMsg)` → map HiveId→addr → `l2cap::send_to(addr,
-     ControlMsg.encode())`.
+   - `send_control(HiveId,&ControlMsg)` → map HiveId→addr → encode with the SHARED
+     codec (core 844d53e): `let mut b=[0u8; ControlMsg::MAX_ENCODED_LEN]; let n=
+     msg.encode(&mut b);` → `l2cap::send_to(addr, &b[..n])` (my frame adds the
+     [len_lo,len_hi] prefix). MAX_ENCODED_LEN=103 ≪ MTU 512, no frag.
    - `poll_control()->(HiveId,ControlMsg)` → `l2cap::drain_received()`→(payload,addr)
-     → map addr→HiveId → `ControlMsg::decode(payload)` (shared r2_discovery type).
+     → map addr→HiveId → `ControlMsg::decode(payload)` → `Option` (total-safe, None
+     on bad input; payload = frame AFTER my len-prefix strip). Same r2_discovery type
+     hive encodes with → byte-identical.
    - `bring_up_provider(params)` → `wifi_ap::start`.
    - `join_provider(params)` → `wifi_sta::connect_static`.
    - `data_plane_state()` → from wifi conn state / `get_gateway()`.
