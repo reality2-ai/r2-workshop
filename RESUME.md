@@ -16,11 +16,15 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
 - **DONE — shared parse_persona adopted** (`8fe10d9`): `persona_flash` calls
   `r2_trust::parse_persona` (PV1-locked to composer's producer); my `r2_tn::persona`
   fork + r2-fnv dep REMOVED; r2-esp +r2-trust dep. r2-trust 30/30, r2-tn 19/19.
-- **TODO when C6 resumes:** (1) beat-LED = filter **MsgType::Heartbeat +
-  target_group==my_tg** (NOT fnv("r2.hb.beat") — hive authoritative) → GPIO15/D13
-  mono; needs node Heartbeat-frame exposure; OTA-ships. (2) REBUILD the fielded C6
-  blob (3416cbfd predates the shared-parser switch — functionally equiv but rebuild
-  for the PV1-locked parser) with R2_TN_AP_ID=0x480e900e/r2-fieldlab/r2fieldlab.
+- **DONE — beat-LED node hook** (`d763c91`): `on_inbound` Heartbeat-for-our-TG →
+  `Inbound::Heartbeat`; `Node::poll → PollEvent{Delivered|Beat}`; tn loop logs BEAT.
+  Host test (r2-tn 20/20). hive's contract (MsgType::Heartbeat + target_group==my_tg,
+  no PLL/HMAC, visual only).
+- **TODO when C6 resumes (boards out):** (1) beat-LED GPIO DRIVE — toggle GPIO15/D13
+  mono on `PollEvent::Beat` (firmware glue + composer §12.3 carrier-aware driver;
+  needs the LED pin peripheral + boards). (2) REBUILD fielded C6 blob (3416cbfd
+  predates shared-parser + beat-hook — functionally equiv; rebuild for PV1 parser)
+  with R2_TN_AP_ID=0x480e900e/r2-fieldlab/r2fieldlab. Both OTA-ship.
 
 - **C6 MESH UP** — composer flashed 3 C6 (exit 0; 6bd0=AP/7e44/6eb0=STA, blob
   9a35b7f8). But it's a SEPARATE mesh from the DFR1195/r2-fieldlab one (my C6 hosts
