@@ -5,6 +5,15 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
 (Relocated 2026-06-18 from `claude-fleet/fleet-context/`; claude-fleet is now tooling-code-only.)
 
 ## FRONTIER (2026-06-20, post-DELIVERED)
+- **#24 transport-negotiation (R2-DISCOVERY v0.2 §4A, baa0a94) — NOT impl'd in
+  workshop; corrected specs' reference-attribution.** My TN carriers are WiFi-ONLY
+  (BLE compiled out, features=[tn]): no beacon control-plane, no disruption→beacon
+  fallback, no T_fallback; provider = CONFIGURED AP (baked MAC/ID), NOT lowest-hive_id
+  election. Two-plane + conductor-election (§4A.4 1/2/3) = HIVE's lane. Workshop =
+  reference only for the simple WiFi data-plane + gateway-discovery (R2-WIFI v0.6,
+  AP=gateway/no-hardcode). Told specs + supervisor. IF Roy wants workshop to grow
+  the §4A two-plane fallback → NEW milestone (scope on supervisor's word).
+
 - **⏸ C6 rebake PAUSED (supervisor):** Roy may pull the FireBeetles/C6 for the
   9-board all-S3 mesh (5 DFR1195 + 4 XIAO, composer's flash). C6 fielded work is
   CODE-COMPLETE + blob shipped (`/tmp/c6-tn-fielded.bin` 3416cbfd, AP_ID=0x480e900e
