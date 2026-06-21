@@ -7,12 +7,22 @@ top**. Workshop owns the per-platform building blocks (BLE + WiFi radio glue on
 ESP-IDF) and the simple WiFi data-plane; hive owns the net-new two-plane
 negotiation + conductor-election orchestration.
 
-> Honest scope: workshop is **NOT** a conforming §4A two-plane reference. The TN
-> carriers (`dfr1195`/`c6-tn`) are built **WiFi-only** (`r2-esp` with
-> `default-features=false, features=["tn"]` → NimBLE compiled out). The BLE
-> building blocks below live in the **production sensor firmware** (default `ble`
-> feature). This doc is the parts list + composition path, not a claim of
-> conformance.
+> **Two profiles (§4A.4, commit `1175e66`).** After workshop's ground-truth
+> correction, canon now splits the reference:
+> - **Profile A — full two-plane** (control-plane-during-data + disruption→
+>   fallback + conductor-election provider) → **r2-hive** is the reference.
+> - **Profile B — simple WiFi data-plane + gateway-discovery**, configured/static
+>   provider, no on-node election/fallback → **workshop's TN carriers**
+>   (`dfr1195`/`c6-tn`) are the reference, and are **CONFORMANT today**. Profile B
+>   *participates in* but does not *drive* a two-plane mesh, and MUST NOT be cited
+>   for Profile A.
+>
+> So the TN carriers are built **WiFi-only** (`r2-esp` with
+> `default-features=false, features=["tn"]` → NimBLE compiled out) — that's
+> Profile B by design, not a deficiency. The BLE building blocks below live in the
+> **production sensor firmware** (default `ble` feature) and are the parts hive's
+> Profile-A orchestration composes on. Growing workshop to Profile A is a separate
+> milestone (Roy's call — not scoped).
 
 ## Two-plane model (§4A recap)
 
@@ -107,12 +117,22 @@ tn.rs + r2-tn (R2-WIRE mesh over WiFi)           │
 
 ## §4A.4 conformance summary
 
-| § | Requirement | workshop | owner of the gap |
+The §4A.4(1-3) requirements below are **Profile A** (hive's reference). Workshop's
+TN carriers are **conformant as Profile B** — Profile B does not require 1/2/3
+(configured provider, no on-node election/fallback). The table shows where
+workshop has *building blocks* vs where Profile A's net-new orchestration (hive)
+lives.
+
+| § (Profile A) | Requirement | workshop (Profile B) | Profile-A owner |
 |---|---|---|---|
-| 1 | BLE beacon active while WiFi up | building block only (beacon.rs; TN build has BLE OFF) | hive (persistent control channel) |
+| 1 | BLE beacon active while WiFi up | building block only (beacon.rs; TN build has BLE OFF) | hive |
 | 2 | Detect disruption → fall back to beacon | boot-time idle only; no runtime detector / `T_fallback` | hive |
-| 3 | Provider = lowest eligible `hive_id` + silence-failover | NO — configured provider | hive (conductor pattern) |
-| 4 | Document `T_fallback` + triggers | none today (see below) | hive + workshop (when built) |
+| 3 | Provider = lowest eligible `hive_id` + silence-failover | configured provider (Profile B by design) | hive (conductor pattern) |
+| 4 | Document `T_fallback` + triggers | n/a for Profile B; proposals below if workshop grows to A | hive + workshop (when built) |
+
+**Profile B conformance (workshop, today): ✅** WiFi data-plane + gateway-discovery
+(R2-WIFI v0.6 AP=gateway/no-hardcode), configured/static provider, participates in
+a two-plane mesh without driving it.
 
 ## T_fallback (§4A.4(4))
 

@@ -5,8 +5,12 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
 (Relocated 2026-06-18 from `claude-fleet/fleet-context/`; claude-fleet is now tooling-code-only.)
 
 ## FRONTIER (2026-06-20, post-DELIVERED)
-- **#24 transport-negotiation (R2-DISCOVERY v0.2 §4A, baa0a94) — NOT impl'd in
-  workshop; corrected specs' reference-attribution.** My TN carriers are WiFi-ONLY
+- **#24 transport-negotiation (R2-DISCOVERY §4A) — RESOLVED: workshop CONFORMANT
+  as Profile B** (specs split §4A.4 into A/B, commit 1175e66, after my ground-truth
+  correction). Profile A (full two-plane) = hive; Profile B (simple WiFi data-plane
+  + gateway-discovery, configured/static provider, no on-node election/fallback) =
+  my TN carriers, conformant TODAY, nothing to fix. Profile-A growth for workshop =
+  parked Roy decision (don't scope). Reference doc updated to A/B framing. My TN carriers are WiFi-ONLY
   (BLE compiled out, features=[tn]): no beacon control-plane, no disruption→beacon
   fallback, no T_fallback; provider = CONFIGURED AP (baked MAC/ID), NOT lowest-hive_id
   election. Two-plane + conductor-election (§4A.4 1/2/3) = HIVE's lane. Workshop =
