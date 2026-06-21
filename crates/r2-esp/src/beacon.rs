@@ -1,6 +1,6 @@
 //! R2-BEACON BLE advertise + scan + peer-table on ESP-IDF (NimBLE).
 //!
-//! Wraps the protocol primitives from `r2_core::beacon` (build/parse,
+//! Wraps the protocol primitives from `r2_discovery::beacon` (build/parse,
 //! `BeaconFlags`, `compute_rbid`) and the canonical event-name hash from
 //! `r2_fnv::r2_hash` with the ESP-IDF NimBLE plumbing required to actually
 //! emit and observe legacy R2-BEACON adverts on the BLE radio. Both the
@@ -46,8 +46,9 @@ use esp_idf_svc::hal::task::block_on;
 use esp_idf_svc::sys::esp_random;
 use log::{info, warn};
 
-use r2_core::beacon::{
-    self, build_legacy_beacon, parse_legacy_beacon, BeaconFlags, LegacyBeacon, BEACON_VERSION,
+use r2_discovery::beacon::{
+    self, build_legacy_beacon, parse_legacy_beacon, BeaconFlags, LegacyBeacon, PowerState,
+    BEACON_VERSION,
 };
 use r2_core::fnv::r2_hash;
 
@@ -230,6 +231,10 @@ pub fn start(
                     provisioning: task_config.provisioning,
                     mcu_mode: task_config.mcu_mode,
                     mobile: task_config.mobile,
+                    // R2-BEACON v0.6 §7.2: sensor rig is not a #24 WiFi provider
+                    // (bit 2) and is mains-powered (bits 1-0 = Normal).
+                    provider_capable: false,
+                    power_state: PowerState::Normal,
                 },
                 rbid: initial_rbid,
                 class_hash: task_config.class_hash_u32.to_be_bytes(),
@@ -351,6 +356,8 @@ fn run_loop(
                         provisioning: cfg.provisioning,
                         mcu_mode: cfg.mcu_mode,
                         mobile: cfg.mobile,
+                        provider_capable: false,
+                        power_state: PowerState::Normal,
                     },
                     rbid: current_rbid,
                     class_hash: cfg.class_hash_u32.to_be_bytes(),

@@ -1298,6 +1298,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "r2-discovery"
+version = "0.1.0"
+dependencies = [
+ "hkdf",
+ "hmac",
+ "r2-fnv",
+ "sha2",
+]
+
+[[package]]
 name = "r2-esp"
 version = "0.1.0"
 dependencies = [
@@ -1307,6 +1317,7 @@ dependencies = [
  "hmac",
  "log",
  "r2-core",
+ "r2-discovery",
  "r2-route",
  "r2-tn",
  "r2-transport",

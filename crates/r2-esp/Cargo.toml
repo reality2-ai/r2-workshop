@@ -16,6 +16,11 @@ r2-transport = { path = "../r2-transport", features = ["alloc"] }
 r2-tn = { path = "../r2-tn" }
 # Shared, PV1-locked persona parser (TG provisioning) — persona_flash calls it.
 r2-trust = { path = "../r2-trust" }
+# Canonical transient-mesh crate (PATH-DEP, not vendored — interop-critical, core's
+# call): beacon codec (r2_discovery::beacon) + #24 negotiation engine + the shared
+# ControlMsg codec + NegotiationRadio trait. no-alloc tier (beacon + negotiation are
+# un-gated; std peer_table is excluded). Zero-drift vs hive's esp-radio side.
+r2-discovery = { path = "../../../r2-core/crates/r2-discovery", default-features = false }
 
 # ESP-IDF framework
 esp-idf-svc = { version = "0.51", features = ["binstart"] }
