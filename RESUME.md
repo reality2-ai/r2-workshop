@@ -83,10 +83,12 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
   origin-dedup+SprayWait; 1 mechanical touch = ForwardRequest.origin, core walks it).
   **CASCADE I found:** path-dep r2-route FORCES canonical r2-wire (r2-wire.workspace=true)
   → must path-dep r2-wire TOO (drop vendored, repoint r2-tn/trust/esp). My vendored
-  r2-wire PUBLIC API == canonical (only internal extended/types/tests differ; v0.6 hmac
-  already synced) → likely clean superset like r2-fnv. AWAITING core's r2-wire-superset
-  verdict (any behavior my r2-tn dedup/relay relies on that canon lacks?) + supervisor
-  timing nod. If clean: path-dep BOTH r2-route+r2-wire together + ForwardRequest.origin.
+  r2-wire = CLEAN SUPERSET (core VERDICT: production code byte-identical/superset,
+  my 'extras'=only old test names, ZERO production; K=15 helper→inline invisible to my
+  high-level-fn consumers; canon ADDS relay tests). So path-dep BOTH r2-route+r2-wire
+  is SAFE — drop both vendored, repoint r2-tn/trust/esp/wasm/core. AWAITING only the
+  SUPERVISOR timing nod (core: no core-side hold, low-risk metal-prep). Then path-dep
+  both + ForwardRequest.origin (core walks; origin=route_stack[0]/ext-originator or 0).
   THEN: multi-transport dispatch (route Directed by DirectedHop.transport — r2-tn uses
   one transport today) + EspNowTransport impl + metal. ESP-NOW channel = platform-local.
   Held on deep radio for metal.
