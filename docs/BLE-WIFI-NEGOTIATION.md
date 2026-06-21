@@ -67,11 +67,18 @@ The data plane is **dual-mode**; negotiation / R2-ROUTE *selects* per situation:
   transport-selection = hive/core's engine lane; the esp-idf radio just
   IMPLEMENTS whichever data plane the engine picks.
 
-**Radio-side implication (flagged to core/hive):** the engine's `DataPlaneParams`
-is infra-specific today (`{ssid, psk, ap_hint}`); mode 2 needs a transport-KIND
-(`Infra{ssid,psk} | Mesh{espnow/wifi-mesh} | LoRa{…}`) so `bring_up`/`join` raise
-the right transport. Workshop impls each kind on the esp-idf radio when the engine
-models it. (Profile-A = mode 1; mode 2 additive.)
+**Resolution (core, final — MODE SPLIT, not a kind-tag):** specs ruled WifiOffer
+stays INFRA-ONLY (no wire kind-tag). The engine's `DataPlaneParams {ssid,psk,
+ap_hint}` is the Mode-1 WifiOffer payload and is correctly infra-shaped (the
+negotiation engine IS Mode-1 / provider-star) → `bring_up`/`join_provider` stay
+infra, **no DataPlaneParams churn**. The data-plane KIND lives in **r2-route's
+`DataPlaneMode`** (Infrastructure|Mesh, §5.7 `select_data_plane_mode`). Mode-2
+params are platform-local (ESP-NOW channel from beacon, LoRa freq from build) —
+raised OUTSIDE the engine handshake. So **Mode-2 ESP-NOW = a new esp-idf
+`r2_transport::Transport`** (analogous to workshop's `WifiUdpTransport` feeding the
+RouteEngine), selected by `DataPlaneMode==Mesh` — NOT an extension of
+`NegotiationRadio`. Profile-A (Mode-1) is unchanged; Mode-2 is a transport-impl
+(workshop's lane), gated on `Transport::EspNow` canon + r2-route's Mode-2 path.
 
 ## Stage 2 — Data-plane bringup (WiFi)
 
