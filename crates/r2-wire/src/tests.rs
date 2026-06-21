@@ -609,13 +609,17 @@ impl HmacProvider for TestHmac {
 }
 
 #[test]
-fn hmac_authenticated_bytes_excludes_mutable_fields() {
+fn hmac_authenticated_bytes_includes_msg_id_excludes_ttl_k_route() {
+    // R2-WIRE v0.6: msg_id is now BOUND into the span (relays preserve it, so it's
+    // not mutable — binding it closes the rewrite-msg_id replay vector). TTL/K/
+    // route stay EXCLUDED (genuinely mutable).
     let msg1 = CompactMessage {
         header: CompactHeader {
             version: 0,
             msg_type: MsgType::Event,
             flags: Flags::default(),
-            ttl: 5, k: 3,
+            ttl: 5,
+            k: 3,
             msg_id: 0xAAAA,
             event_hash: 0x424D3E4C,
             target: 0xDEADBEEF,
@@ -625,24 +629,72 @@ fn hmac_authenticated_bytes_excludes_mutable_fields() {
         hmac_tag: None,
     };
 
-    // Same message but different TTL, K, msg_id — mutable fields.
-    let msg2 = CompactMessage {
+    let mut buf1 = [0u8; 256];
+    let len1 = authenticated_bytes_compact(&msg1, &mut buf1);
+
+    // Different TTL/K only → span MUST be identical (still excluded).
+    let only_mutable = CompactMessage {
         header: CompactHeader {
-            ttl: 2, k: 0,
+            ttl: 2,
+            k: 0,
+            ..msg1.header
+        },
+        ..msg1
+    };
+    let mut buf2 = [0u8; 256];
+    let len2 = authenticated_bytes_compact(&only_mutable, &mut buf2);
+    assert_eq!(
+        &buf1[..len1],
+        &buf2[..len2],
+        "TTL/K must NOT affect the authenticated span"
+    );
+
+    // Different msg_id → span MUST differ (now included).
+    let diff_msg_id = CompactMessage {
+        header: CompactHeader {
             msg_id: 0xBBBB,
             ..msg1.header
         },
         ..msg1
     };
+    let mut buf3 = [0u8; 256];
+    let len3 = authenticated_bytes_compact(&diff_msg_id, &mut buf3);
+    assert_eq!(len1, len3);
+    assert_ne!(
+        &buf1[..len1],
+        &buf3[..len3],
+        "msg_id MUST be bound into the authenticated span (v0.6 replay fix)"
+    );
+}
 
-    let mut buf1 = [0u8; 256];
-    let mut buf2 = [0u8; 256];
-    let len1 = authenticated_bytes_compact(&msg1, &mut buf1);
-    let len2 = authenticated_bytes_compact(&msg2, &mut buf2);
-
-    assert_eq!(len1, len2);
-    assert_eq!(&buf1[..len1], &buf2[..len2],
-        "Authenticated bytes must be identical when only mutable fields differ");
+#[test]
+fn hmac_span_matches_v06_reference_vector() {
+    // R2-WIRE v0.6 §10.2 worked vector (specs hmac_reference): the compact span
+    // for type=0x00, msg_id=0xCAFE, event_hash=0x12345678, target=0xAABBCCDD,
+    // payload=a10001 MUST equal 00cafe12345678aabbccdda10001. (The full HMAC tag
+    // b705ebaef47adacf is verified in r2-trust, which has real HMAC-SHA256.)
+    let msg = CompactMessage {
+        header: CompactHeader {
+            version: 0,
+            msg_type: MsgType::Event, // = 0x00
+            flags: Flags::default(),
+            ttl: 5,
+            k: 3,
+            msg_id: 0xCAFE,
+            event_hash: 0x1234_5678,
+            target: 0xAABB_CCDD,
+        },
+        route: None,
+        payload: &[0xA1, 0x00, 0x01],
+        hmac_tag: None,
+    };
+    let mut buf = [0u8; 64];
+    let len = authenticated_bytes_compact(&msg, &mut buf);
+    assert_eq!(
+        &buf[..len],
+        &[0x00, 0xCA, 0xFE, 0x12, 0x34, 0x56, 0x78, 0xAA, 0xBB, 0xCC, 0xDD, 0xA1, 0x00, 0x01],
+        "span must be 00cafe12345678aabbccdda10001"
+    );
 }
 
 #[test]
@@ -701,14 +753,17 @@ fn hmac_survives_relay_mutation() {
     msg.header.flags = flags;
     msg.hmac_tag = Some(tag);
 
-    // Relay mutates TTL and K (mutable fields)
+    // Relay mutates TTL and K (the genuinely mutable fields). v0.6: relays
+    // PRESERVE msg_id (R2-WIRE §8.5), so it is NOT mutated here — it is now bound
+    // into the HMAC span (mutating it would, correctly, break verification).
     msg.header.ttl = 6;
     msg.header.k = 2;
-    msg.header.msg_id = 0x5678; // Relay may also change msg_id
 
     // Verify at destination — should still pass
-    assert!(verify_compact(&msg, &hmac),
-        "HMAC must survive relay mutation of TTL, K, and msg_id");
+    assert!(
+        verify_compact(&msg, &hmac),
+        "HMAC must survive relay mutation of TTL and K (msg_id preserved + bound)"
+    );
 }
 
 #[test]

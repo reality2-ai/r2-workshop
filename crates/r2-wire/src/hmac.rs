@@ -30,8 +30,14 @@ pub const EXTENDED_TAG_LEN: usize = 32;
 
 /// Maximum authenticated-bytes buffer for compact messages.
 ///
-/// 1 (type) + 4 (event_hash) + 4 (target) + 180 (max CBOR compact) = 189.
-const COMPACT_AUTH_MAX: usize = 1 + 4 + 4 + 180;
+/// 1 (type) + 2 (msg_id) + 4 (event_hash) + 4 (target) + 180 (max CBOR compact)
+/// = 191 (R2-WIRE v0.6: msg_id bound into the span).
+const COMPACT_AUTH_MAX: usize = 1 + 2 + 4 + 4 + 180;
+
+/// Maximum authenticated-bytes buffer for extended messages: header
+/// `type(1)+msg_id(4)+event_hash(4)+target_group(4)+target_hive(4)` = 17, plus a
+/// 4 KB stack payload bound (R2-WIRE v0.6).
+const EXT_AUTH_MAX: usize = 17 + 4096;
 
 /// Crypto-agnostic HMAC provider (R2-WIRE §10.3).
 ///
@@ -60,16 +66,20 @@ pub trait HmacProvider {
 ///
 /// Returns the number of bytes written into `buf`.
 ///
-/// Layout: `type(1) || event_hash(4) || target(4) || payload(N)`
+/// Layout (R2-WIRE v0.6 §10.2): `type(1) || msg_id(2 BE) || event_hash(4) ||
+/// target(4) || payload(N)`. `msg_id` is bound into the span (relays preserve it,
+/// so it is NOT mutable — binding it closes the rewrite-to-bypass-dedup replay
+/// vector); TTL/K/route stay EXCLUDED (genuinely mutable).
 pub fn authenticated_bytes_compact(msg: &CompactMessage<'_>, buf: &mut [u8]) -> usize {
     let payload_len = msg.payload.len();
-    let total = 1 + 4 + 4 + payload_len;
+    let total = 1 + 2 + 4 + 4 + payload_len;
     debug_assert!(buf.len() >= total);
 
     buf[0] = msg.header.msg_type as u8;
-    buf[1..5].copy_from_slice(&msg.header.event_hash.to_be_bytes());
-    buf[5..9].copy_from_slice(&msg.header.target.to_be_bytes());
-    buf[9..9 + payload_len].copy_from_slice(msg.payload);
+    buf[1..3].copy_from_slice(&msg.header.msg_id.to_be_bytes());
+    buf[3..7].copy_from_slice(&msg.header.event_hash.to_be_bytes());
+    buf[7..11].copy_from_slice(&msg.header.target.to_be_bytes());
+    buf[11..11 + payload_len].copy_from_slice(msg.payload);
     total
 }
 
@@ -77,18 +87,46 @@ pub fn authenticated_bytes_compact(msg: &CompactMessage<'_>, buf: &mut [u8]) -> 
 ///
 /// Returns the number of bytes written into `buf`.
 ///
-/// Layout: `type(1) || event_hash(4) || target_group(4) || target_hive(4) || payload(N)`
+/// Layout (R2-WIRE v0.6 §10.2): `type(1) || msg_id(4 BE) || event_hash(4) ||
+/// target_group(4) || target_hive(4) || payload(N)`. `msg_id` bound into the span
+/// (preserved by relays → not mutable; closes the replay vector); TTL/K/route
+/// stay EXCLUDED (mutable).
 pub fn authenticated_bytes_extended(msg: &ExtendedMessage<'_>, buf: &mut [u8]) -> usize {
     let payload_len = msg.payload.len();
-    let total = 1 + 4 + 4 + 4 + payload_len;
+    let total = 1 + 4 + 4 + 4 + 4 + payload_len;
     debug_assert!(buf.len() >= total);
 
     buf[0] = msg.header.msg_type as u8;
-    buf[1..5].copy_from_slice(&msg.header.event_hash.to_be_bytes());
-    buf[5..9].copy_from_slice(&msg.header.target_group.to_be_bytes());
-    buf[9..13].copy_from_slice(&msg.header.target_hive.to_be_bytes());
-    buf[13..13 + payload_len].copy_from_slice(msg.payload);
+    buf[1..5].copy_from_slice(&msg.header.msg_id.to_be_bytes());
+    buf[5..9].copy_from_slice(&msg.header.event_hash.to_be_bytes());
+    buf[9..13].copy_from_slice(&msg.header.target_group.to_be_bytes());
+    buf[13..17].copy_from_slice(&msg.header.target_hive.to_be_bytes());
+    buf[17..17 + payload_len].copy_from_slice(msg.payload);
     total
+}
+
+/// MAC the extended authenticated span into a build-mode-adaptive buffer.
+/// `alloc` (host/cloud): heap-alloc the exact size — unbounded payload. `no_std`
+/// (MCU): a bounded `EXT_AUTH_MAX` stack buffer (callers guard oversize). Both
+/// route through the single-source `authenticated_bytes_extended` (one span,
+/// includes the v0.6 msg_id). Folds workshop's alloc/no_std improvement.
+fn mac_extended_span(
+    msg: &ExtendedMessage<'_>,
+    hmac: &impl HmacProvider,
+) -> [u8; EXTENDED_TAG_LEN] {
+    #[cfg(feature = "alloc")]
+    {
+        let total = 1 + 4 + 4 + 4 + 4 + msg.payload.len();
+        let mut buf = alloc::vec![0u8; total];
+        let n = authenticated_bytes_extended(msg, &mut buf);
+        hmac.mac_extended(&buf[..n])
+    }
+    #[cfg(not(feature = "alloc"))]
+    {
+        let mut buf = [0u8; EXT_AUTH_MAX];
+        let n = authenticated_bytes_extended(msg, &mut buf);
+        hmac.mac_extended(&buf[..n])
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -117,57 +155,25 @@ pub fn sign_compact(
 /// Compute and attach the HMAC tag to an extended message.
 ///
 /// Returns a new `Flags` with `has_hmac = true` and the 32-byte tag.
-///
-/// With the `alloc` feature, supports payloads up to 65,535 bytes (full
-/// R2-WIRE spec range). Without `alloc`, limited to 4KB payloads via a
-/// stack buffer (sufficient for no_std environments that only use compact
-/// frames for large transfers).
 pub fn sign_extended(
     msg: &ExtendedMessage<'_>,
     hmac: &impl HmacProvider,
 ) -> (Flags, [u8; EXTENDED_TAG_LEN]) {
-    let payload_len = msg.payload.len();
-    let total = 13 + payload_len;
-
-    let tag = sign_extended_inner(msg, hmac, total);
+    // Span (v0.6) = type+msg_id+event_hash+2×target+payload — built ONCE by the
+    // single-source authenticated_bytes_extended. Buffer is build-mode adaptive
+    // (workshop's improvement): `alloc` heap-allocs the exact size (host/cloud,
+    // unbounded payload); `no_std` stack-allocs the bounded EXT_AUTH_MAX (MCU).
+    #[cfg(not(feature = "alloc"))]
+    debug_assert!(
+        1 + 4 + 4 + 4 + 4 + msg.payload.len() <= EXT_AUTH_MAX,
+        "extended payload too large for no_std stack HMAC"
+    );
+    let tag = mac_extended_span(msg, hmac);
     let flags = Flags {
         has_hmac: true,
         ..msg.header.flags
     };
     (flags, tag)
-}
-
-#[cfg(feature = "alloc")]
-fn sign_extended_inner(
-    msg: &ExtendedMessage<'_>,
-    hmac: &impl HmacProvider,
-    total: usize,
-) -> [u8; EXTENDED_TAG_LEN] {
-    let mut buf = alloc::vec![0u8; total];
-    buf[0] = msg.header.msg_type as u8;
-    buf[1..5].copy_from_slice(&msg.header.event_hash.to_be_bytes());
-    buf[5..9].copy_from_slice(&msg.header.target_group.to_be_bytes());
-    buf[9..13].copy_from_slice(&msg.header.target_hive.to_be_bytes());
-    buf[13..total].copy_from_slice(msg.payload);
-    hmac.mac_extended(&buf[..total])
-}
-
-#[cfg(not(feature = "alloc"))]
-fn sign_extended_inner(
-    msg: &ExtendedMessage<'_>,
-    hmac: &impl HmacProvider,
-    total: usize,
-) -> [u8; EXTENDED_TAG_LEN] {
-    // no_std fallback: stack-allocate up to 4KB.
-    const EXT_AUTH_MAX: usize = 13 + 4096;
-    debug_assert!(total <= EXT_AUTH_MAX, "extended payload too large for stack HMAC; enable alloc feature");
-    let mut buf = [0u8; EXT_AUTH_MAX];
-    buf[0] = msg.header.msg_type as u8;
-    buf[1..5].copy_from_slice(&msg.header.event_hash.to_be_bytes());
-    buf[5..9].copy_from_slice(&msg.header.target_group.to_be_bytes());
-    buf[9..13].copy_from_slice(&msg.header.target_hive.to_be_bytes());
-    buf[13..total].copy_from_slice(msg.payload);
-    hmac.mac_extended(&buf[..total])
 }
 
 // ---------------------------------------------------------------------------
@@ -201,48 +207,15 @@ pub fn verify_extended(msg: &ExtendedMessage<'_>, hmac: &impl HmacProvider) -> b
         None => return false,
     };
 
-    let payload_len = msg.payload.len();
-    let total = 13 + payload_len;
-    let expected = verify_extended_inner(msg, hmac, total);
-
-    match expected {
-        Some(tag) => constant_time_eq(&received_tag, &tag),
-        None => false,
+    // no_std verification is bounded by the stack buffer; alloc handles any size.
+    #[cfg(not(feature = "alloc"))]
+    if 1 + 4 + 4 + 4 + 4 + msg.payload.len() > EXT_AUTH_MAX {
+        return false; // too large for stack verification
     }
-}
 
-#[cfg(feature = "alloc")]
-fn verify_extended_inner(
-    msg: &ExtendedMessage<'_>,
-    hmac: &impl HmacProvider,
-    total: usize,
-) -> Option<[u8; EXTENDED_TAG_LEN]> {
-    let mut buf = alloc::vec![0u8; total];
-    buf[0] = msg.header.msg_type as u8;
-    buf[1..5].copy_from_slice(&msg.header.event_hash.to_be_bytes());
-    buf[5..9].copy_from_slice(&msg.header.target_group.to_be_bytes());
-    buf[9..13].copy_from_slice(&msg.header.target_hive.to_be_bytes());
-    buf[13..total].copy_from_slice(msg.payload);
-    Some(hmac.mac_extended(&buf[..total]))
-}
-
-#[cfg(not(feature = "alloc"))]
-fn verify_extended_inner(
-    msg: &ExtendedMessage<'_>,
-    hmac: &impl HmacProvider,
-    total: usize,
-) -> Option<[u8; EXTENDED_TAG_LEN]> {
-    const EXT_AUTH_MAX: usize = 13 + 4096;
-    if total > EXT_AUTH_MAX {
-        return None; // Too large for stack verification
-    }
-    let mut buf = [0u8; EXT_AUTH_MAX];
-    buf[0] = msg.header.msg_type as u8;
-    buf[1..5].copy_from_slice(&msg.header.event_hash.to_be_bytes());
-    buf[5..9].copy_from_slice(&msg.header.target_group.to_be_bytes());
-    buf[9..13].copy_from_slice(&msg.header.target_hive.to_be_bytes());
-    buf[13..total].copy_from_slice(msg.payload);
-    Some(hmac.mac_extended(&buf[..total]))
+    // Single-source span (v0.6, includes msg_id) — same builder as sign_extended.
+    let expected = mac_extended_span(msg, hmac);
+    constant_time_eq(&received_tag, &expected)
 }
 
 // ---------------------------------------------------------------------------
