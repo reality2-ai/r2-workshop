@@ -21,7 +21,7 @@ pub mod health;
 pub mod node;
 pub mod udp;
 
-pub use node::{Delivered, McuNode, Node};
+pub use node::{Delivered, McuNode, Node, PollEvent};
 
 use r2_route::transport::{QualitySample, Transport as RTransport};
 use r2_route::dedup::DedupCache;
@@ -112,6 +112,9 @@ pub enum Inbound {
     Deliver { event_hash: u32, payload: Vec<u8> },
     /// Frame was routed onward to a next hop (this node is a relay).
     Forwarded { next_hop: u32 },
+    /// A conductor HEARTBEAT addressed to our trust group — drive the lub-dub LED
+    /// (visual beat-as-one; no PLL). Consumed here: not app-delivered, not relayed.
+    Heartbeat,
     /// Engine/relay dropped the frame.
     Dropped(&'static str),
     /// Frame failed to decode.
@@ -424,6 +427,19 @@ impl<const N: usize, const P: usize, const D: usize> RouteNode<N, P, D> {
         });
         self.engine
             .record_delivery_success(from_hive_id, from_hive_id, now);
+
+        // Conductor HEARTBEAT for our TG → surface as a Beat for the visual sync
+        // (lub-dub LED), NOT app-delivery and NOT relay: on the broadcast mesh
+        // every node hears the conductor directly (hive: filter MsgType::Heartbeat
+        // + target_group == my_tg; no PLL, no HMAC gate — purely visual). Deduped
+        // above, so each distinct beat (new msg_id) fires once.
+        if msg.header.msg_type == MsgType::Heartbeat {
+            if let Some(t) = &self.trust {
+                if msg.header.target_group == t.my_tg {
+                    return Inbound::Heartbeat;
+                }
+            }
+        }
 
         // Addressed to us → deliver locally, TRUST-GATED (R2-TRUST B1: only the
         // DELIVER branch is gated; relay below stays trust-agnostic). Intra-TG:
@@ -798,6 +814,55 @@ mod tests {
         a.originate_cross(B, TG2, PK_AB, ENC_AB, NONCE, EV, b"cross", &txa, 1).unwrap();
         let frame = drain(&net, B).remove(0);
         assert_eq!(b.on_inbound(&frame, A, &txb, 1), Inbound::Dropped("decrypt failed"));
+    }
+
+    // Build a conductor Heartbeat frame (msg_type=Heartbeat, target_group=tg,
+    // broadcast target_hive=0, route_stack[0]=conductor for dedup). Unsigned —
+    // the beat filter is visual (msg_type + tg), not HMAC-gated.
+    fn heartbeat_frame(conductor: u32, tg: u32, msg_id: u32) -> Vec<u8> {
+        let payload = [0u8; 8]; // conductor(4B BE) + version(4B BE)
+        let header = ExtendedHeader {
+            version: 0,
+            msg_type: MsgType::Heartbeat,
+            flags: Flags { has_route: true, ..Default::default() },
+            ttl: 5,
+            k: 15,
+            msg_id,
+            event_hash: 0,
+            payload_len: payload.len() as u32,
+            target_group: tg,
+            target_hive: 0, // broadcast to the group
+        };
+        let mut route = ExtendedRouteStack::new();
+        route.len = 1;
+        route.entries[0] = conductor;
+        let msg = ExtendedMessage {
+            header,
+            route: Some(route),
+            payload: &payload,
+            hmac_tag: None,
+        };
+        let mut buf = vec![0u8; 64 + payload.len()];
+        let n = encode_extended(&msg, &mut buf).unwrap();
+        buf.truncate(n);
+        buf
+    }
+
+    // Heartbeat for OUR tg → Inbound::Heartbeat (drive the LED); a heartbeat for a
+    // different tg is not our beat. hive: filter MsgType::Heartbeat + target_group.
+    #[test]
+    fn heartbeat_for_our_tg_is_a_beat() {
+        const CONDUCTOR: u32 = 0x00C0_FFEE;
+        let net: Net = Rc::new(RefCell::new(HashMap::new()));
+        let txb = MockTransport { net: net.clone(), reachable: vec![] };
+        let mut b = RouteNode::<64, 64, 64>::new(B).with_trust(TG1, HK1);
+
+        let beat = heartbeat_frame(CONDUCTOR, TG1, 7);
+        assert_eq!(b.on_inbound(&beat, CONDUCTOR, &txb, 1), Inbound::Heartbeat);
+
+        // Different tg → not our beat (won't return Heartbeat).
+        let other = heartbeat_frame(CONDUCTOR, TG2, 8);
+        assert_ne!(b.on_inbound(&other, CONDUCTOR, &txb, 1), Inbound::Heartbeat);
     }
 
     // Multi-hop: A -> (relay B) -> C. Proves real routing + TTL decrement.

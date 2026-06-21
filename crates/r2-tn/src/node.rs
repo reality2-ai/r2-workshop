@@ -21,6 +21,16 @@ pub struct Delivered {
     pub payload: Vec<u8>,
 }
 
+/// What a [`Node::poll`] surfaced from one inbound datagram.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PollEvent {
+    /// A frame addressed to (and trust-gated for) this node.
+    Delivered(Delivered),
+    /// A conductor Heartbeat for our trust group — drive the lub-dub LED
+    /// (visual beat-as-one; no PLL). Firmware toggles its LED pin on this.
+    Beat,
+}
+
 /// A running TN node over WiFi/UDP.
 ///
 /// Generic over the engine table sizes; use [`McuNode`] on the firmware.
@@ -84,9 +94,10 @@ impl<const N: usize, const P: usize, const D: usize> Node<N, P, D> {
     }
 
     /// Poll the transport once (non-blocking). If a datagram arrives, run it
-    /// through the engine: returns `Some(Delivered)` if it was for us, else
-    /// `None` (relayed onward, dropped, or no datagram ready).
-    pub fn poll(&mut self, now: u32) -> Option<Delivered> {
+    /// through the engine: returns `Some(PollEvent::Delivered)` if it was for us,
+    /// `Some(PollEvent::Beat)` for a conductor heartbeat for our TG, else `None`
+    /// (relayed onward, dropped, or no datagram ready).
+    pub fn poll(&mut self, now: u32) -> Option<PollEvent> {
         // Split borrows: recv into buf, then route using tx immutably.
         let (src, n) = self.tx.recv(&mut self.buf)?;
         // Mesh address-learning: map the immediate sender's hive_id -> its src
@@ -102,7 +113,10 @@ impl<const N: usize, const P: usize, const D: usize> Node<N, P, D> {
         }
         let Self { route, tx, buf } = self;
         match route.on_inbound(&buf[..n], from, tx, now) {
-            Inbound::Deliver { event_hash, payload } => Some(Delivered { event_hash, payload }),
+            Inbound::Deliver { event_hash, payload } => {
+                Some(PollEvent::Delivered(Delivered { event_hash, payload }))
+            }
+            Inbound::Heartbeat => Some(PollEvent::Beat),
             _ => None,
         }
     }
@@ -145,10 +159,10 @@ mod tests {
         }
         assert_eq!(
             got,
-            Some(Delivered {
+            Some(PollEvent::Delivered(Delivered {
                 event_hash: EV,
                 payload: b"node-api".to_vec()
-            })
+            }))
         );
     }
 
@@ -173,15 +187,15 @@ mod tests {
         assert_eq!(a.originate(B, EV, b"trusted", 0).unwrap(), B);
         assert_eq!(
             pump(&mut b),
-            Some(Delivered { event_hash: EV, payload: b"trusted".to_vec() }),
+            Some(PollEvent::Delivered(Delivered { event_hash: EV, payload: b"trusted".to_vec() })),
         );
     }
 
     // Drain a node a few times (loopback UDP is async).
-    fn pump<const N: usize, const P: usize, const D: usize>(node: &mut Node<N, P, D>) -> Option<Delivered> {
+    fn pump<const N: usize, const P: usize, const D: usize>(node: &mut Node<N, P, D>) -> Option<PollEvent> {
         for _ in 0..100 {
-            if let Some(d) = node.poll(0) {
-                return Some(d);
+            if let Some(e) = node.poll(0) {
+                return Some(e);
             }
             std::thread::sleep(Duration::from_millis(1));
         }
@@ -225,7 +239,7 @@ mod tests {
         let got = pump(&mut s2);
         assert_eq!(
             got,
-            Some(Delivered { event_hash: EV2, payload: b"s1->s2".to_vec() }),
+            Some(PollEvent::Delivered(Delivered { event_hash: EV2, payload: b"s1->s2".to_vec() })),
             "AP must relay STA1->STA2 using the address it learned"
         );
     }

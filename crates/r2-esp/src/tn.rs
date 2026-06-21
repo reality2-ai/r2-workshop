@@ -100,12 +100,18 @@ pub fn spawn(cfg: TnConfig) -> Result<()> {
                 let now = start.elapsed().as_secs() as u32;
 
                 // Drain everything currently queued.
-                while let Some(d) = node.poll(now) {
-                    info!(
-                        "[tn] DELIVERED ev={:08x} {} bytes — HARDWARE FRAME",
-                        d.event_hash,
-                        d.payload.len()
-                    );
+                while let Some(ev) = node.poll(now) {
+                    match ev {
+                        r2_tn::PollEvent::Delivered(d) => info!(
+                            "[tn] DELIVERED ev={:08x} {} bytes — HARDWARE FRAME",
+                            d.event_hash,
+                            d.payload.len()
+                        ),
+                        // Conductor heartbeat for our TG → lub-dub beat. Logged for
+                        // now; driving the carrier LED (GPIO15 mono on C6) is the
+                        // pending firmware-glue step (composer §12.3 carrier-aware).
+                        r2_tn::PollEvent::Beat => info!("[tn] BEAT — heartbeat for our TG"),
+                    }
                 }
 
                 if let Some(dest) = cfg.originate_to {
