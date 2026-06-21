@@ -83,12 +83,15 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
   origin-dedup+SprayWait; 1 mechanical touch = ForwardRequest.origin, core walks it).
   **CASCADE I found:** path-dep r2-route FORCES canonical r2-wire (r2-wire.workspace=true)
   → must path-dep r2-wire TOO (drop vendored, repoint r2-tn/trust/esp). My vendored
-  r2-wire = CLEAN SUPERSET (core VERDICT: production code byte-identical/superset,
-  my 'extras'=only old test names, ZERO production; K=15 helper→inline invisible to my
-  high-level-fn consumers; canon ADDS relay tests). So path-dep BOTH r2-route+r2-wire
-  is SAFE — drop both vendored, repoint r2-tn/trust/esp/wasm/core. AWAITING only the
-  SUPERVISOR timing nod (core: no core-side hold, low-risk metal-prep). Then path-dep
-  both + ForwardRequest.origin (core walks; origin=route_stack[0]/ext-originator or 0).
+  r2-route+r2-wire PATH-DEP ✅ DONE+VERIFIED (supervisor GO'd; `dd8c369`): dropped both
+  vendored, repointed all consumers (r2-tn/trust/esp/wasm/core/engine/bootstrap/
+  transport/dashboard + 5 firmware) → ../r2-core/crates. r2-transport stays vendored
+  (r2-route doesn't dep it). ForwardRequest.origin migrated: originate=0, relay=
+  route_stack[0] (v0.4), dedup now full-u32 origin (dropped >>16). GAINED Transport::
+  EspNow=id5 + mesh_preset + §5.7 DataPlaneMode + v0.4 origin-dedup + SprayWait.
+  VERIFIED: host workspace + r2-tn 20/20 + firmware c6-tn/dfr1195/devkitc/dfr1117
+  clean (xiao = same TN pattern, building). Vendored now: only r2-core/trust/cbor/
+  transport/bootstrap/engine/wasm remain (r2-fnv/discovery/route/wire all path-dep'd).
   THEN: multi-transport dispatch (route Directed by DirectedHop.transport — r2-tn uses
   one transport today) + EspNowTransport impl + metal. ESP-NOW channel = platform-local.
   Held on deep radio for metal.
