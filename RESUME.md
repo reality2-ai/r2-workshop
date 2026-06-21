@@ -67,7 +67,13 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
   correctly sequenced). Mode-1 infra foundation stays valid (fixed cases). When
   resumed: gate on Transport::EspNow canon → impl ESP-NOW bring_up/join on
   EspNegotiationRadio (esp-idf esp_now_* API) alongside the infra path.
-  **RESOLUTION (core, final): MODE SPLIT not kind-tag — no DataPlaneParams churn.**
+  **DataPlaneParams kind-tag MIGRATED + in sync** (core 9376536, my fix `bc97d16`):
+  it DID land as a kind enum (Infra(InfraParams)|Mesh{channel}|Lora{freq_plan,sf,bw});
+  path-dep pulled it; I switched EspNegotiationRadio bring_up/join to MATCH the kind
+  (Infra(p)→p.ssid()/p.psk() Mode-1 SoftAP; Mesh/Lora→Mode-2 stubs). WifiOffer wire
+  byte-identical (Infra-only) → no codec re-test. Compiles xtensa+esp-idf+ble. The
+  PATH-DEP SEAM WORKED as designed (canonical change → my build → clean sync).
+  **RESOLUTION (core): MODE SPLIT — engine is Mode-1; KIND-tag is local-only.**
   specs ruled WifiOffer stays INFRA-ONLY (no wire kind-tag). Engine's
   negotiation::DataPlaneParams {ssid,psk,ap_hint} is the Mode-1 WifiOffer payload +
   is CORRECT infra-shaped (the engine IS Mode-1/provider-star). So my
