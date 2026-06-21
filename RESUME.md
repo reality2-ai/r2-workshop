@@ -19,11 +19,12 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
   scans). In docs/BLE-WIFI-NEGOTIATION.md. AWAITING hive's ControlMsg encoding →
   I confirm it rides my CoC frame (≤MTU 512) + mirror any framing change into
   l2cap.rs so esp-idf+esp-radio stay byte-compatible. Active-pairing mode.
-  **CRUX for (A) — asked core:** r2-discovery integration. VENDOR=instant drift
-  (fast-moving crate); naive PATH-DEP=r2-fnv doubling (type mismatch); CLEAN=broader
-  path-dep migration (r2-core/wire/route/trust/fnv/cbor+discovery → ../r2-core,
-  esp-idf-build risk, deliberate). Awaiting core's integration call. TN work needs
-  none of this (builds on vendored); only gates workshop PARTICIPATING in the mesh.
+  **CRUX for (A) — core RULED: PATH-DEP {r2-discovery, r2-fnv} → ../r2-core/crates**
+  (drop vendored r2-fnv; [patch] fallback). Vendoring r2-discovery = mesh-incompat
+  (interop-critical fast-mover); r2-fnv tiny+stable so path-dep it too (kills the
+  doubling); hmac/sha2/hkdf dedup via crates.io. Execute AT (A)-start (not now —
+  churns working builds + trait settling). TN work needs none of this (builds on
+  vendored); only gates workshop PARTICIPATING in the mesh.
 
 - **PENDING beacon re-sync — LANDED upstream (`e77d66f`), DECIDED plan, DEFERRED
   (no-rush, ble-only):** core moved the beacon codec `r2-core` → `r2_discovery::beacon`
@@ -31,16 +32,19 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
   byte-exact; provider_capable bit-2 stubbed pending Roy). **No breakage today** —
   my `beacon.rs` is behind the `ble` feature (TN carriers are no-ble, unaffected) +
   my vendored r2-core still has beacon.rs until I re-sync.
-  **DECISION: VENDOR r2-discovery** (no-alloc tier; deps r2-fnv[vendored]+hmac+sha2
-  align) — NOT path-dep (would double r2-fnv vs my vendored copy). **Re-sync steps
-  when done:** (1) vendor `crates/r2-discovery` (no-alloc/default features; point its
-  r2-fnv at `../r2-fnv`), (2) add r2-discovery dep to r2-esp, (3) repoint
-  `crates/r2-esp/src/beacon.rs` imports `r2_core::beacon` → `r2_discovery::beacon`
-  {BeaconFlags(+power_state), PowerState, LegacyBeacon, build/parse_legacy_beacon,
-  BEACON_VERSION, compute_rbid}, (4) drop dead vendored r2-core/beacon.rs, (5)
-  cargo check devkitc (ble). **Deferred:** only the devkitc SENSOR firmware uses it
-  (live-rig path, can't functionally test now); core said no rush. Do it when next
-  touching the sensor firmware or batching an r2-core re-sync. Feeds parked #24 Profile-A.
+  **DECISION (core, OVERRULES my earlier vendor plan): PATH-DEP r2-discovery +
+  r2-fnv** → `../r2-core/crates/*` (drop vendored r2-fnv; [patch] fallback to unify).
+  WHY: r2-discovery is interop-critical + fast-moving — a vendored snapshot = MESH
+  INCOMPATIBILITY (wrong RBID / rejected negotiation frame), not just stale; r2-fnv
+  tiny+stable so path-dep costs nothing + kills the doubling; hmac/sha2/hkdf dedup
+  via crates.io. **Steps when done:** path-dep {r2-discovery,r2-fnv}; repoint
+  r2-wire/r2-trust/r2-route r2-fnv deps to the same (or [patch]); repoint
+  `r2-esp/src/beacon.rs` r2_core::beacon→r2_discovery::beacon
+  {BeaconFlags(+power_state),PowerState,LegacyBeacon,build/parse_legacy_beacon,
+  BEACON_VERSION,compute_rbid}; VERIFY canonical r2-discovery compiles xtensa+riscv
+  esp-idf; ping core if Cargo fights. **SEQUENCING:** do it AT (A)-start (supervisor:
+  "do the prereq when you start A") — NOT now (churns working TN/sensor/host builds +
+  trait still settling). The ble-only beacon re-sync rides along. Feeds parked #24 Profile-A.
 - **#24 transport-negotiation (R2-DISCOVERY §4A) — RESOLVED: workshop CONFORMANT
   as Profile B** (specs split §4A.4 into A/B, commit 1175e66, after my ground-truth
   correction). Profile A (full two-plane) = hive; Profile B (simple WiFi data-plane
