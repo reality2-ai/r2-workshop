@@ -31,18 +31,28 @@ then code.
   decoder. *Falsifier:* inject a duplicate len-prefix / a truncated tail; assert
   the decoder resyncs or cleanly errors (never deadlocks the control loop).
 
-## B. Negotiation engine S0–S4 (cross-platform election)
+## B. Data-plane PROVIDER election, S0–S4 (cross-platform)
+
+> **Scope (R2-HEARTBEAT v0.4):** these are **DATA-PLANE PROVIDER election** only —
+> Mode-1b SoftAP AP-election = `lowest_live_id` (R2-DISCOVERY §4A). This STAYS. It
+> is SEPARATE from heartbeat/phase-sync, which v0.4 reversed conductor-PLL →
+> **LEADERLESS reachback-PCO** (the 3-node flap refuted the conductor; Roy-directed):
+> no conductor, no sync-election, flat identical nodes each running the same PCO. So
+> nothing below is about a "conductor" — there is none. The sync failure mode is
+> **coupling/convergence**, not election thrash, and lives in the heartbeat tier
+> (hive); see §E.
 
 - **N1.** *Conjecture:* two joiners entering S1 **simultaneously** both converge to
   the SAME provider = lowest live hive_id. *Falsifier:* drive two
   EspNegotiationRadios + one hive node to S1 within the same tick; assert single
   elected provider, no split-brain. *Edge:* simultaneous-joins; equal-cost election
   tie; the lowest-id node being the one that's slowest to advertise.
-- **N2.** *Conjecture:* **conductor (provider) death mid-session** → followers
-  re-elect WITHOUT a re-flood storm (heal-without-re-flood). *Falsifier:* kill the
-  provider after form; assert re-election within T_fallback and bounded control
-  traffic. *Edge:* conductor+follower dying together; provider death exactly at the
-  T_negotiate boundary.
+- **N2.** *Conjecture:* **provider (SoftAP) death mid-session** → the remaining
+  nodes re-elect a new provider (next lowest_live_id) WITHOUT a re-flood storm
+  (heal-without-re-flood). *Falsifier:* kill the provider after form; assert
+  re-election within T_fallback + bounded control traffic. *Edge:* the provider and
+  another node leaving together; provider death exactly at the T_negotiate boundary.
+  (NB: this is PROVIDER re-election, NOT a heartbeat conductor — there is none.)
 - **N3.** *Conjecture:* **node-flap** (rapid join/leave) does not leak roster
   entries or strand the engine in a non-Discover state. *Falsifier:* flap a node
   N times; assert roster bounded (≤ NEG_ROSTER) + engine returns to a steady state.
@@ -82,6 +92,26 @@ then code.
   entangled does NOT grant A↔C delivery. *Falsifier:* set up the chain; assert C
   cannot deliver to A's TG without a direct entanglement. *Edge:* a relay in the
   middle TG; entanglement non-transitivity across an EspNow hop.
+
+## E. Heartbeat phase-sync — LEADERLESS PCO (hive tier; re-scoped per R2-HEARTBEAT v0.4)
+
+Re-scoped after the conductor reversal: there is no conductor to die/re-elect, so the
+failure mode is **coupling/convergence**, not election thrash. These belong to the
+heartbeat tier (hive owns the PCO); listed so workshop's **beat-LED** surface tracks
+the leaderless model (the LED shows this node's OWN PCO phase, converged via
+reachback — NOT a received conductor beat).
+
+- **S1.** *Conjecture:* N flat nodes each running the same PCO **converge** to a
+  common phase from random initial phases. *Falsifier:* seed wildly different
+  phases; assert convergence within a bound. *Edge:* node-flap during convergence;
+  partition→merge (two converged clusters at different phases must re-converge).
+- **S2.** *Conjecture:* convergence is **stable** — no oscillation / no two-cluster
+  lock-in. *Falsifier:* adversarial coupling (asymmetric reachback links); assert
+  no permanent phase-split. *Edge:* asymmetric links; decay-across-a-gap.
+- **S3.** *Conjecture (workshop beat-LED):* the LED reflects the node's converged
+  PCO phase, identically across nodes once converged — NOT keyed to any "conductor".
+  *Falsifier:* compare LED phase across boards post-convergence; *edge:* a fresh
+  node joining a converged group adopts the group phase (no flash-storm).
 
 ## Cross-cutting
 
