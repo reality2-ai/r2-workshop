@@ -10,7 +10,7 @@ keywords = ["transport", "tcp", "udp", "mesh", "no-std"]
 categories = ["no-std", "embedded", "network-programming"]
 
 [dependencies]
-r2-wire = { path = "../r2-wire", default-features = false }
+r2-wire = { path = "../../../r2-core/crates/r2-wire", default-features = false }
 
 [dev-dependencies]
 serde_json = "1.0"

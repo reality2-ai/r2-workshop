@@ -38,7 +38,7 @@ ed25519-dalek = { version = "=2.1.1", default-features = false }
 # (xtensa-only); built only by this firmware crate.
 r2-esp        = { path = "../../../crates/r2-esp", default-features = true }
 r2-core       = { path = "../../../crates/r2-core", default-features = false, features = ["alloc"] }
-r2-wire       = { path = "../../../crates/r2-wire", default-features = false, features = ["alloc"] }
+r2-wire       = { path = "../../../../r2-core/crates/r2-wire", default-features = false, features = ["alloc"] }
 
 # Phase 5L — external WS2812 RGB LED on XIAO silkscreen D5 (GPIO6).
 # Driven via the ESP32 RMT peripheral; the driver crate handles the

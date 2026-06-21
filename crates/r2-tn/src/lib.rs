@@ -340,6 +340,10 @@ impl<const N: usize, const P: usize, const D: usize> RouteNode<N, P, D> {
         let req = ForwardRequest {
             now,
             msg_id: msg_id as u16,
+            // Locally-originated → origin=0 (dedup-by-msg_id); the frame still
+            // self-stamps route_stack[0]=my_hive_id on the wire for relays' dedup
+            // (R2-WIRE v0.4). core's ForwardRequest.origin migration.
+            origin: 0,
             source_hop: compress_hive_id_16(self.my_hive_id),
             ttl: DEFAULT_TTL,
             k: DEFAULT_K,
@@ -401,7 +405,7 @@ impl<const N: usize, const P: usize, const D: usize> RouteNode<N, P, D> {
         let msg_id16 = msg.header.msg_id as u16;
         match msg.route.as_ref().filter(|r| r.len > 0).map(|r| r.entries[0]) {
             Some(origin) => {
-                if self.dedup.is_duplicate(now, msg_id16, (origin >> 16) as u16) {
+                if self.dedup.is_duplicate(now, msg_id16, origin) {
                     return Inbound::Dropped("duplicate");
                 }
             }
@@ -491,6 +495,15 @@ impl<const N: usize, const P: usize, const D: usize> RouteNode<N, P, D> {
         let req = ForwardRequest {
             now,
             msg_id: msg.header.msg_id as u16,
+            // Relaying → origin = the frame-carried originator (route_stack[0],
+            // R2-WIRE v0.4); 0 if no carried origin (un-deduplicatable). Drives the
+            // engine's per-ORIGIN relay-dedup (exactly-once across paths).
+            origin: msg
+                .route
+                .as_ref()
+                .filter(|r| r.len > 0)
+                .map(|r| r.entries[0])
+                .unwrap_or(0),
             source_hop: compress_hive_id_16(from_hive_id),
             ttl: msg.header.ttl,
             k: msg.header.k,

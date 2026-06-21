@@ -31,7 +31,7 @@ esp-idf-svc = { version = "0.51", default-features = false, features = ["binstar
 # this node just needs wifi_sta + wifi_prov + the `tn` run-loop.
 r2-esp  = { path = "../../../crates/r2-esp", default-features = false, features = ["tn"] }
 r2-core = { path = "../../../crates/r2-core", default-features = false, features = ["alloc"] }
-r2-wire = { path = "../../../crates/r2-wire", default-features = false, features = ["alloc"] }
+r2-wire = { path = "../../../../r2-core/crates/r2-wire", default-features = false, features = ["alloc"] }
 
 [build-dependencies]
 embuild = { version = "0.32", features = ["espidf"] }

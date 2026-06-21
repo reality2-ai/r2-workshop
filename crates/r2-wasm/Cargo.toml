@@ -14,10 +14,10 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 r2-fnv = { path = "../../../r2-core/crates/r2-fnv" }
 r2-cbor = { path = "../r2-cbor" }
-r2-wire = { path = "../r2-wire", features = ["alloc"] }
+r2-wire = { path = "../../../r2-core/crates/r2-wire", features = ["alloc"] }
 r2-trust = { path = "../r2-trust" }
 r2-transport = { path = "../r2-transport" }
-r2-route = { path = "../r2-route" }
+r2-route = { path = "../../../r2-core/crates/r2-route" }
 r2-engine = { path = "../r2-engine", features = ["alloc"] }
 
 wasm-bindgen = "0.2"

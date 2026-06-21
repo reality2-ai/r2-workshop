@@ -13,7 +13,7 @@ std = ["alloc", "r2-wire/std"]
 [dependencies]
 r2-fnv = { path = "../../../r2-core/crates/r2-fnv" }
 r2-cbor = { path = "../r2-cbor" }
-r2-wire = { path = "../r2-wire" }
+r2-wire = { path = "../../../r2-core/crates/r2-wire" }
 hmac = { version = "0.12", default-features = false }
 sha2 = { version = "0.10", default-features = false }
 

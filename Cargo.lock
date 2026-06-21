@@ -1623,8 +1623,6 @@ dependencies = [
  "heapless",
  "libm",
  "r2-wire",
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -1672,10 +1670,6 @@ dependencies = [
 [[package]]
 name = "r2-wire"
 version = "0.1.0"
-dependencies = [
- "r2-fnv",
- "serde_json",
-]
 
 [[package]]
 name = "r2-workshop-tg"
