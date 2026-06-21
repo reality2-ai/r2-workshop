@@ -20,7 +20,13 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
   asked CORE to add ControlMsg::encode/decode to r2_discovery (core owns bytes) →
   both platforms decode byte-exact, zero drift. **(B) FULLY CLOSED.** In
   docs/BLE-WIFI-NEGOTIATION.md.
-  **(A) PREP DONE — HOLDING for Roy-go + hive CoC-ping** (supervisor cleared prep,
+  **hive M7 DONE — transport PROVEN cross-board:** esp-radio→esp-idf CoC frame
+  [5,0]"R2-M7" reassembled byte-exact per my l2cap.rs (PSM 0x00D2/MTU512/LE
+  len-prefix all metal-confirmed both sides). So (A)'s control-plane TRANSPORT is
+  de-risked BEFORE building NegotiationRadio. hive M8 (NegotiationRadio + shared
+  ControlMsg 844d53e) next → pings when send_control is live.
+  **(A) PREP DONE — SOLE GATE = ROY's Profile-A greenlight** (+ hive's M8 ping);
+  (supervisor cleared prep,
   recommending GO to Roy; routed core to provide shared r2_discovery::ControlMsg →
   closes my codec point). RUNBOOK = **docs/PATHDEP-MIGRATION-PLAN.md** (execute
   instantly on trigger): checkpoint → unify r2-fnv (repoint 6 consumers: r2-core/
