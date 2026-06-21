@@ -58,6 +58,15 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
   = R2-ROUTE (hive/core). Flagged core: DataPlaneParams needs a transport-KIND
   (Infra|Mesh|LoRa) for mode 2; I impl each on the esp-idf radio when modeled.
   See docs/BLE-WIFI-NEGOTIATION.md.
+  **SEQUENCING UPDATE (supervisor):** demo pivots to MODE-2 ESP-NOW (hive rebuilds
+  after specs+core land the ESP-NOW canon + Transport::EspNow). My cross-platform
+  proof likely EXTENDS to ESP-NOW (workshop esp-idf ESP-NOW <-> hive esp-radio
+  ESP-NOW = cross-platform TRUE-MESH), riding the hardware window AFTER hive's
+  ESP-NOW demo + rig free. So the likely METAL TARGET = ESP-NOW mode-2 (esp-idf
+  ESP-NOW data-plane on the radio), not just infra-form. HELD (not stalled —
+  correctly sequenced). Mode-1 infra foundation stays valid (fixed cases). When
+  resumed: gate on Transport::EspNow canon → impl ESP-NOW bring_up/join on
+  EspNegotiationRadio (esp-idf esp_now_* API) alongside the infra path.
 
 - **PENDING beacon re-sync — LANDED upstream (`e77d66f`), DECIDED plan, DEFERRED
   (no-rush, ble-only):** core moved the beacon codec `r2-core` → `r2_discovery::beacon`
