@@ -73,8 +73,16 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
   mode-split → core reverted the enum (2edb158) → I reverted my migration (3088a7a).
   Net: EspNegotiationRadio bring_up/join back to the struct (params.ssid[..]), import
   surface + ControlMsg codec UNTOUCHED, compiles. Path-dep tracked both flips cleanly.
-  FORWARD: Transport::EspNow=id5 LANDED (e2fdab0); the r2-route Mode-2 RAISER is the
-  next r2-route piece → then I build the esp-idf EspNowTransport (Mode-2).
+  **Mode-2 EspNowTransport — core seam COMPLETE (no phantom 'Mode-2 raiser'):** engine
+  already selects Transport::EspNow (§5.2 mesh_preset) → Directed(DirectedHop{transport:
+  EspNow}) → I dispatch to my EspNowTransport. MY real prereq = sync VENDORED r2-route
+  → canonical (my vendored r2-route LACKS Transport::EspNow + mesh_preset entirely; +
+  the best_transport div-by-zero fix 44838ab; USB=0 is latent since my TN is WiFi).
+  r2-route is forked-with-extras → PATH-DEP (like r2-discovery) OR core's guided merge
+  (asked core which). THEN: multi-transport dispatch (route Directed by
+  DirectedHop.transport — r2-tn uses a single transport today) + EspNowTransport impl
+  (r2_transport::Transport, esp_now_send) + metal. ESP-NOW channel = platform-local
+  (beacon-advertised), not a core construct. Held for metal.
   **RESOLUTION (core): MODE SPLIT — engine is Mode-1; KIND-tag is local-only.**
   specs ruled WifiOffer stays INFRA-ONLY (no wire kind-tag). Engine's
   negotiation::DataPlaneParams {ssid,psk,ap_hint} is the Mode-1 WifiOffer payload +
