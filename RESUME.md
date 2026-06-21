@@ -25,18 +25,19 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
   needs the LED pin peripheral + boards). (2) REBUILD fielded C6 blob (3416cbfd
   predates shared-parser + beat-hook — functionally equiv; rebuild for PV1 parser)
   with R2_TN_AP_ID=0x480e900e/r2-fieldlab/r2fieldlab. Both OTA-ship.
-- **ACTIVE — R2-WIRE v0.6 msg_id-into-span LANDED** (core canonical e21f863, Roy
-  authorized; closes the msg_id-rewrite replay vector). NEW HMAC span = `type ||
-  msg_id(2BE compact/4BE extended) || event_hash || target_group || target_hive ||
-  payload`. Same-version boards unaffected (just tag bytes differ); **version-mix
-  deliver-blocks** (v0.5↔v0.6 span mismatch) → pull v0.6 to ALL boards together.
-  ASKED core to re-sync the hmac.rs span into my VENDORED r2-wire (preserve my
-  alloc/no_std `_inner` split via route-through-`authenticated_bytes_extended`);
-  I review+commit+test, core verifies vs vector b705ebae. NOT urgent (boards out;
-  same-version demo fine) but REQUIRED before the C6 rejoin hive's v0.6 r2-fieldlab.
-  Relays still never touch msg_id (§8.5) — my relay path (ttl/k/route only) unchanged.
-  r2-route v0.4 origin-dedup = multi-hop/LoRa only, NOT a 9-board blocker (my
-  single-hop broadcast mesh already gets exactly-once via route_stack[0] dedup).
+- **DONE — R2-WIRE v0.6 msg_id-into-span ADOPTED** (`1597fdc`; canon e21f863/fold
+  18b177d). Self-served from sibling ../r2-core: copied canonical hmac.rs SUPERSET
+  (v0.6 span + my alloc/no_std fold via authenticated_bytes_extended) + ported the
+  2 v0.6 tests + added `hmac_span_matches_v06_reference_vector` (§10.2 vector
+  00cafe…a10001 PASSES → span byte-exact w/ canon; b705ebae confirmed locally).
+  New span = type || msg_id(2BE/4BE) || event_hash || target(s) || payload; TTL/K/
+  route excluded; relay path unchanged. r2-wire 33/33 alloc+no_std, r2-tn 20/20,
+  both carriers compile. hmac.rs FULLY converged to canon. My boards are v0.6-ready
+  for the C6 rejoin of hive's v0.6 r2-fieldlab. ⚠ version-mix deliver-blocks
+  (v0.5↔v0.6) — all boards must be v0.6.
+  REMAINING r2-wire reconcile (NOT urgent): extended.rs/tests extras (bidirectional)
+  converge later, core-led. r2-route v0.4 origin-dedup = multi-hop/LoRa only, NOT a
+  9-board blocker (single-hop broadcast already exactly-once via route_stack[0]).
 
 - **C6 MESH UP** — composer flashed 3 C6 (exit 0; 6bd0=AP/7e44/6eb0=STA, blob
   9a35b7f8). But it's a SEPARATE mesh from the DFR1195/r2-fieldlab one (my C6 hosts
