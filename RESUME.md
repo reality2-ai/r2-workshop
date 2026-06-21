@@ -12,6 +12,13 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
   the BLE control channel) · (C) flash carriers on demand · (A) build esp-idf
   NegotiationRadio so WORKSHOP boards JOIN the mesh (cross-platform engine proof) —
   ready on Roy-greenlight + after hive's trait settles. My read: B now, A later.
+  **(B) UNDERWAY (supervisor-confirmed):** L2CAP CoC lockstep DELIVERED to hive —
+  proven l2cap.rs interop facts (PSM 0x00D2, MTU 512, R2-BLE §6.4 [len_lo,len_hi]
+  LE framing, send_to/drain_received multi-channel) + the HiveId↔BLE-addr bridge
+  (NegotiationRadio is HiveId-addressed, CoC is addr-addressed → map from beacon
+  scans). In docs/BLE-WIFI-NEGOTIATION.md. AWAITING hive's ControlMsg encoding →
+  I confirm it rides my CoC frame (≤MTU 512) + mirror any framing change into
+  l2cap.rs so esp-idf+esp-radio stay byte-compatible. Active-pairing mode.
   **CRUX for (A) — asked core:** r2-discovery integration. VENDOR=instant drift
   (fast-moving crate); naive PATH-DEP=r2-fnv doubling (type mismatch); CLEAN=broader
   path-dep migration (r2-core/wire/route/trust/fnv/cbor+discovery → ../r2-core,
