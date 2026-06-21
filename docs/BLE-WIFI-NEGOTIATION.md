@@ -148,12 +148,19 @@ data_plane_state→{Available,Failed} / teardown / now_ms) + `NegotiationEngine<
 fixed-cap roster + a shared `lowest_live_id` election primitive (= conductor-PLL's).
 A workshop Profile-A = impl `NegotiationRadio` on esp-idf (hive does esp-radio).
 
-**Open protocol item before workshop Profile-A** (flagged to core): `NegObservation`
-needs caps + **power_state**, but the R2-BEACON advert carries no `power_state`
-field today (my `PeerObservation` = rbid/class_hash/flags/tx_power/rssi). `ap_capable`
-I can derive locally (class/flag); `power_state` needs an advert-format add (r2-core/
-specs) — shared by both platforms, not a per-platform tweak. Pending core/specs on
-where power_state is sourced.
+**Protocol item before workshop Profile-A** (flagged → core → specs, spec-first):
+`NegObservation` needs provider eligibility. Resolution (core's recommendation,
+pending specs ratification): a single **`provider_eligible` bit in `BeaconFlags`**
+(= ap_capable AND power Normal/Eco) — NOT a full `power_state` field. It's all the
+election + disruption-detect need (the provider's eligible-bit flipping false = the
+disrupt signal), 1 bit in existing flags, and privacy-preserving (no battery-level
+leak; fits RBID-privacy). My `(b)` "source from control/heartbeat" was rejected
+(control exchange is post-election = chicken-egg; heartbeat is conductor-only).
+**Workshop side is then trivial:** my `PeerObservation` already carries
+`flags: BeaconFlags`, so once specs ratifies + core adds the bit to
+`r2_core::beacon`, my esp-idf side surfaces it for free (no new field). `ap_capable`
+derived locally as today. core adjusts `NegObservation` to carry the bit; both
+platforms read the same advert field.
 
 ## §4A.4 conformance summary
 
