@@ -124,10 +124,14 @@ Path-A (ESP-IDF) and Path-B (esp-hal/esp-radio) reuse it:
 1. **Protocol primitives** — `r2_core::beacon` (build/parse), `r2-wire`, `r2-trust`
    (persona/credential codec). Already no_std-shared; both sides reuse directly.
 2. **Negotiation logic** — the S0..S4 state machine, `T_fallback` timing, the
-   lowest-eligible-`hive_id` election decision, disruption-detection — belongs in a
-   **pure no_std SHARED crate behind a radio/discovery trait** (e.g. `advertise /
-   scan / bring_up_wifi / is_disrupted`). NOT buried in either firmware. Placement
-   is core's call (new `r2-discovery` crate, or into `r2-core`).
+   lowest-eligible-`hive_id` election decision, disruption-detection — is a **pure
+   no_std state-machine MODULE**, NOT buried in either firmware. **Placement
+   (core-confirmed):** the EXISTING `r2-discovery` crate — already the canonical
+   transport+discovery assembly (`TransportId` + `AsyncTransport`/`PeerMap`/
+   `BeaconAdvertiser` traits + `PeerTable` + a no-alloc tier); the negotiation is a
+   module *over those existing traits*, not a new crate. core lands the engine when
+   hive sends the S0-S4 transition table. (The lowest-`hive_id` election is the same
+   deterministic-lowest-id primitive as conductor-PLL — shared, not re-derived.)
 3. **Radio glue (the trait impls)** — per-platform, NOT shared: workshop's
    `r2-esp` (esp-idf-svc + NimBLE) is the Path-A impl; hive's esp-radio is the
    Path-B impl. Two thin platform layers is north-star-correct, not a fork.
