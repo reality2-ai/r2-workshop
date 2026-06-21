@@ -6,7 +6,6 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/r2-fnv",
     "crates/r2-cbor",
     "crates/r2-wire",
     "crates/r2-core",

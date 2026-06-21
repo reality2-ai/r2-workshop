@@ -1615,9 +1615,6 @@ dependencies = [
 [[package]]
 name = "r2-fnv"
 version = "0.1.0"
-dependencies = [
- "serde_json",
-]
 
 [[package]]
 name = "r2-route"

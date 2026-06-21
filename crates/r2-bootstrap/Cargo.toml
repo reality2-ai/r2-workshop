@@ -12,7 +12,7 @@ path = "src/lib.rs"
 serde = { version = "1", features = ["derive"] }
 r2-core = { path = "../r2-core", features = ["alloc"] }
 r2-wire = { path = "../r2-wire" }
-r2-fnv = { path = "../r2-fnv" }
+r2-fnv = { path = "../../../r2-core/crates/r2-fnv" }
 r2-cbor = { path = "../r2-cbor" }
 bluer = { version = "0.17", features = ["full"] }
 tokio = { version = "1", features = ["full"] }
