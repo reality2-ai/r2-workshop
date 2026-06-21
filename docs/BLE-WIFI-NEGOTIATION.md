@@ -115,6 +115,28 @@ tn.rs + r2-tn (R2-WIRE mesh over WiFi)           │
                 back to Stage 1 (fall back to control plane)
 ```
 
+## Layering — where the Profile-A logic should live (north-star)
+
+When hive builds Profile A, the split follows the **r2-route pattern** (pure no_std
+engine + a trait; platform impls per-side), so the logic is written once and both
+Path-A (ESP-IDF) and Path-B (esp-hal/esp-radio) reuse it:
+
+1. **Protocol primitives** — `r2_core::beacon` (build/parse), `r2-wire`, `r2-trust`
+   (persona/credential codec). Already no_std-shared; both sides reuse directly.
+2. **Negotiation logic** — the S0..S4 state machine, `T_fallback` timing, the
+   lowest-eligible-`hive_id` election decision, disruption-detection — belongs in a
+   **pure no_std SHARED crate behind a radio/discovery trait** (e.g. `advertise /
+   scan / bring_up_wifi / is_disrupted`). NOT buried in either firmware. Placement
+   is core's call (new `r2-discovery` crate, or into `r2-core`).
+3. **Radio glue (the trait impls)** — per-platform, NOT shared: workshop's
+   `r2-esp` (esp-idf-svc + NimBLE) is the Path-A impl; hive's esp-radio is the
+   Path-B impl. Two thin platform layers is north-star-correct, not a fork.
+
+This mirrors how routing already works: `r2_route::RouteEngine` (pure no_std) +
+the `Transport` trait — workshop provides the esp-idf `UdpTransport`, a no_std
+board would provide its own. Do #24 Profile A the same way and a future workshop
+Profile-A is just an esp-idf trait impl over hive's shared state machine.
+
 ## §4A.4 conformance summary
 
 The §4A.4(1-3) requirements below are **Profile A** (hive's reference). Workshop's
