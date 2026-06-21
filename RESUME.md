@@ -16,9 +16,10 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
   len-prefix verified vs l2cap.rs (recv strips prefix @471-485, returns payload
   as-sent); ControlMsg = [tag] 0x01 WifiReq / 0x02 WifiOffer+ssid32||psk64||
   ap_hint_be32 (101B) / 0x03 WifiDone, ≪512 no-frag; HiveId↔addr map from beacon
-  scans. OPEN sub-item: ControlMsg CODEC must be shared r2_discovery::ControlMsg
-  (not hand-rolled) for byte-exact decode — awaiting hive's confirm (else land it
-  in r2_discovery). In docs/BLE-WIFI-NEGOTIATION.md.
+  scans. CODEC RESOLVED: hive+workshop agreed shared r2_discovery::ControlMsg; hive
+  asked CORE to add ControlMsg::encode/decode to r2_discovery (core owns bytes) →
+  both platforms decode byte-exact, zero drift. **(B) FULLY CLOSED.** In
+  docs/BLE-WIFI-NEGOTIATION.md.
   **(A) PREP DONE — HOLDING for Roy-go + hive CoC-ping** (supervisor cleared prep,
   recommending GO to Roy; routed core to provide shared r2_discovery::ControlMsg →
   closes my codec point). RUNBOOK = **docs/PATHDEP-MIGRATION-PLAN.md** (execute

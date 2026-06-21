@@ -192,11 +192,13 @@ MUST agree on:
 `[tag:u8]`: `0x01`=WifiReq (no body) · `0x02`=WifiOffer + `ssid[32]||psk[64]||
 ap_hint_be32` (100B body, 101B total) · `0x03`=WifiDone. Max 101B ≪ MTU 512 → no
 fragmentation. Verified byte-clean over workshop's CoC frame (l2cap.rs:471-485
-strips the LE len-prefix, returns the payload as-sent). **Byte-EXACT decode caveat:**
-l2cap.rs is opaque transport (hands the raw payload up); the ControlMsg codec must
-be the SHARED `r2_discovery::ControlMsg` (not hand-rolled per platform) so esp-idf
-+ esp-radio agree — confirming with hive whether the above is r2_discovery's
-canonical serialization (if hand-rolled, land it in r2_discovery, north-star).
+strips the LE len-prefix, returns the payload as-sent). **Byte-EXACT decode — RESOLVED:**
+l2cap.rs is opaque transport (hands the raw payload up); the ControlMsg codec is
+the SHARED `r2_discovery::ControlMsg`. hive + workshop agreed (north-star); hive
+asked **core to add `ControlMsg::encode/decode` to r2_discovery** (core owns the
+exact bytes). Both esp-radio + esp-idf then decode byte-exact via the same type →
+guaranteed interop, zero drift. My esp-idf impl decodes via that type (it arrives
+when I path-dep r2-discovery for (A)).
 
 **HiveId↔addr bridge (the key integration point):** `NegotiationRadio`'s
 `send_control(peer: HiveId)` + `poll_control()→(HiveId, ControlMsg)` are
