@@ -62,6 +62,25 @@ is interop-critical + fast-moving; a vendored snapshot = mesh incompatibility).
 7. **Rollback:** if it fights, `git switch -` / revert to the checkpoint; the TN
    carriers + sensor firmware are unaffected on vendored crates.
 
+## Canonical reference + refinements (core brief R2-24-NEGOTIATION-BRIEF.md @631b758)
+Pairs with this runbook — the canonical surface my impl targets. Key refinements
+folded in for step 5:
+- **Imports** (`r2_discovery`): NegotiationEngine/Radio/State, NegObservation,
+  NodeCaps, DataPlaneParams, ControlMsg, DataPlaneState + compute_rbid,
+  derive_beacon_session_key, resolve_rbid / resolve_rbid_windowed.
+- **poll_scan RBID resolution:** observed RBID is HMAC-rotating
+  (`HMAC-SHA256(session_key, epoch_be64)[0:8]`); resolve it to hive_id via
+  `resolve_rbid(observed)` (session_key = `derive_beacon_session_key(hk, hive_id)`).
+  The HiveId↔BLE-addr map = resolve_rbid(scanned RBID) → hive_id, paired with the
+  connectable-adv addr.
+- **I POPULATE my flags:** `provider_capable` = can-SoftAP (true for my boards),
+  `power_state` = actual hive state (bits 1-0); read peers' from their flags byte.
+- **TWO adv sets (NEW for my beacon.rs):** run BOTH the non-connectable RBID beacon
+  (discovery, what beacon.rs does today) AND a CONNECTABLE adv (carries same RBID)
+  so a joiner gets the connect addr for the L2CAP channel. beacon.rs needs the
+  connectable-adv addition for (A). (Provider-star: election picks ONE provider;
+  each joiner opens ONE CoC to it. PSM 0x00D2 = Event; 0x00D3 = OTA, unused by me.)
+
 ## Caveats
 - Don't start before the NegotiationRadio TRAIT settles (hive's esp-radio impl
   first) — building step 5 against a moving trait = rework.
