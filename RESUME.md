@@ -67,13 +67,19 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
   correctly sequenced). Mode-1 infra foundation stays valid (fixed cases). When
   resumed: gate on Transport::EspNow canon → impl ESP-NOW bring_up/join on
   EspNegotiationRadio (esp-idf esp_now_* API) alongside the infra path.
-  **DataPlaneParams kind-tag = CANON (specs §4A.4): Infra{ssid,psk,[provider_addr
-  gateway-discovered]} | Mesh{espnow} | LoRa{freq_plan,sf,bw}** — matches my flag.
-  core has NOT yet landed it in the r2-discovery CRATE (still old struct; my build
-  green). WHEN core lands it → path-dep pulls it → UPDATE EspNegotiationRadio
-  bring_up/join_provider to MATCH on the kind (Infra→wifi_ap/wifi_sta, Mesh→ESP-NOW,
-  LoRa→LoRa) = the mode-1/mode-2 dispatch. provider_addr gateway-discovered (my
-  get_gateway, not hardcoded) — already aligned. Watch for the canonical crate change.
+  **RESOLUTION (core, final): MODE SPLIT not kind-tag — no DataPlaneParams churn.**
+  specs ruled WifiOffer stays INFRA-ONLY (no wire kind-tag). Engine's
+  negotiation::DataPlaneParams {ssid,psk,ap_hint} is the Mode-1 WifiOffer payload +
+  is CORRECT infra-shaped (the engine IS Mode-1/provider-star). So my
+  EspNegotiationRadio bring_up/join_provider STAY infra — NO breaking change, codec+
+  import surface unchanged. The data-plane KIND lives in r2-route's DataPlaneMode
+  (Infrastructure|Mesh, §5.7 select_data_plane_mode). provider_addr gateway-discovered
+  (my get_gateway, R2-WIFI §4.3) — aligned.
+  **Mode-2 REFRAMED (cleaner): ESP-NOW = a new esp-idf Transport** (r2_transport::
+  Transport, like my WifiUdpTransport) feeding r2-route, driven by DataPlaneMode==Mesh
+  — NOT an extension of NegotiationRadio. Params platform-local (ESP-NOW channel from
+  beacon, LoRa freq from build config; not negotiated). My transport-impl lane. Gated
+  on Transport::EspNow canon + r2-route Mode-2 + hive's ESP-NOW demo + hardware window.
 
 - **PENDING beacon re-sync — LANDED upstream (`e77d66f`), DECIDED plan, DEFERRED
   (no-rush, ble-only):** core moved the beacon codec `r2-core` → `r2_discovery::beacon`
