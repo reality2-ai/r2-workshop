@@ -175,6 +175,29 @@ outlier (specs regenerating). **My pending action:** re-sync vendored
 `crates/r2-core` BeaconFlags from core AFTER core lands it (post vector-regen, to
 avoid a moving target) — no code change my side until then.
 
+## L2CAP CoC control-plane — interop facts (workshop `l2cap.rs`)
+
+The negotiation's control channel rides L2CAP CoC. For workshop's esp-idf
+(`l2cap.rs`, NimBLE) and hive's esp-radio impls to share the control plane, both
+MUST agree on:
+
+- **PSM `0x00D2`** (`R2_PSM`) · **MTU 512** — mismatch = no CoC connection.
+- **Framing (R2-BLE §6.4):** each SDU = `[len_lo, len_hi, payload…]` — a 2-byte
+  **little-endian** length prefix (note: LE, unlike R2-WIRE TCP's big-endian);
+  reassembled per-channel across callbacks. `MAX_FRAME 4096`.
+- **Model:** `send_to(addr:[u8;6], payload)` / `drain_received()→[(payload,addr)]`;
+  multi-channel per-peer; `connected_peers()`/`is_connected()`.
+
+**HiveId↔addr bridge (the key integration point):** `NegotiationRadio`'s
+`send_control(peer: HiveId)` + `poll_control()→(HiveId, ControlMsg)` are
+**HiveId**-addressed, but L2CAP CoC is **BLE-addr**-addressed. The impl keeps a
+`HiveId ↔ BLE-addr` map populated from beacon **scans** (a scan sees both the BLE
+addr and the RBID/hive_id in the advert). Then `send_control(hid,msg)` = map
+hid→addr → `send_to`; `poll_control` = `drain_received()→(payload,addr)` → map
+addr→hid. One `ControlMsg` per CoC SDU, wrapped in the `[len_lo,len_hi]` frame
+(must fit MTU 512 or add fragmentation). PSM `0x00D2` + the LE len-prefix + this
+map are the three things both platforms must nail to share the control plane.
+
 ## §4A.4 conformance summary
 
 The §4A.4(1-3) requirements below are **Profile A** (hive's reference). Workshop's
