@@ -95,6 +95,12 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
   THEN: multi-transport dispatch (route Directed by DirectedHop.transport — r2-tn uses
   one transport today) + EspNowTransport impl + metal. ESP-NOW channel = platform-local.
   Held on deep radio for metal.
+  **METAL-PREP DRAFTED: docs/TN-FORM-CONJECTURES.md** (`8e8690d`) — firmware-tier
+  conjecture/refutation catalogue (falsifier-first per REFUTATIVE-DEVELOPMENT.md) for
+  the esp-idf↔esp-radio form + EspNow mesh (C1-3 ControlMsg/CoC, N1-4 S0-S4 election,
+  I1 SoftAP, M1-4 EspNow dedup/TTL/K/entanglement, X1-2 seed-sweep/partition). Shared
+  to specs (master catalogue owner) + composer (hardware-test defs). Operationalizes
+  the form-test for the metal window.
   **RESOLUTION (core): MODE SPLIT — engine is Mode-1; KIND-tag is local-only.**
   specs ruled WifiOffer stays INFRA-ONLY (no wire kind-tag). Engine's
   negotiation::DataPlaneParams {ssid,psk,ap_hint} is the Mode-1 WifiOffer payload +
