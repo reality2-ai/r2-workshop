@@ -13,6 +13,10 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
   reference only for the simple WiFi data-plane + gateway-discovery (R2-WIFI v0.6,
   AP=gateway/no-hardcode). Told specs + supervisor. IF Roy wants workshop to grow
   the §4A two-plane fallback → NEW milestone (scope on supervisor's word).
+  **DONE — `docs/BLE-WIFI-NEGOTIATION.md`** (`55e0c14`): implemented-vs-gap
+  reference for hive+specs (3 stages, building blocks + code locations, §4A.4
+  conformance table, composition diagram, proposed T_fallback). hive builds the
+  orchestration on the cited fns; workshop = WiFi data-plane + gateway-discovery ref.
 
 - **⏸ C6 rebake PAUSED (supervisor):** Roy may pull the FireBeetles/C6 for the
   9-board all-S3 mesh (5 DFR1195 + 4 XIAO, composer's flash). C6 fielded work is
