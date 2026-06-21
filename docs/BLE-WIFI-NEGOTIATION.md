@@ -148,19 +148,24 @@ data_plane_state→{Available,Failed} / teardown / now_ms) + `NegotiationEngine<
 fixed-cap roster + a shared `lowest_live_id` election primitive (= conductor-PLL's).
 A workshop Profile-A = impl `NegotiationRadio` on esp-idf (hive does esp-radio).
 
-**Protocol item before workshop Profile-A** (flagged → core → specs, spec-first):
-`NegObservation` needs provider eligibility. Resolution (core's recommendation,
-pending specs ratification): a single **`provider_eligible` bit in `BeaconFlags`**
-(= ap_capable AND power Normal/Eco) — NOT a full `power_state` field. It's all the
-election + disruption-detect need (the provider's eligible-bit flipping false = the
-disrupt signal), 1 bit in existing flags, and privacy-preserving (no battery-level
-leak; fits RBID-privacy). My `(b)` "source from control/heartbeat" was rejected
-(control exchange is post-election = chicken-egg; heartbeat is conductor-only).
-**Workshop side is then trivial:** my `PeerObservation` already carries
-`flags: BeaconFlags`, so once specs ratifies + core adds the bit to
-`r2_core::beacon`, my esp-idf side surfaces it for free (no new field). `ap_capable`
-derived locally as today. core adjusts `NegObservation` to carry the bit; both
-platforms read the same advert field.
+**Protocol item before workshop Profile-A** (flagged → core → specs, spec-first).
+Eligibility = `provider_capable AND power ∈ {Normal,Eco}`, computed by the engine
+from the R2-BEACON §7.2 flags byte: **bits 1-0 = power_state** (00 Normal/01 Eco/10
+Critical/11 Survival, §7.2.1 MUST-set) + **bit 2 = provider_capable** (new; bit 2
+is reserved-MUST-be-0 today). `ap_capable` is NOT derived from class_hash (specs:
+fragile). The provider's eligibility flipping false = the disruption signal.
+
+⚠ **Code-vs-spec drift caught:** the canonical `r2_core::beacon::BeaconFlags`
+(fields `{profile,has_bloom,provisioning,mcu_mode,mobile}`, bits 7-3) comments
+**"2-0: reserved"** and neither decodes nor encodes the §7.2 power bits 1-0. So
+today power_state is **unreadable AND unsent** (encode leaves bits 1-0=0=Normal-by-
+accident; Critical/Survival can never be signalled). The §7.2 flags-byte change is
+therefore **power_state decode+encode (bits 1-0) PLUS provider_capable (bit 2)** —
+same Roy-authorization batch, core lands it in `r2_core::beacon`.
+**Workshop side stays trivial:** my `PeerObservation` carries `flags: BeaconFlags`,
+so once core adds the fields + I re-sync vendored r2-core, my esp-idf side surfaces
+power_state + provider_capable for free. core adjusts `NegObservation`; both
+platforms read the same §7.2 byte.
 
 ## §4A.4 conformance summary
 
