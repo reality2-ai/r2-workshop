@@ -25,11 +25,16 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
   needs the LED pin peripheral + boards). (2) REBUILD fielded C6 blob (3416cbfd
   predates shared-parser + beat-hook — functionally equiv; rebuild for PV1 parser)
   with R2_TN_AP_ID=0x480e900e/r2-fieldlab/r2fieldlab. Both OTA-ship.
-- **DEFERRED — r2-wire/r2-route vendored reconcile (core-led, post-msg_id):** core
-  scoped the drift. r2-wire hmac `sign/verify_extended_inner` = my alloc-vs-no_std
-  buffer split (canon-improvement, span UNCHANGED) — core folds it in, ideally
-  routed through `authenticated_bytes_extended` so the parked **msg_id-into-span**
-  change is one-line. Reconcile waits until msg_id lands (Roy-gated); core leads.
+- **ACTIVE — R2-WIRE v0.6 msg_id-into-span LANDED** (core canonical e21f863, Roy
+  authorized; closes the msg_id-rewrite replay vector). NEW HMAC span = `type ||
+  msg_id(2BE compact/4BE extended) || event_hash || target_group || target_hive ||
+  payload`. Same-version boards unaffected (just tag bytes differ); **version-mix
+  deliver-blocks** (v0.5↔v0.6 span mismatch) → pull v0.6 to ALL boards together.
+  ASKED core to re-sync the hmac.rs span into my VENDORED r2-wire (preserve my
+  alloc/no_std `_inner` split via route-through-`authenticated_bytes_extended`);
+  I review+commit+test, core verifies vs vector b705ebae. NOT urgent (boards out;
+  same-version demo fine) but REQUIRED before the C6 rejoin hive's v0.6 r2-fieldlab.
+  Relays still never touch msg_id (§8.5) — my relay path (ttl/k/route only) unchanged.
   r2-route v0.4 origin-dedup = multi-hop/LoRa only, NOT a 9-board blocker (my
   single-hop broadcast mesh already gets exactly-once via route_stack[0] dedup).
 
