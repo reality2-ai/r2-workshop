@@ -28,7 +28,7 @@ is interop-critical + fast-moving; a vendored snapshot = mesh incompatibility).
    if path-repoint fights resolution: a root `[patch]` per core.) Verify ONE r2-fnv:
    `cargo tree -i r2-fnv` shows a single version.
 2. **Path-dep r2-discovery:** add to `crates/r2-esp/Cargo.toml`:
-   `r2-discovery = { path = "../../../r2-core/crates/r2-discovery", default-features = false, features = ["alloc"] }`
+   `r2-discovery = { path = "../../../r2-core/crates/r2-discovery" (pin 53c1e58), default-features = false, features = ["alloc"] }`
    (alloc tier = AsyncTransport/ControlMsg/NegObservation/BeaconFlags; pick the
    minimal tier that exports ControlMsg + the beacon codec + NegotiationRadio).
 3. **Repoint beacon:** `crates/r2-esp/src/beacon.rs` imports `r2_core::beacon` →

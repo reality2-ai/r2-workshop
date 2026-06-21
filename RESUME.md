@@ -31,7 +31,7 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
   closes my codec point). RUNBOOK = **docs/PATHDEP-MIGRATION-PLAN.md** (execute
   instantly on trigger): checkpoint → unify r2-fnv (repoint 6 consumers: r2-core/
   trust/wire/engine/bootstrap/wasm → canonical, drop vendored r2-fnv) → path-dep
-  r2-discovery (alloc tier; std OK for esp-idf Path-A) → repoint beacon.rs
+  r2-discovery@53c1e58 (alloc tier; std OK for esp-idf Path-A) → repoint beacon.rs
   r2_core::beacon→r2_discovery::beacon → VERIFY builds (xtensa+riscv, one r2-fnv) →
   impl `r2_esp::negotiation` esp-idf NegotiationRadio over my radio glue
   (beacon/l2cap+HiveId↔addr map/wifi_ap/wifi_sta, decode via shared ControlMsg) →
