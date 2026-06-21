@@ -167,6 +167,14 @@ so once core adds the fields + I re-sync vendored r2-core, my esp-idf side surfa
 power_state + provider_capable for free. core adjusts `NegObservation`; both
 platforms read the same §7.2 byte.
 
+**core-confirmed plan (drift acknowledged):** §7.2 is source-of-truth; core adds
+power_state (bits 1-0) decode/encode **now** (specs-confirmed canon) + provider_capable
+(bit 2) **post-Roy** — same flags-byte. The advert BODY is NOT drifted
+(`build_legacy_beacon` matches §7.3); only `r2-beacon-vectors.json` was the stale
+outlier (specs regenerating). **My pending action:** re-sync vendored
+`crates/r2-core` BeaconFlags from core AFTER core lands it (post vector-regen, to
+avoid a moving target) — no code change my side until then.
+
 ## §4A.4 conformance summary
 
 The §4A.4(1-3) requirements below are **Profile A** (hive's reference). Workshop's
