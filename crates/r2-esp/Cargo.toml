@@ -43,3 +43,6 @@ default = ["ble"]
 ble = ["dep:esp32-nimble"]
 # TRUE TN run-loop (crate::tn). Off by default; a TN board enables it.
 tn = []
+# #24 esp-idf NegotiationRadio (Profile-A). Pair with `ble` for the L2CAP
+# control-plane path; the engine + ControlMsg codec come from r2-discovery.
+negotiation = ["ble"]

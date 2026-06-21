@@ -46,6 +46,11 @@ pub use r2_tn::health;
 #[cfg(feature = "tn")]
 pub mod persona_flash;
 
+// #24 esp-idf NegotiationRadio (Profile-A: workshop joins the transient mesh over
+// the canonical r2-discovery engine). ble enables the L2CAP control-plane path.
+#[cfg(feature = "negotiation")]
+pub mod negotiation;
+
 #[cfg(feature = "ble")]
 pub mod l2cap;
 
