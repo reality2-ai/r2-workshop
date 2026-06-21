@@ -36,13 +36,21 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
   canonical r2-discovery builds esp-idf BOTH arches. Step 5: `crate::negotiation`
   EspNegotiationRadio (impl NegotiationRadio over beacon/l2cap/wifi + shared
   ControlMsg codec) COMPILES xtensa+esp-idf+ble (feature `negotiation=["ble"]`).
-  **REMAINING = metal-integration (hardware-loop, pairs w/ hive M8c + board window):**
-  NimBLE connectable-adv set (CoC connect addr) in beacon.rs; L2CAP central-connect
-  (joiner) in l2cap.rs; beacon-scan→resolve_rbid→on_peer queue feed; wifi-modem
-  threading into a negotiation-node firmware + the engine tick loop; then the
-  esp-idf↔esp-radio FORM test. See `// TODO(metal)` in negotiation.rs. Asked
-  supervisor: keep coding metal-integration (compile-only) or hold for hardware+M8c.
-  = the cross-platform TN proof (north-star, one engine esp-idf+esp-radio).
+  **Step 5+ SPAWN HARNESS DONE (compiles, `5894184`):** `crate::negotiation::spawn`
+  = NegotiationEngine<16> (T_fb 5s/T_neg 10s) + `engine.poll(&mut radio)` S0-S4 tick
+  loop + thread-safe EspNegotiationRadio + NegSink (beacon-callback→engine
+  cross-thread). Engine-drive assembly + shared-ControlMsg codec path compile
+  xtensa+esp-idf+ble. Compile-only foundation MAXIMALLY laid.
+  **REMAINING = deep NimBLE/wifi (metal-loop, pairs w/ hive M8c + board window):**
+  beacon connectable-adv + scan-addr surfacing + resolve_rbid feed; L2CAP
+  central-connect (joiner); wifi-on-form modem threading; a negotiation-node fw;
+  then esp-idf↔esp-radio FORM test. `// TODO(metal)` in negotiation.rs. These
+  compile-easily-blind but are behavior-critical (adv params/CoC connect/coexistence)
+  → better written IN the hardware loop (flash-observe-iterate), not blind. Asked
+  supervisor: proceed blind on a piece, or hold for metal. Supervisor lining up the
+  hardware window (rig re-enumerated; hive blocked flashing). = cross-platform TN proof.
+  BRANCH profile-a-pathdep NOT merged to tn-routeengine-bringup (deliberate, pending
+  metal form validation).
 
 - **PENDING beacon re-sync — LANDED upstream (`e77d66f`), DECIDED plan, DEFERRED
   (no-rush, ble-only):** core moved the beacon codec `r2-core` → `r2_discovery::beacon`
