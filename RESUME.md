@@ -4,6 +4,24 @@ _Owned by this session. Keep current. Last updated 2026-06-09._
 Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan + DEV_STATUS).
 (Relocated 2026-06-18 from `claude-fleet/fleet-context/`; claude-fleet is now tooling-code-only.)
 
+## FRONTIER (2026-06-22) — ★ METAL GATE CLEARED (goal #14 LIVE)
+
+- **★ #14 LANDED: 2-TG leaderless heartbeat LIVE on the 9-board ESP-NOW mesh**
+  (cross-host Alfred+Tuxedo, cross-arch XIAO+DFR1195, clean cross-TG GroupHmac
+  partition). This CLEARS the gate my cross-platform-proof work was held on (hive's
+  leaderless flash + a live ESP-NOW mesh on metal). My EspNowTransport / form work is
+  NO LONGER SPECULATIVE — real mesh + working esp-radio ESP-NOW to interop with.
+  **ACTIVE NEXT (contract-first, like M7 CoC):** asked hive for the ESP-NOW DATA-PLANE
+  interop contract (channel / addressing broadcast-vs-unicast / frame wrapper+frag /
+  PMK / init) — its Q2(addressing)+Q3(framing) answers STRUCTURALLY shape EspNowTransport
+  (peer-map+add_peer vs broadcast; reassembly-or-not), so I build AFTER them (not blind).
+  Asked supervisor: is my METAL WINDOW open (board slot + hive coord) or hold for #14
+  stabilization (TG-B marginal-RF residual)? + offered to start the build now.
+  THEN: EspNowTransport (esp-idf esp_now_* → r2_transport::Transport) + multi-transport
+  dispatch (route Directed by DirectedHop.transport) + the esp-idf↔esp-radio FORM test
+  (workshop board JOINS the mesh = north-star). EspNow prereq already met (r2-route/
+  r2-wire path-dep). Held on the BUILD only until hive's interop contract arrives.
+
 ## FRONTIER (2026-06-20, post-DELIVERED)
 - **★ TOP PRIORITY (Roy/supervisor): self-forming BLE→WiFi transient network**
   (discover→negotiate→form→fallback→reform) = THE central project deliverable.
