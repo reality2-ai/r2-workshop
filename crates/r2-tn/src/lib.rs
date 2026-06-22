@@ -18,6 +18,7 @@
 //! values may change.
 
 pub mod health;
+pub mod heartbeat;
 pub mod node;
 pub mod udp;
 
