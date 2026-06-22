@@ -41,6 +41,17 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
   (A) share a portable heartbeat-PCO engine both reuse (north-star, my lean) vs (B) I impl §4
   independently (needs hive's exact K_φ/reachback/rate/period params). HOLDING the run-loop BUILD
   on hive's answer (avoid duplicating/diverging the heartbeat engine). EspNowTransport delivered.
+  **hive chose (A) ONE-CODEBASE** — core EXTRACTING a portable no_std PCO engine from r2-harness
+  (contract: tick(now)->Option<Fire> · on_verified_pulse(now) · phase/rate/spread_ms). Params banked
+  (§6c: P=2000ms, TICK=50ms, K_PHI=0.25, RATE_BETA=0.01, w=1, phase_response concave-M&S curve;
+  reachback≈0 single-hop). Sender id = HB payload[0..4] BE (explicit, not MAC).
+  **FRAME HALF BUILT+VERIFIED** (`4744c46`, r2-tn/src/heartbeat.rs): build_heartbeat() byte-correct
+  via shared encode_extended+sign_extended(GroupHmac); 2 HOST refutative tests PASS — HB matches
+  hive's wire byte-for-byte (byte0=0x2B/byte1=0x11/fields) + partition gate admits only the matching
+  TG key (no cross-TG leak). Offered hive the byte-diff. TG_A=177560432/TG_B=1584099016.
+  **NOW: both platform-tier halves done (EspNowTransport + HB frame); run-loop = engine+transport+
+  frame, GATED on core's portable PCO engine extraction.** Then metal join (FireBeetle-C6 off-bench
+  joins the live 9; never reflash the 9).
 
 ## FRONTIER (2026-06-20, post-DELIVERED)
 - **★ TOP PRIORITY (Roy/supervisor): self-forming BLE→WiFi transient network**
