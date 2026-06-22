@@ -432,11 +432,13 @@ impl<const N: usize, const P: usize, const D: usize> RouteNode<N, P, D> {
         self.engine
             .record_delivery_success(from_hive_id, from_hive_id, now);
 
-        // Conductor HEARTBEAT for our TG → surface as a Beat for the visual sync
-        // (lub-dub LED), NOT app-delivery and NOT relay: on the broadcast mesh
-        // every node hears the conductor directly (hive: filter MsgType::Heartbeat
-        // + target_group == my_tg; no PLL, no HMAC gate — purely visual). Deduped
-        // above, so each distinct beat (new msg_id) fires once.
+        // A TG-peer's HEARTBEAT (PCO pulse) → surface as a Beat for the visual sync
+        // (lub-dub LED), NOT app-delivery and NOT relay. R2-HEARTBEAT v0.4 is
+        // LEADERLESS reachback-PCO: there is NO conductor — every node emits its own
+        // PCO pulse, and hearing a TG-peer's pulse is a coupling input. The LED
+        // reflects THIS node's OWN converged PCO phase (not a received conductor
+        // beat). Filter MsgType::Heartbeat + target_group == my_tg; no HMAC gate —
+        // purely visual. Deduped above, so each distinct pulse (new msg_id) fires once.
         if msg.header.msg_type == MsgType::Heartbeat {
             if let Some(t) = &self.trust {
                 if msg.header.target_group == t.my_tg {
