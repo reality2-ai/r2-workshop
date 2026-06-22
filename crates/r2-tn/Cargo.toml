@@ -11,7 +11,7 @@ description = "R2 TN node driver — glues core's RouteEngine to a transport for
 
 [dependencies]
 r2-route = { path = "../../../r2-core/crates/r2-route" }
-r2-transport = { path = "../r2-transport", features = ["alloc"] }
+r2-transport = { path = "../../../r2-core/crates/r2-transport", features = ["alloc"] }
 r2-wire = { path = "../../../r2-core/crates/r2-wire", features = ["alloc"] }
 # Trust tier: GroupHmac / PeeringHmac (SHA256 HMAC) for the deliver-gate.
 r2-trust = { path = "../r2-trust" }

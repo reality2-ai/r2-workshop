@@ -10,7 +10,7 @@ r2-core = { path = "../r2-core", features = ["alloc"] }
 r2-wire = { path = "../../../r2-core/crates/r2-wire", features = ["alloc"] }
 # TRUE TN: routing engine + transport seam (docs/tn-routeengine-smallest-path.md)
 r2-route = { path = "../../../r2-core/crates/r2-route" }
-r2-transport = { path = "../r2-transport", features = ["alloc"] }
+r2-transport = { path = "../../../r2-core/crates/r2-transport", features = ["alloc"] }
 # TN node driver + the pure-std UDP transport (host-tested in r2-tn; the firmware
 # re-exports it as peer_wifi_udp::WifiUdpTransport).
 r2-tn = { path = "../r2-tn" }

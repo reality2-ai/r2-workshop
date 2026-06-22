@@ -10,7 +10,6 @@ members = [
     "crates/r2-core",
     "crates/r2-bootstrap",
     "crates/r2-trust",
-    "crates/r2-transport",
     "crates/r2-engine",
     # Workshop-original: host-testable TN node driver (RouteEngine + transport
     # seam glue). The ESP firmware reuses it with the r2-esp WifiUdpTransport.
