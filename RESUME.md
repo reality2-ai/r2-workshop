@@ -105,9 +105,12 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
   conductor-PLL → leaderless reachback-PCO (3-node flap refuted the conductor). Done:
   conjecture-catalogue §B (provider-election STAYS) vs §E (leaderless sync, hive tier);
   re-framed ALL stale 'conductor' comments in r2-tn lib/node/health + r2-esp/tn → 'TG-peer
-  PCO pulse', LED=node's own converged phase (comment-only, 20/20). FLAGGED composer: #18
-  health contract role::CONDUCTOR + sync_state SYNCING/LOCKED stale under v0.4 — wire values
-  RETAINED (their contract af4ebcb + hive emits same shape), awaiting their revision.
+  PCO pulse', LED=node's own converged phase (comment-only, 20/20). FLAGGED composer →
+  RESOLVED: composer revised the #18 contract (addcbfa) as a SEMANTIC re-frame, WIRE INTS
+  UNCHANGED — sync_state 0=Free/1=Coupling/2=Converged, role::CONDUCTOR deprecated,
+  phase_err_ms(k8) superseded by spread_ms(k17). Aligned my health.rs (renamed unused
+  consts, no byte change; encoder still keys 0..=12 sync_state=Free; 20/20). Clean
+  spec-first cycle: flag owner → owner revises canon → implement to revised contract.
   See memory heartbeat-leaderless-pco.
   **RESOLUTION (core): MODE SPLIT — engine is Mode-1; KIND-tag is local-only.**
   specs ruled WifiOffer stays INFRA-ONLY (no wire kind-tag). Engine's
