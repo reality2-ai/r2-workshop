@@ -51,6 +51,11 @@ pub mod persona_flash;
 #[cfg(feature = "negotiation")]
 pub mod negotiation;
 
+// Mode-2 ESP-NOW mesh transport (r2_transport::Transport over esp_now) — the
+// true-mesh data plane (DataPlaneMode::Mesh); a workshop board joins hive's mesh.
+#[cfg(feature = "espnow")]
+pub mod espnow;
+
 #[cfg(feature = "ble")]
 pub mod l2cap;
 

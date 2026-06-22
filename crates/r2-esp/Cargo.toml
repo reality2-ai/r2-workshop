@@ -46,3 +46,6 @@ tn = []
 # #24 esp-idf NegotiationRadio (Profile-A). Pair with `ble` for the L2CAP
 # control-plane path; the engine + ControlMsg codec come from r2-discovery.
 negotiation = ["ble"]
+# Mode-2 ESP-NOW mesh transport (crate::espnow) — r2_transport::Transport over
+# esp_now for the true-mesh data plane (DataPlaneMode::Mesh).
+espnow = []
