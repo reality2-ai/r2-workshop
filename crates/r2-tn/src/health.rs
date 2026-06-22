@@ -48,7 +48,14 @@ pub mod transport_bit {
 }
 
 /// `sync_state` (key 7) — leaderless-PCO semantics (R2-HEARTBEAT v0.4, contract
-/// addcbfa). Wire integers UNCHANGED from the pre-v0.4 free/syncing/locked.
+/// addcbfa; names pinned canon in §6.3). Wire integers UNCHANGED from the pre-v0.4
+/// free/syncing/locked.
+///
+/// FORWARD (when leaderless-PCO sync is wired on the boards): emit key7 as the
+/// SUSTAINED 3-level per §6.3 — Converged(2) when phase spread ≤ EPS (≈0.02×period
+/// ≈24ms) held for K=10 beats, Coupling(1) while pulling in, Free(0) uncoupled —
+/// AND add spread_ms (key17). The dashboard renders key7 verbatim (no derivation).
+/// Until then this node emits Free(0), which renders correctly.
 pub mod sync_state {
     /// Not yet coupled to the mesh PCO (default — this node emits Free until
     /// leaderless-PCO sync is wired).
