@@ -107,6 +107,15 @@ real fix, not just reference). Moves the anti-brick gate off the dashboard.
 2. **Live tuxedo dashboard (`8125a18`) predates the list-walk fix (`d066ca1`)**
    — it queries `/releases/latest` (now a server tag, no firmware) so it won't
    see `fw-v0.3.0` until rebuilt to current `main`. Tuxedo-side update.
+   **ARTIFACT PRE-BUILT (2026-06-22, supervisor-sanctioned non-gated prep):**
+   `dist/r2-workshop-server-nz-ac-auckland-rocker-0.3.1+ee6ca256-linux-x86_64.tar.gz`
+   (sha256 `7ffadc09e664…`, 2.70MB, git ee6ca256 = current main; r2-dashboard Hive +
+   webapp + WASM pkg + start/install scripts). Verified (sha matches meta). dist/ is
+   gitignored → stays LOCAL on Alfred, ready to scp+deploy to tuxedo. NOT published
+   (server stream Roy-held — this is the deploy artifact, not a gh release). DEPLOY
+   in the coordinated window (tuxedo busy w/ live R2 #14 mesh): scp the tarball →
+   extract → tools/start-server.sh (per install-launcher), restart the :21042 dash.
+   Awaiting Roy's window (supervisor relaying the 4 gated items to Roy).
 3. **DFR1195 (ESP32-S3) Path-B no_std build path** (forward dep, not urgent).
    New target NOT covered by the current Path-A/ESP-IDF matrix
    (devkitc/xiao/dfr1117). Pipeline: hive (no_std esp-hal/embassy source) →
