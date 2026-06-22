@@ -4,13 +4,15 @@
 //! (af4ebcb): an int-keyed CBOR Compact map carried in an EXTENDED R2-WIRE frame,
 //! event = `fnv1a_32("r2.hb.health")`, UNICAST to the collector (no flood),
 //! cadence = every 5th originate tick (~15s) + on-change. Health is DECOUPLED
-//! from heartbeat sync (set `sync_state=Free` until leaderless-PCO sync is wired).
+//! from heartbeat sync (we emit `sync_state=Free` until leaderless-PCO sync is wired).
 //!
-//! NB(R2-HEARTBEAT v0.4): the v0.4 reversal (conductor-PLL → LEADERLESS reachback-
-//! PCO, no conductor) makes the `role::CONDUCTOR` bit + the conductor-PLL-framed
-//! `sync_state` values (SYNCING/LOCKED) stale. They're composer's WIRE CONTRACT
-//! (af4ebcb), so the values are left as-is here pending a composer/specs revision to
-//! leaderless-PCO sync states (e.g. Free/Coupling/Converged) — flagged to composer.
+//! NB(R2-HEARTBEAT v0.4, contract revision addcbfa): the conductor-PLL → LEADERLESS
+//! reachback-PCO reversal was resolved as a SEMANTIC re-frame with the WIRE INTEGERS
+//! UNCHANGED — key7 sync_state 0=Free/1=Coupling/2=Converged (was free/syncing/locked);
+//! key2 role::CONDUCTOR=1 DEPRECATED (reserved, never set); key8 phase_err_ms
+//! superseded by spread_ms (key17). NO byte change to this encoder: we emit keys
+//! 0..=12 with sync_state=Free(0), and the dashboard derives Coupling/Converged from
+//! spread_ms (key17) which this node does not emit.
 //!
 //! The firmware (`r2_esp::tn`) fills a [`HealthReport`] from runtime state and
 //! emits `encode()`d bytes via the node toward the collector hive id.
@@ -22,8 +24,8 @@ pub const HEALTH_EVENT_NAME: &str = "r2.hb.health";
 
 /// `role` bitset (key 2).
 pub mod role {
-    /// Heartbeat conductor. STALE under R2-HEARTBEAT v0.4 (leaderless PCO has no
-    /// conductor); value retained per composer's wire contract pending revision.
+    /// DEPRECATED (R2-HEARTBEAT v0.4 / contract addcbfa): leaderless PCO has no
+    /// conductor — this bit is RESERVED and never set. Value kept for the wire.
     pub const CONDUCTOR: u8 = 1;
     /// Board-hosted SoftAP.
     pub const AP: u8 = 2;
@@ -45,16 +47,16 @@ pub mod transport_bit {
     pub const TCP: u8 = 8;
 }
 
-/// `sync_state` (key 7).
+/// `sync_state` (key 7) — leaderless-PCO semantics (R2-HEARTBEAT v0.4, contract
+/// addcbfa). Wire integers UNCHANGED from the pre-v0.4 free/syncing/locked.
 pub mod sync_state {
-    /// No heartbeat sync (default until leaderless-PCO sync is wired).
+    /// Not yet coupled to the mesh PCO (default — this node emits Free until
+    /// leaderless-PCO sync is wired).
     pub const FREE: u8 = 0;
-    /// Acquiring lock. (v0.4: maps toward "coupling" under leaderless PCO — pending
-    /// composer contract revision; value retained for wire compatibility.)
-    pub const SYNCING: u8 = 1;
-    /// Phase-locked. (v0.4: maps toward "converged" under leaderless PCO — pending
-    /// composer contract revision; value retained for wire compatibility.)
-    pub const LOCKED: u8 = 2;
+    /// Coupling — phase being pulled toward the mesh (was "syncing").
+    pub const COUPLING: u8 = 1;
+    /// Converged — phase-aligned with the mesh PCO (was "locked").
+    pub const CONVERGED: u8 = 2;
 }
 
 /// `ota_status` (key 6).
@@ -87,7 +89,8 @@ pub struct HealthReport<'a> {
     pub ota_status: u8,
     /// 7: heartbeat sync state ([`sync_state`]).
     pub sync_state: u8,
-    /// 8: phase error in ms (SIGNED; 0 when free).
+    /// 8: phase error in ms (SIGNED). DEPRECATED under leaderless PCO (addcbfa) —
+    /// superseded by spread_ms (key 17); we emit 0 (kept for wire compatibility).
     pub phase_err_ms: i32,
     /// 9: link quality 0-100 (from RSSI/SNR).
     pub link_q: u8,
