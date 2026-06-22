@@ -31,6 +31,16 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
   NEEDS hive's contract) + metal join-test (FireBeetle-C6 off-bench JOINS the live 9-board
   mesh; NEVER reflash the live 9). Multi-transport dispatch = LATER (first join = single
   EspNow transport). Asked hive for the ESP-NOW interop contract (Q1-5).
+  **hive's FULL ESP-NOW contract RECEIVED** (r2-hive/docs/espnow-mesh-interop.md): channel 1,
+  broadcast FF.., STA-not-assoc, ≤250B, R2-WIRE extended frame; partition-gate = verify_extended
+  w/ TG GroupHmac key over the v0.6 span (msg_type||event_hash||target_group||target_hive||payload);
+  TG-A=177560432/TG-B=1584099016. SHORTCUT: frame byte-correct via shared r2-wire/r2-trust (my
+  path-dep'd canon matches) — only new code = EspNowTransport (DONE). FRAME half de-risked.
+  **PCO-ENGINE DECISION SURFACED (convergence crux = the ControlMsg-sharing call again):** §4 PCO
+  dynamics are SIM-ONLY (r2-harness firefly::Coupling, f64/Vec) — no portable no_std engine.
+  (A) share a portable heartbeat-PCO engine both reuse (north-star, my lean) vs (B) I impl §4
+  independently (needs hive's exact K_φ/reachback/rate/period params). HOLDING the run-loop BUILD
+  on hive's answer (avoid duplicating/diverging the heartbeat engine). EspNowTransport delivered.
 
 ## FRONTIER (2026-06-20, post-DELIVERED)
 - **★ TOP PRIORITY (Roy/supervisor): self-forming BLE→WiFi transient network**
