@@ -21,6 +21,16 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
   dispatch (route Directed by DirectedHop.transport) + the esp-idf↔esp-radio FORM test
   (workshop board JOINS the mesh = north-star). EspNow prereq already met (r2-route/
   r2-wire path-dep). Held on the BUILD only until hive's interop contract arrives.
+  **PROGRESS (supervisor GO'd build):** r2-transport PATH-DEP done+verified (host+3fw;
+  gains TransportId::EspNow=5/Usb=4/Udp=6 + LoRa for #21; mesh-crate path-dep set now
+  COMPLETE: fnv/discovery/route/wire/transport all canonical). **EspNowTransport BUILT**
+  (`a6ff513`, crate::espnow, feature espnow=[]): esp-idf r2_transport::Transport over
+  esp_idf_svc::espnow — hive_id↔MAC, send(0→BROADCAST flood/else unicast), recv-queue via
+  IDF cb closure, 250B MTU, TransportId::EspNow. COMPILES xtensa+esp-idf. NEXT (pairs w/
+  hive's interop contract): mesh-node run-loop (Node<EspNowTransport>; recv MAC→from_hive_id
+  NEEDS hive's contract) + metal join-test (FireBeetle-C6 off-bench JOINS the live 9-board
+  mesh; NEVER reflash the live 9). Multi-transport dispatch = LATER (first join = single
+  EspNow transport). Asked hive for the ESP-NOW interop contract (Q1-5).
 
 ## FRONTIER (2026-06-20, post-DELIVERED)
 - **★ TOP PRIORITY (Roy/supervisor): self-forming BLE→WiFi transient network**
