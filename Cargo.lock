@@ -1642,7 +1642,6 @@ name = "r2-transport"
 version = "0.1.0"
 dependencies = [
  "r2-wire",
- "serde_json",
 ]
 
 [[package]]
