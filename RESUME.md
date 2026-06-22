@@ -101,6 +101,14 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
   I1 SoftAP, M1-4 EspNow dedup/TTL/K/entanglement, X1-2 seed-sweep/partition). Shared
   to specs (master catalogue owner) + composer (hardware-test defs). Operationalizes
   the form-test for the metal window.
+  **R2-HEARTBEAT v0.4 LEADERLESS-PCO re-scope COMPLETE across my tier** (`6abadbc`):
+  conductor-PLL → leaderless reachback-PCO (3-node flap refuted the conductor). Done:
+  conjecture-catalogue §B (provider-election STAYS) vs §E (leaderless sync, hive tier);
+  re-framed ALL stale 'conductor' comments in r2-tn lib/node/health + r2-esp/tn → 'TG-peer
+  PCO pulse', LED=node's own converged phase (comment-only, 20/20). FLAGGED composer: #18
+  health contract role::CONDUCTOR + sync_state SYNCING/LOCKED stale under v0.4 — wire values
+  RETAINED (their contract af4ebcb + hive emits same shape), awaiting their revision.
+  See memory heartbeat-leaderless-pco.
   **RESOLUTION (core): MODE SPLIT — engine is Mode-1; KIND-tag is local-only.**
   specs ruled WifiOffer stays INFRA-ONLY (no wire kind-tag). Engine's
   negotiation::DataPlaneParams {ssid,psk,ap_hint} is the Mode-1 WifiOffer payload +
