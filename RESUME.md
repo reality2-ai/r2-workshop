@@ -4,6 +4,15 @@ _Owned by this session. Keep current. Last updated 2026-06-09._
 Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan + DEV_STATUS).
 (Relocated 2026-06-18 from `claude-fleet/fleet-context/`; claude-fleet is now tooling-code-only.)
 
+## ★ SCOPE (Roy, 2026-06-22)
+workshop's project is the **ROCKER LAB** (this `main`: dense rocker-monitoring rig +
+:21042 dashboard/webapp + Path-A firmware/build/release). The **R2 TN cross-platform
+protocol cycle** (transient-mesh / EspNow / leaderless-PCO) was mis-routed to me and
+**stood down** — **composer owns it now**. That work is committed as a clean REFERENCE
+on branch `profile-a-pathdep` (EspNowTransport, heartbeat.rs HB-frame, EspNegotiationRadio,
+TN-FORM-CONJECTURES, r2-fnv/discovery/route/wire/transport path-deps) — NOT this branch,
+NOT my active track. Don't pick up R2-TN protocol-dev here. Rocker-lab status below.
+
 ## Roles
 1. **Build & release owner.** Alfred (this `/remote-control workshop` session,
    host `Alfred`, x86_64, checkout `~/Development/R2/r2-workshop`) builds and
