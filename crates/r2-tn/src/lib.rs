@@ -112,8 +112,10 @@ pub enum Inbound {
     Deliver { event_hash: u32, payload: Vec<u8> },
     /// Frame was routed onward to a next hop (this node is a relay).
     Forwarded { next_hop: u32 },
-    /// A conductor HEARTBEAT addressed to our trust group — drive the lub-dub LED
-    /// (visual beat-as-one; no PLL). Consumed here: not app-delivered, not relayed.
+    /// A TG-peer's HEARTBEAT (PCO pulse) for our trust group — drive the lub-dub
+    /// LED (visual beat-as-one). R2-HEARTBEAT v0.4 leaderless reachback-PCO: no
+    /// conductor; the LED shows this node's OWN converged phase. Consumed here:
+    /// not app-delivered, not relayed.
     Heartbeat,
     /// Engine/relay dropped the frame.
     Dropped(&'static str),

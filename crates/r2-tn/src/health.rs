@@ -4,7 +4,13 @@
 //! (af4ebcb): an int-keyed CBOR Compact map carried in an EXTENDED R2-WIRE frame,
 //! event = `fnv1a_32("r2.hb.health")`, UNICAST to the collector (no flood),
 //! cadence = every 5th originate tick (~15s) + on-change. Health is DECOUPLED
-//! from heartbeat sync (set `sync_state=Free` until a conductor-PLL exists).
+//! from heartbeat sync (set `sync_state=Free` until leaderless-PCO sync is wired).
+//!
+//! NB(R2-HEARTBEAT v0.4): the v0.4 reversal (conductor-PLL → LEADERLESS reachback-
+//! PCO, no conductor) makes the `role::CONDUCTOR` bit + the conductor-PLL-framed
+//! `sync_state` values (SYNCING/LOCKED) stale. They're composer's WIRE CONTRACT
+//! (af4ebcb), so the values are left as-is here pending a composer/specs revision to
+//! leaderless-PCO sync states (e.g. Free/Coupling/Converged) — flagged to composer.
 //!
 //! The firmware (`r2_esp::tn`) fills a [`HealthReport`] from runtime state and
 //! emits `encode()`d bytes via the node toward the collector hive id.
@@ -16,7 +22,8 @@ pub const HEALTH_EVENT_NAME: &str = "r2.hb.health";
 
 /// `role` bitset (key 2).
 pub mod role {
-    /// Heartbeat conductor.
+    /// Heartbeat conductor. STALE under R2-HEARTBEAT v0.4 (leaderless PCO has no
+    /// conductor); value retained per composer's wire contract pending revision.
     pub const CONDUCTOR: u8 = 1;
     /// Board-hosted SoftAP.
     pub const AP: u8 = 2;
@@ -40,11 +47,13 @@ pub mod transport_bit {
 
 /// `sync_state` (key 7).
 pub mod sync_state {
-    /// No heartbeat sync (default until conductor-PLL).
+    /// No heartbeat sync (default until leaderless-PCO sync is wired).
     pub const FREE: u8 = 0;
-    /// Acquiring lock.
+    /// Acquiring lock. (v0.4: maps toward "coupling" under leaderless PCO — pending
+    /// composer contract revision; value retained for wire compatibility.)
     pub const SYNCING: u8 = 1;
-    /// Phase-locked.
+    /// Phase-locked. (v0.4: maps toward "converged" under leaderless PCO — pending
+    /// composer contract revision; value retained for wire compatibility.)
     pub const LOCKED: u8 = 2;
 }
 

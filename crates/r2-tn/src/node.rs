@@ -26,8 +26,10 @@ pub struct Delivered {
 pub enum PollEvent {
     /// A frame addressed to (and trust-gated for) this node.
     Delivered(Delivered),
-    /// A conductor Heartbeat for our trust group — drive the lub-dub LED
-    /// (visual beat-as-one; no PLL). Firmware toggles its LED pin on this.
+    /// A TG-peer's Heartbeat (PCO pulse) for our trust group — drive the lub-dub
+    /// LED (visual beat-as-one). R2-HEARTBEAT v0.4 leaderless reachback-PCO: no
+    /// conductor; the LED shows this node's OWN converged phase. Firmware toggles
+    /// its LED pin on this.
     Beat,
 }
 
@@ -95,7 +97,7 @@ impl<const N: usize, const P: usize, const D: usize> Node<N, P, D> {
 
     /// Poll the transport once (non-blocking). If a datagram arrives, run it
     /// through the engine: returns `Some(PollEvent::Delivered)` if it was for us,
-    /// `Some(PollEvent::Beat)` for a conductor heartbeat for our TG, else `None`
+    /// `Some(PollEvent::Beat)` for a TG-peer's PCO pulse for our TG, else `None`
     /// (relayed onward, dropped, or no datagram ready).
     pub fn poll(&mut self, now: u32) -> Option<PollEvent> {
         // Split borrows: recv into buf, then route using tx immutably.

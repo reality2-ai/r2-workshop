@@ -107,10 +107,12 @@ pub fn spawn(cfg: TnConfig) -> Result<()> {
                             d.event_hash,
                             d.payload.len()
                         ),
-                        // Conductor heartbeat for our TG → lub-dub beat. Logged for
-                        // now; driving the carrier LED (GPIO15 mono on C6) is the
-                        // pending firmware-glue step (composer §12.3 carrier-aware).
-                        r2_tn::PollEvent::Beat => info!("[tn] BEAT — heartbeat for our TG"),
+                        // A TG-peer's PCO pulse → lub-dub beat (R2-HEARTBEAT v0.4
+                        // leaderless reachback-PCO: no conductor; the LED shows this
+                        // node's OWN converged phase). Logged for now; driving the
+                        // carrier LED (GPIO15 mono on C6) is the pending firmware-glue
+                        // step (composer §12.3 carrier-aware).
+                        r2_tn::PollEvent::Beat => info!("[tn] BEAT — PCO pulse for our TG"),
                     }
                 }
 
@@ -126,9 +128,10 @@ pub fn spawn(cfg: TnConfig) -> Result<()> {
                         beat = beat.wrapping_add(1);
 
                         // #18: every 5th beat, UNICAST r2.hb.health to the
-                        // collector (the AP hub). sync_state=0 (free) until a
-                        // conductor-PLL exists; link_q placeholder until per-peer
-                        // RSSI. NO flood (originate -> Directed to the collector).
+                        // collector (the AP hub). sync_state=Free until leaderless-PCO
+                        // sync is wired (R2-HEARTBEAT v0.4 — no conductor-PLL);
+                        // link_q placeholder until per-peer RSSI. NO flood
+                        // (originate -> Directed to the collector).
                         if beat % health_every == 0 {
                             if let Some(collector) = cfg.collector {
                                 let report = r2_tn::health::HealthReport {
