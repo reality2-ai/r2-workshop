@@ -1,6 +1,11 @@
 # RESUME — r2-workshop (workshop-worker)
 
-_Owned by this session. Keep current. Last updated 2026-06-09._
+_Owned by this session. Keep current. Last updated 2026-06-24._
+**STATE: STABLE maintenance-mode** (rocker-lab, held per Roy). `main` @ `b766203`
+(local==origin), `profile-a-pathdep` @ `3251c23` (local==origin, R2-TN reference,
+composer's). Tree clean. tuxedo-dashboard-rebuild artifact pre-built + staged in
+`dist/` (local). All open items Roy/tuxedo-gated — see Next steps. Parked: R2-TN
+(composer owns). No active workshop change pending.
 Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan + DEV_STATUS).
 (Relocated 2026-06-18 from `claude-fleet/fleet-context/`; claude-fleet is now tooling-code-only.)
 
@@ -27,7 +32,9 @@ NOT my active track. Don't pick up R2-TN protocol-dev here. Rocker-lab status be
 
 ## Branch / state
 - **Branch:** `main` (this repo commits direct-to-main per convention).
-  `origin/main` HEAD: `265b378`. Working tree clean.
+  `origin/main` HEAD: `b766203` (local==origin). Working tree clean.
+  R2-TN reference lives on `profile-a-pathdep` @ `3251c23` (composer's track —
+  don't pick it up here). Earlier rocker-lab cut work was at `265b378`.
 - **Build-box: fully provisioned & validated** — espup/esp toolchain installed,
   espflash 4.4.0 (matches tuxedo), wasm-pack installed. All proven:
   firmware ×3 (devkitc/xiao/dfr1117 build + package + slot-fit + sidecar),
