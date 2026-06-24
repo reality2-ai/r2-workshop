@@ -12,7 +12,7 @@
 use anyhow::{Context, Result};
 use esp_idf_svc::hal::delay::FreeRtos;
 use esp_idf_svc::sys::{
-    esp_mac_type_t_ESP_MAC_WIFI_STA, esp_random, esp_read_mac,
+    esp_deep_sleep_start, esp_mac_type_t_ESP_MAC_WIFI_STA, esp_random, esp_read_mac,
 };
 use log::{info, warn};
 use std::io::{Read, Write};
@@ -25,6 +25,7 @@ use crate::clock::Clock;
 use crate::identity::Identity;
 use crate::led::LedHandle;
 use crate::ring::Ring;
+use crate::sd::SdCard;
 use crate::sim::AccelSim;
 use crate::wire::{
     decode_compact_frame, frame_for_tcp, parse_capture_event_mark, parse_capture_mark,
@@ -52,6 +53,16 @@ const RECONNECT_BACKOFF_MS_MAX: u64 = 30_000;
 /// after the third failed attempt — roughly ~7s of cyan, then blue.
 const BLE_FALLBACK_THRESHOLD_MS: u64 = 5_000;
 const TCP_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+/// Critical battery threshold (mV). Below this, a REAL cell reading
+/// triggers a graceful flush + SD unmount + deep sleep before a brownout
+/// can corrupt a write — see `Sender::graceful_shutdown`. Set below the
+/// LOW_BATTERY warning (3300 mV) so it only fires when the cell is
+/// genuinely almost empty, while leaving enough headroom under WiFi load
+/// to finish the unmount.
+const CRITICAL_BATTERY_MV: u16 = 3250;
+/// Once low-battery is latched, poll the cell this often instead of the
+/// 30 s `BATTERY_PERIOD_MS` so the critical crossing is caught quickly.
+const LOW_BATTERY_POLL_MS: u64 = 5_000;
 
 /// Identifies this exact build on the wire —
 /// `<semver>-<build-date-time>[-sim]+<git-sha>[-dirty]`. The `-sim`
@@ -130,6 +141,19 @@ pub struct Sender {
     /// the webapp's SD-presence display — no `/api/data/list`
     /// inference needed.
     sd_mounted: bool,
+    /// SD mount guard — owned here so `graceful_shutdown` can unmount the
+    /// filesystem deterministically (drop = unmount). `None` when no card
+    /// mounted this boot. Keeps the FATFS mount alive for the lifetime of
+    /// the (forever-running) sender.
+    sd: Option<SdCard>,
+    /// Set on capture Stop to the just-finished run's data filename;
+    /// cleared once `last_served` reports it pulled. While `Some`, the LED
+    /// holds `SecuringData` ("don't power off — transferring").
+    pending_safe_file: Option<String>,
+    /// Latched low-battery state (mirrors the LED overlay) so the session
+    /// loop can poll the cell faster once we're low — catching the
+    /// critical crossing before a brownout.
+    low_battery: bool,
 }
 
 impl Sender {
@@ -146,6 +170,7 @@ impl Sender {
         class: &'static str,
         carrier: &'static str,
         sd_mounted: bool,
+        sd: Option<SdCard>,
     ) -> Self {
         let fw_ver = build_fw_ver(adxl.is_some());
         Self {
@@ -165,6 +190,9 @@ impl Sender {
             class,
             carrier,
             sd_mounted,
+            sd,
+            pending_safe_file: None,
+            low_battery: false,
         }
     }
 
@@ -276,11 +304,21 @@ impl Sender {
             }
             if now >= next_battery {
                 self.send_battery(&mut stream).context("send_battery")?;
-                next_battery += Duration::from_millis(BATTERY_PERIOD_MS);
+                // Poll faster once low so the critical crossing (→ graceful
+                // shutdown) is caught well before a brownout.
+                let period = if self.low_battery { LOW_BATTERY_POLL_MS } else { BATTERY_PERIOD_MS };
+                next_battery += Duration::from_millis(period);
             }
             if now >= next_status {
                 self.send_status(&mut stream).context("send_status")?;
                 next_status += Duration::from_millis(STATUS_PERIOD_MS);
+            }
+
+            // After a run Stop, watch for the dashboard pulling the run's
+            // file off the SD. Once served, the data is on the PC → LED
+            // goes off ("safe to power off"). Cheap atomic-guarded check.
+            if self.pending_safe_file.is_some() {
+                self.poll_safe_to_power_off();
             }
 
             // Inbound poll. read() returns WouldBlock / TimedOut if no
@@ -402,11 +440,36 @@ impl Sender {
                 }
             }
             EVT_DASH_CAPTURE_STOP => {
+                // Grab the just-finished run's data filename BEFORE stop()
+                // (which transitions to Idle and forgets it).
+                let stopped_file = self
+                    .capture
+                    .as_ref()
+                    .and_then(|c| c.open_file_name().map(str::to_string));
                 if let Some(ref mut cap) = self.capture {
                     if let Err(e) = cap.stop() {
                         warn!("[capture] stop: {}", e);
                     }
-                    self.send_capture_state(stream)?;
+                }
+                // Run complete → power-safe the whole card now (the moment
+                // an operator is most likely to flip the power switch).
+                // capture.stop() already fsynced the capture file; sync the
+                // ring's open segment too so the FS is fully consistent.
+                if let Some(ref mut ring) = self.ring {
+                    if let Err(e) = ring.sync() {
+                        warn!("[ring] post-run sync failed: {}", e);
+                    }
+                }
+                self.send_capture_state(stream)?;
+                // Drive the "safe to power off" LED protocol — but only when
+                // a real file was written (an SD-less run has nothing to
+                // transfer). Clear the served-signal first so we react to
+                // the post-stop pull, not a stale one, then hold SecuringData
+                // (solid) until data_tcp reports the file pulled to the PC.
+                if let Some(name) = stopped_file {
+                    r2_esp::data_tcp::clear_last_served();
+                    self.pending_safe_file = Some(name);
+                    self.led.set(crate::led::LedState::SecuringData);
                 }
             }
             EVT_DASH_CAPTURE_EVENT_MARK => {
@@ -731,23 +794,15 @@ impl Sender {
         Ok(())
     }
 
-    /// OTA anti-brick validity gate (SPEC-R2-WORKSHOP-SENSOR §12.2).
+    /// Streaming-stage self-test (diagnostic only).
     ///
-    /// A freshly OTA'd image rolls back on the next reset unless it marks
-    /// itself valid. We do that here, at the streaming stage, because
-    /// reaching this point proves the image ran its ENTIRE local init
-    /// without crashing: identity/clock/NVS → WiFi associate + DHCP →
-    /// BLE beacon/L2CAP → I2C/SPI bus + accelerometer init (all done in
-    /// `Sender::new`, before `run`). That is the meaningful "this image
-    /// is not a brick" signal.
-    ///
-    /// We deliberately do NOT wait for the dashboard. Gating on dashboard
-    /// reachability conflates a bad *image* with a bad *environment*, so a
-    /// single transient reset before the first frame would needlessly roll
-    /// back a good image (the 0.3.0→0.3.0 revert that motivated this). The
-    /// best-effort sensor self-test below is logged for diagnostics but
-    /// must NOT block validation — a flaky bus must not cause a rollback
-    /// loop, and sim-fallback is a valid degraded operating mode.
+    /// The OTA anti-brick image-validation now happens earlier and
+    /// WiFi-independently in `main.rs` (right after core init / BLE up),
+    /// so this no longer marks the image valid — by the time the sender
+    /// thread runs, the image is already validated. We keep the accel
+    /// self-test here purely as a logged health probe at the streaming
+    /// stage; it must never gate anything (a flaky bus or sim-fallback is
+    /// a valid degraded operating mode, not a brick).
     fn confirm_image_valid(&mut self) {
         let probe = match self.adxl.as_mut() {
             Some(accel) => match accel.read_xyz_lsb() {
@@ -756,8 +811,65 @@ impl Sender {
             },
             None => "sim fallback — valid degraded mode",
         };
-        info!("[ota-gate] streaming stage reached ({probe}) — validating image");
-        r2_esp::ota_tcp::mark_app_valid();
+        info!("[ota-gate] streaming stage reached ({probe}) — image already validated at core init");
+    }
+
+    /// After a run Stop, check whether the dashboard has finished pulling
+    /// the run's file off the SD (data_tcp set `last_served`). When it
+    /// has, the data is safely on the PC → LED off ("safe to power off").
+    /// Tolerates the `cap-` fallback-prefix mismatch between the sender's
+    /// in-RAM filename and the on-disk basename data_tcp serves.
+    fn poll_safe_to_power_off(&mut self) {
+        let Some(pending) = self.pending_safe_file.clone() else { return; };
+        let served = r2_esp::data_tcp::last_served();
+        if let Some(served) = served {
+            let norm = |s: &str| s.strip_prefix("cap-").unwrap_or(s).to_string();
+            if norm(&served) == norm(&pending) {
+                info!("[safe] run '{}' pulled to PC — safe to power off (LED off)", pending);
+                self.led.set(crate::led::LedState::SafeToPowerOff);
+                self.pending_safe_file = None;
+            }
+        }
+    }
+
+    /// Power-safe the SD and park the device. Called on critical battery,
+    /// and intended as the single entry point for a future hardware
+    /// power-loss path (a 3V3 hold-cap + a pre-regulator voltage-sense
+    /// GPIO interrupt would call this within the cap's hold time — the
+    /// only way to make an instantaneous switch-off fully safe).
+    ///
+    /// Order is load-bearing: open files MUST be closed before the
+    /// filesystem is unmounted — unmounting with files open corrupts the
+    /// FAT. Deep-sleep (not restart) so a flat LiPo can't keep writing
+    /// and re-corrupt; the operator power-cycles to resume. Never returns.
+    fn graceful_shutdown(&mut self) -> ! {
+        self.led.set(crate::led::LedState::ShuttingDown);
+        // 1. Close any open capture file (fsync happens inside stop()).
+        if let Some(mut cap) = self.capture.take() {
+            if let Err(e) = cap.stop() {
+                warn!("[shutdown] capture stop failed: {}", e);
+            }
+            // cap dropped here.
+        }
+        // 2. Flush + close the ring (Drop also syncs; explicit for clarity).
+        if let Some(mut ring) = self.ring.take() {
+            if let Err(e) = ring.sync() {
+                warn!("[shutdown] ring sync failed: {}", e);
+            }
+            // ring dropped here → segment file closed.
+        }
+        // 3. Unmount the FAT filesystem (final flush of FAT + dir entries).
+        //    Must come AFTER the open files above are closed.
+        drop(self.sd.take());
+        info!("[shutdown] SD power-safed (capture closed, ring flushed, FS unmounted) — entering deep sleep");
+        // Let the LED latch ShuttingDown and the log line drain.
+        FreeRtos::delay_ms(250);
+        // SAFETY: always callable; the chip enters deep sleep and does
+        // not return from here.
+        unsafe { esp_deep_sleep_start(); }
+        // esp_deep_sleep_start never returns; satisfy the `!` return type.
+        #[allow(unreachable_code)]
+        loop { FreeRtos::delay_ms(1000); }
     }
 
     /// Emit `r2.sensor.status` with the current LED FSM state value
@@ -796,8 +908,22 @@ impl Sender {
         const LOW_BATTERY_CLEAR_MV: u16 = 3400;
         if mv <= LOW_BATTERY_MV {
             self.led.set_low_battery(true);
+            self.low_battery = true;
         } else if mv >= LOW_BATTERY_CLEAR_MV {
             self.led.set_low_battery(false);
+            self.low_battery = false;
+        }
+
+        // Critical battery → power-safe the SD and deep-sleep before a
+        // brownout can corrupt a write. Gated on a REAL ADC reading so the
+        // simulator's steady downward drift can never park a bench unit or
+        // a carrier with no divider fitted. Diverges (never returns).
+        if self.battery.is_real() && mv <= CRITICAL_BATTERY_MV {
+            warn!(
+                "sender: battery critical ({} mV ≤ {} mV) — power-safing SD + deep sleep",
+                mv, CRITICAL_BATTERY_MV
+            );
+            self.graceful_shutdown();
         }
 
         let mut payload = [0u8; 24];

@@ -47,6 +47,22 @@ pub enum LedState {
     /// Operator "identify" overlay — solid white. Driven by the
     /// `identify` AtomicBool in LedHandle; see `set_identify`.
     Identify = 12,
+    /// Graceful low-battery shutdown reached: capture closed, ring
+    /// flushed, SD unmounted. Solid dim red so the operator can see
+    /// at a glance the device has parked itself safely and is about to
+    /// deep-sleep — distinct from `Error` (fast red pulse). See
+    /// `Sender::graceful_shutdown` + SPEC-R2-WORKSHOP-SENSOR §8.4.
+    ShuttingDown = 13,
+    /// A run has stopped: the SD is being power-safed and the dashboard
+    /// is still pulling the run's file to the PC. Solid teal = "working,
+    /// do NOT power off yet". Clears to `SafeToPowerOff` once the file
+    /// has been served (data_tcp GET complete). See
+    /// `Sender` capture-stop handling.
+    SecuringData = 14,
+    /// Run complete AND its data has reached the PC (data_tcp served the
+    /// file). LED off = "safe to power off". The operator's go-signal to
+    /// flip the switch. A new run returns the LED to `Recording`.
+    SafeToPowerOff = 15,
 }
 
 impl LedState {
@@ -65,6 +81,9 @@ impl LedState {
             10 => Self::StreamingDegradedSim,
             11 => Self::Recording,
             12 => Self::Identify,
+            13 => Self::ShuttingDown,
+            14 => Self::SecuringData,
+            15 => Self::SafeToPowerOff,
             _ => Self::Boot,
         }
     }
@@ -317,6 +336,17 @@ fn render(state: LedState, low_battery: bool, elapsed: Duration) -> RGB8 {
         // the Devices tab. Unambiguous: pick THIS sensor out of the
         // rack. BRIGHTNESS cap applies as usual.
         LedState::Identify => rgb(0xFF, 0xFF, 0xFF),
+        // Solid dim red — graceful low-battery shutdown done (card
+        // flushed + unmounted), device about to deep-sleep. Solid (not
+        // pulsed like Error) so it reads as "parked safely", and dim to
+        // sip the last of the LiPo while the operator notices.
+        LedState::ShuttingDown => rgb(0x20, 0x00, 0x00),
+        // Solid teal — run stopped, SD power-safed, dashboard still
+        // pulling the file to the PC. "Working, don't power off yet."
+        LedState::SecuringData => rgb(0x00, 0x60, 0x60),
+        // Off — run complete + data confirmed on the PC. "Safe to
+        // power off." Dark is the deliberate go-signal.
+        LedState::SafeToPowerOff => rgb(0x00, 0x00, 0x00),
     }
 }
 

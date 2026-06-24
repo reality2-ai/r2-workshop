@@ -57,6 +57,24 @@ pub enum LedState {
     /// Operator "identify" overlay — solid. Driven by the `identify`
     /// AtomicBool in LedHandle; see `set_identify`.
     Identify = 12,
+    /// Graceful low-battery shutdown reached: capture closed, ring
+    /// flushed, SD unmounted. On the single-colour LED this renders as a
+    /// solid dim glow so the operator can see at a glance the device has
+    /// parked itself safely and is about to deep-sleep — distinct from
+    /// `Error` (fast pulse). See `Sender::graceful_shutdown` +
+    /// SPEC-R2-WORKSHOP-SENSOR §8.4.
+    ShuttingDown = 13,
+    /// A run has stopped: the SD is being power-safed and the dashboard
+    /// is still pulling the run's file to the PC. On the single-colour LED
+    /// this renders as a steady mid-brightness "working" double-tick =
+    /// "working, do NOT power off yet". Clears to `SafeToPowerOff` once the
+    /// file has been served (data_tcp GET complete). See `Sender`
+    /// capture-stop handling.
+    SecuringData = 14,
+    /// Run complete AND its data has reached the PC (data_tcp served the
+    /// file). LED off = "safe to power off". The operator's go-signal to
+    /// flip the switch. A new run returns the LED to `Recording`.
+    SafeToPowerOff = 15,
 }
 
 impl LedState {
@@ -75,6 +93,9 @@ impl LedState {
             10 => Self::StreamingDegradedSim,
             11 => Self::Recording,
             12 => Self::Identify,
+            13 => Self::ShuttingDown,
+            14 => Self::SecuringData,
+            15 => Self::SafeToPowerOff,
             _ => Self::Boot,
         }
     }
@@ -309,6 +330,24 @@ fn render(state: LedState, low_battery: bool, elapsed: Duration) -> RGB8 {
         LedState::StreamingDegradedSim => scale(rgb(0x80, 0x00, 0xC0), pulse(elapsed, 2.0)),
         LedState::Recording => scale(rgb(0x00, 0xE0, 0x30), single_tick(elapsed, 0.5)),
         LedState::Identify => rgb(0xFF, 0xFF, 0xFF),
+        // Solid dim glow — graceful low-battery shutdown done (card
+        // flushed + unmounted), device about to deep-sleep. Kept
+        // byte-identical to the WS2812 carriers (dim red); colour is
+        // dropped at output, so this reads as a steady dim glow. Solid
+        // (not pulsed like Error) so it reads as "parked safely", and dim
+        // to sip the last of the LiPo while the operator notices.
+        LedState::ShuttingDown => rgb(0x20, 0x00, 0x00),
+        // "Working, don't power off yet" — run stopped, SD power-safed,
+        // dashboard still pulling the file to the PC. On the WS2812
+        // carriers this is solid teal; here the colour is dropped, so a
+        // solid mid-glow would be hard to tell apart from `ShuttingDown`.
+        // Instead give it a steady mid-brightness double-tick (a busy
+        // "heartbeat") so it unmistakably reads as active work in
+        // progress rather than a parked state.
+        LedState::SecuringData => scale(rgb(0x00, 0x60, 0x60), heartbeat(elapsed, HEARTBEAT_BPM)),
+        // Off — run complete + data confirmed on the PC. "Safe to
+        // power off." Dark is the deliberate go-signal.
+        LedState::SafeToPowerOff => rgb(0x00, 0x00, 0x00),
     }
 }
 

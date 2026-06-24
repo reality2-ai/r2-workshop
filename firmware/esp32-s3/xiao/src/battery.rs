@@ -162,6 +162,17 @@ impl Battery {
         let t_s = self.boot.elapsed().as_secs_f32();
         self.sim.sample(t_s)
     }
+
+    /// True once a real ADC reading has passed the plausibility + spread
+    /// gates (latched for the rest of the boot). The critical-battery
+    /// graceful-shutdown path consults this so the simulator — which
+    /// drifts steadily downward and would eventually cross any voltage
+    /// threshold — can never park a bench unit or a carrier that has no
+    /// divider fitted (e.g. XIAO). Only a genuinely-measured low cell
+    /// triggers a shutdown.
+    pub fn is_real(&self) -> bool {
+        self.real_seen
+    }
 }
 
 fn build_channel(

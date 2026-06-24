@@ -137,6 +137,11 @@ fn main() -> Result<()> {
     // next reset rolls back to the previous slot.
     if let Err(e) = run(led_handle.clone(), modem, sysloop, nvs, spi2, sclk, mosi, miso, cs_sd, i2c0, sda, scl, adc1, bat_pin) {
         error!("[FATAL] init/runtime error: {e:?}");
+        // Surface the failure on the serial console too — the Rust log
+        // logger is TCP-only, so without this a run() Err that happens
+        // before/without WiFi (e.g. a misbuilt R2_GATEWAY_IP) is invisible
+        // on serial. Cheap, and saved a long blind debug once already.
+        eprintln!("[FATAL] init/runtime error: {e:?}");
         led_handle.set(led::LedState::Error);
         FreeRtos::delay_ms(10_000);
         unsafe { esp_restart(); }
@@ -244,6 +249,26 @@ fn run(
     l2cap::init();
     info!("[BLE] L2CAP server listening on PSM 0xD2");
 
+    // ── OTA anti-brick validity gate (SPEC-R2-WORKSHOP-SENSOR §12.2). ──
+    // Mark the running image valid HERE, on LOCAL self-proof that core
+    // init came up without crashing — identity + clock + NVS + R2-BEACON
+    // advertise + L2CAP server — and crucially INDEPENDENT of WiFi.
+    // Reaching this line proves the image is not a brick: it boots and
+    // runs the always-on BLE path.
+    //
+    // Previously the gate lived at the sender's streaming stage, which
+    // only runs when `wifi_up`. That meant a sound new image whose FIRST
+    // boot happened to have no hotspot — a USB flash with the WiFi dongle
+    // unplugged, or an OTA landing during a hotspot cycle — never reached
+    // the gate, never validated, and got rolled back on the next reset.
+    // WiFi availability is an environmental condition, not a property of
+    // the image; ESP-IDF guidance is to mark valid as early as the image
+    // is proven. (Residual: an image that boots+BLE-inits but later panics
+    // in the streaming path won't roll back — but that's a steady-state
+    // bug, not the brick rollback exists to catch.)
+    r2_esp::ota_tcp::mark_app_valid();
+    info!("[ota-gate] core init complete (BLE up) — image marked valid (WiFi-independent)");
+
     // ── Sender path (only if WiFi came up). ──────────────────────────
     if wifi_up {
         // WiFi up → streaming. The LED state distinguishes healthy
@@ -251,13 +276,13 @@ fn run(
         // inside the sender thread once we know whether ADXL355 init
         // succeeded. See SPEC-R2-WORKSHOP-SENSOR-HEALTH §4.
 
-        // OTA anti-brick gate is fired by the sender at the streaming
-        // stage on LOCAL self-proof (boot + WiFi + drivers all init'd),
-        // NOT on reaching the dashboard — see `sender::confirm_image_valid`.
-        // Gating on dashboard reach would roll back a good image after a
-        // single transient reset before the first frame (the 0.3.0→0.3.0
-        // revert). An image that crashes during local init never reaches
-        // the gate, so the bootloader still rolls those back on next boot.
+        // OTA anti-brick gate already fired ABOVE, at core init (right
+        // after L2CAP) — WiFi-independent, see the `mark_app_valid()` call
+        // before this `if wifi_up` branch. It is NOT gated on WiFi or the
+        // dashboard: an image that boots through core init is not a brick,
+        // and gating on WiFi/dashboard reach rolled back good images whose
+        // first boot lacked a hotspot. `sender::confirm_image_valid` below
+        // is now only a streaming-stage self-test log, not the gate.
 
         // Phase 9-light — OTA receive listener on TCP port 21043. Accepts
         // CMD_START preamble (sha256 + size) + firmware stream, writes to
@@ -336,7 +361,7 @@ fn run(
                 // SD on its own SPI bus — best-effort; no SD ⇒ streaming-only.
                 // (On the C6 the accelerometer is on I²C, not this bus, so a
                 // SPI failure no longer blocks streaming.)
-                let _sd = match SpiDriver::new(
+                let sd_card = match SpiDriver::new(
                     spi2, sclk, mosi, Some(miso),
                     &SpiDriverConfig::new().dma(Dma::Auto(4096)),
                 ) {
@@ -365,11 +390,11 @@ fn run(
                     }
                 };
                 // Boot-time SD-mount fact for the announce (WIRE §3.1
-                // key 13 `sd_mounted`). Captured here, before _sd is
-                // consumed below, so the sender can ride it straight
-                // into the announce payload.
-                let sd_mounted = _sd.is_some();
-                let ring = if _sd.is_some() {
+                // key 13 `sd_mounted`). Captured here, before `sd_card` is
+                // moved into the Sender (which owns the mount guard so it
+                // can unmount cleanly on graceful shutdown).
+                let sd_mounted = sd_card.is_some();
+                let ring = if sd_card.is_some() {
                     match ring::Ring::open(sd::MOUNT_POINT) {
                         Ok(r) => {
                             info!("[ring] ready (tail_seq={})", r.tail_seq());
@@ -404,7 +429,7 @@ fn run(
                 });
                 let mut s = sender::Sender::new(
                     gateway, hostname, id_for_sender, led_for_sender, adxl, clock_for_sender, ring, capture, battery,
-                    SENSOR_CLASS, SENSOR_CARRIER, sd_mounted,
+                    SENSOR_CLASS, SENSOR_CARRIER, sd_mounted, sd_card,
                 );
                 s.run();
             })

@@ -181,6 +181,20 @@ impl Ring {
         self.tail_seq
     }
 
+    /// Force the current segment's data + FAT directory entry to the card
+    /// now, leaving the on-disk filesystem consistent. Two callers:
+    ///   * capture-Stop "power-safe the card" — a run just completed, the
+    ///     moment an operator is most likely to flip the power switch, so
+    ///     we make the whole card durable then (the capture file is
+    ///     fsynced in `CaptureMgr::stop`; this covers the ring too).
+    ///   * `Sender::graceful_shutdown` — before unmount on critical
+    ///     battery / a future hardware power-loss interrupt.
+    /// Best-effort at the call site (logged + continue); `Drop` also
+    /// syncs as a last resort.
+    pub fn sync(&mut self) -> std::io::Result<()> {
+        self.current.sync_all()
+    }
+
     /// Append a single record. Rotates the segment if the next write
     /// would exceed the segment-size threshold. Calls `sync_all()` every
     /// `SYNC_EVERY_N_RECORDS` writes so a hot SD-pull doesn't lose more

@@ -73,6 +73,34 @@ pub fn new_current_recording() -> CurrentRecording {
 
 static LISTENER_STARTED: AtomicBool = AtomicBool::new(false);
 
+/// Basename of the most recent capture file the dashboard has fully
+/// pulled via a successful `GET` (all bytes written to the client).
+/// This is the sensor's "data has reached the PC" signal: the sender
+/// watches it after a run Stop to drive the "safe to power off" LED
+/// (solid while securing/transferring → off once the run's file has been
+/// served). Set only on a *complete* GET, so a torn transfer never flips
+/// the LED to safe. A module static rather than a passed-in handle
+/// because the data_tcp listener is a per-device singleton — this keeps
+/// `start_listener`'s signature (and the other carriers' callers)
+/// untouched. `Mutex::new` is const since Rust 1.63.
+static LAST_SERVED: Mutex<Option<String>> = Mutex::new(None);
+
+/// Snapshot the basename of the last capture file fully served via GET.
+/// `None` until the dashboard has pulled at least one file since boot
+/// (or since `clear_last_served`).
+pub fn last_served() -> Option<String> {
+    LAST_SERVED.lock().ok().and_then(|g| g.clone())
+}
+
+/// Reset the served signal. The sender calls this on a run Stop so the
+/// subsequent "safe to power off" check reacts to the *post-stop* pull,
+/// not a stale serve from an earlier reconciliation cycle.
+pub fn clear_last_served() {
+    if let Ok(mut g) = LAST_SERVED.lock() {
+        *g = None;
+    }
+}
+
 /// Start the data_tcp listener thread. Idempotent. Spawn AFTER WiFi
 /// is up — bind to `0.0.0.0:21047` blocks indefinitely before lwIP
 /// is initialised on ESP-IDF (same `install_logger` / `start_listener`
@@ -233,6 +261,14 @@ fn handle_get(
         let n = f.read(&mut buf)?;
         if n == 0 { break; }
         stream.write_all(&buf[..n])?;
+    }
+
+    // Whole body sent successfully → record this as the last file the
+    // dashboard pulled to the PC. The sender's "safe to power off" LED
+    // watches this. Only reached on a complete transfer (any earlier
+    // `?` short-circuits), so a torn pull never signals "safe".
+    if let Ok(mut g) = LAST_SERVED.lock() {
+        *g = Some(name);
     }
     Ok(())
 }
