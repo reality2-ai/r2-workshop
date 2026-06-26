@@ -1,8 +1,9 @@
 # RESUME — r2-workshop (workshop-worker)
 
-_Owned by this session. Keep current. Last updated 2026-06-24._
-**STATE: STABLE maintenance-mode** (rocker-lab, held per Roy). `main` @ `b766203`
-(local==origin), `profile-a-pathdep` @ `3251c23` (local==origin, R2-TN reference,
+_Owned by this session. Keep current. Last updated 2026-06-27._
+**STATE: STABLE maintenance-mode** (rocker-lab, held per Roy). `main` @ `975beb9`
+(local==origin; includes Roy's firmware OTA-gate `29b1b0a`, devkitc-verified),
+`profile-a-pathdep` @ `3251c23` (local==origin, R2-TN reference,
 composer's). Tree clean. tuxedo-dashboard-rebuild artifact pre-built + staged in
 `dist/` (local). All open items Roy/tuxedo-gated — see Next steps. Parked: R2-TN
 (composer owns). No active workshop change pending.
@@ -72,7 +73,21 @@ OTA of release `fw-v0.3.0`. Forensics:
   assoc + self-test) rather than requiring an end-to-end dashboard frame — but
   that's a design change to discuss, low priority given supersede-by-composer.
 
-## OTA validity-gate change (2026-06-16) — DRAFTED, hardware-unverified
+## OTA validity-gate change — SUPERSEDED + HARDWARE-VERIFIED by Roy @ `29b1b0a`
+**UPDATE (2026-06-27):** Roy built on my `699ee32` draft (it's in main's
+history) and took it further @ `29b1b0a` (2026-06-24): mark-valid now fires at
+**core init right after L2CAP**, fully WiFi-independent (even earlier than my
+streaming-stage gate); my `confirm_image_valid` demoted to a diagnostic-only
+streaming-stage self-test. He also added clean-shutdown (`graceful_shutdown()`
+on real critical-battery ≤3250 mV, gated on `Battery::is_real`), the
+safe-power-off LED protocol (ShuttingDown/SecuringData/SafeToPowerOff +
+data_tcp `LAST_SERVED`), `Ring::sync()`, and serial print of FATAL run() errors
+— ported across devkitc/xiao/dfr1117. **VERIFIED ON DEVKITC HARDWARE (both
+sensors).** So the OTA anti-brick gate is now metal-proven on the rocker;
+the verification item below is RESOLVED. Original draft notes retained for
+context:
+
+## OTA validity-gate change (2026-06-16) — DRAFTED → see SUPERSEDED note above
 Fix for the revert above + reusable contract for **composer's OTA plugin**
 (Roy: workshop WILL be used in the field before composer is done, so this is a
 real fix, not just reference). Moves the anti-brick gate off the dashboard.
@@ -116,13 +131,20 @@ real fix, not just reference). Moves the anti-brick gate off the dashboard.
    see `fw-v0.3.0` until rebuilt to current `main`. Tuxedo-side update.
    **ARTIFACT PRE-BUILT (2026-06-22, supervisor-sanctioned non-gated prep):**
    `dist/r2-workshop-server-nz-ac-auckland-rocker-0.3.1+ee6ca256-linux-x86_64.tar.gz`
-   (sha256 `7ffadc09e664…`, 2.70MB, git ee6ca256 = current main; r2-dashboard Hive +
+   (sha256 `7ffadc09e664…`, 2.70MB, git ee6ca256; r2-dashboard Hive +
    webapp + WASM pkg + start/install scripts). Verified (sha matches meta). dist/ is
    gitignored → stays LOCAL on Alfred, ready to scp+deploy to tuxedo. NOT published
    (server stream Roy-held — this is the deploy artifact, not a gh release). DEPLOY
    in the coordinated window (tuxedo busy w/ live R2 #14 mesh): scp the tarball →
    extract → tools/start-server.sh (per install-launcher), restart the :21042 dash.
    Awaiting Roy's window (supervisor relaying the 4 gated items to Roy).
+   **STAMP NOTE (2026-06-27):** main has since advanced to `975beb9` (Roy's
+   firmware-only OTA-gate commit `29b1b0a`). The staged artifact is git
+   `ee6ca256` = behind main, but `29b1b0a` is **firmware-only** (dashboard/
+   server tarball bundles no firmware) so the artifact CONTENT is unaffected.
+   Optional: re-stamp/rebuild at deploy time so the version string tracks the
+   deployed git — but not required for a correct dashboard. dist/ also holds
+   the matching aarch64 tarball if tuxedo needs it.
 3. **DFR1195 (ESP32-S3) Path-B no_std build path** (forward dep, not urgent).
    New target NOT covered by the current Path-A/ESP-IDF matrix
    (devkitc/xiao/dfr1117). Pipeline: hive (no_std esp-hal/embassy source) →
