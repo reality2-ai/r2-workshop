@@ -129,6 +129,13 @@ real fix, not just reference). Moves the anti-brick gate off the dashboard.
    **workshop adds a no_std esp-hal build path + `fw-vX.Y.Z` release +
    OTA sidecars** → composer OTA push. hive coordinates when its scaffold
    compiles (hive branch `platform-trait`).
+   **DEP CLOSER (2026-06-27):** hive's field triplet is now PROVEN ON METAL
+   (one-image role-select + §8.1 LoRa beacon + LoRa data-plane; signed
+   receiver + confirmed-boot + anti-rollback + otadata slot-switch all
+   metal-validated). The OTA networked round-trip is bench-topology-gated
+   (isolated soft-AP), NOT a firmware/signing gap. Path-B convergence for
+   the rocker is now nearer — still hive-gated + sequenced LAST, but the
+   no_std build-path work is no longer blocked on an unproven scaffold.
 4. **Demo guard** `.tg_pub_demo_sha256` — deferred (needs upstream demo TG key
    hash; dormant for the rocker since its TG key is real).
 5. Watch the **vendored core/hive crate re-sync** (upstream churn) before any
