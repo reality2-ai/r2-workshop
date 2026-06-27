@@ -1,15 +1,32 @@
 # RESUME — r2-workshop (workshop-worker)
 
-_Owned by this session. Keep current. Last updated 2026-06-28._
-**STATE: STABLE maintenance-mode** (rocker-lab, held per Roy). Verified baseline before this
-peer-confirmed RESUME-only idle refresh: `main` @ `2df4608`
-(local==origin; includes companion watchdog refresh after Roy's firmware OTA-gate `29b1b0a`, devkitc-verified),
+_Owned by the current writer. Keep current. Last updated 2026-06-28._
+**STATE: STABLE maintenance-mode** (rocker-lab, held per Roy). Current writer:
+`workshop-codex` after cross-provider fail-over from `workshop` (Claude usage limit).
+Verified baseline before this RESUME-only takeover update: `main` @ `97b1af9`
+(local==origin; includes peer-confirmed idle refresh after Roy's firmware OTA-gate `29b1b0a`, devkitc-verified),
 `profile-a-pathdep` @ `3251c23` (local==origin, R2-TN reference,
 composer's). Tree clean. tuxedo-dashboard-rebuild artifact pre-built + staged in
 `dist/` (local). All open items Roy/tuxedo-gated — see Next steps. Parked: R2-TN
 (composer owns). No active workshop change pending.
 Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan + DEV_STATUS).
 (Relocated 2026-06-18 from `claude-fleet/fleet-context/`; claude-fleet is now tooling-code-only.)
+
+## Codex takeover (2026-06-28, workshop-codex)
+- **Current objective:** fail-over from `workshop` after Claude reported the org monthly spend limit;
+  continue stable maintenance-mode without inventing work.
+- **Last verified state before this RESUME-only update:** `git status --short --branch` clean on
+  `main...origin/main`; `git diff --stat` and `git diff --name-only` empty; `HEAD` and
+  `origin/main` both resolved to `97b1af9ae9304fc6c8e87c291fb3f809273f6f1a`.
+- **Changed files this turn:** `RESUME.md` only, to record the writer handoff and current tip.
+  No code, build, release, deploy, or artifact files changed.
+- **Verification:** no tests/builds run; markdown-only handoff refresh after clean-tree checks.
+- **Next action:** idle until an explicit rocker-lab trigger lands: Roy/tuxedo deploy window,
+  Roy server-release version, Roy browser/sensor verification update, or sequenced Path-B/no_std
+  request after hive/composer readiness.
+- **Do not assume:** the prior read-only Codex-standby rule is superseded only by this explicit
+  cross-provider handoff; if `workshop` resumes, restore one-writer coordination before any further
+  writes.
 
 ## Companion re-anchor (2026-06-27, workshop-codex)
 - **Current objective:** carry on / maintain rocker-lab handoff; no active code task found.
@@ -65,8 +82,8 @@ NOT my active track. Don't pick up R2-TN protocol-dev here. Rocker-lab status be
 
 ## Branch / state
 - **Branch:** `main` (this repo commits direct-to-main per convention).
-  Verified baseline before the 2026-06-28 peer-confirmed RESUME-only idle refresh:
-  `origin/main` HEAD: `2df4608` (local==origin), working tree clean. Any later tip should be
+  Verified baseline before the 2026-06-28 Codex takeover RESUME-only update:
+  `origin/main` HEAD: `97b1af9` (local==origin), working tree clean. Any later tip should be
   a RESUME-only handoff commit unless new code work has been explicitly opened.
   R2-TN reference lives on `profile-a-pathdep` @ `3251c23` (composer's track —
   don't pick it up here). Earlier rocker-lab cut work was at `265b378`.
