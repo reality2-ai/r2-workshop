@@ -2,8 +2,8 @@
 
 _Owned by this session. Keep current. Last updated 2026-06-28._
 **STATE: STABLE maintenance-mode** (rocker-lab, held per Roy). Verified baseline before this
-RESUME-only watchdog update: `main` @ `a98720f`
-(local==origin; includes companion re-anchor after Roy's firmware OTA-gate `29b1b0a`, devkitc-verified),
+peer-confirmed RESUME-only idle refresh: `main` @ `2df4608`
+(local==origin; includes companion watchdog refresh after Roy's firmware OTA-gate `29b1b0a`, devkitc-verified),
 `profile-a-pathdep` @ `3251c23` (local==origin, R2-TN reference,
 composer's). Tree clean. tuxedo-dashboard-rebuild artifact pre-built + staged in
 `dist/` (local). All open items Roy/tuxedo-gated — see Next steps. Parked: R2-TN
@@ -28,6 +28,20 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
   without Roy's explicit version; do not touch live tuxedo dashboard from Alfred outside a coordinated
   deploy window.
 
+## Watchdog idle confirmation (2026-06-28, workshop-codex)
+- **Current objective:** answer supervisor watchdog by carrying queue to a real idle point.
+- **Last verified state before this RESUME-only update:** `git status --short --branch` clean on
+  `main...origin/main`; `git diff --stat` and `git diff --name-only` empty; `HEAD` and
+  `origin/main` at `2df460816f975e8ec0d5756a17690ac0792e17b0`.
+- **Peer refutation:** `fleet ask workshop` answered at 18:45 that there is no open rocker-lab
+  queue item, no objection to idling, tree clean at `2df4608`, and all remaining items are external
+  triggers: Roy/tuxedo deploy window, Roy browser/sensor verification, Roy-held server version, or
+  hive-gated Path-B sequencing.
+- **Changed files this turn:** `RESUME.md` only. No code, build, release, or deploy files changed.
+- **Verification:** no tests/builds run; markdown-only handoff refresh.
+- **Next action:** idle. Wake only on an explicit new rocker-lab directive, Roy/tuxedo deploy window,
+  Roy server-release version, or sequenced Path-B/no_std request after hive/composer readiness.
+
 ## ★ SCOPE (Roy, 2026-06-22)
 workshop's project is the **ROCKER LAB** (this `main`: dense rocker-monitoring rig +
 :21042 dashboard/webapp + Path-A firmware/build/release). The **R2 TN cross-platform
@@ -51,8 +65,8 @@ NOT my active track. Don't pick up R2-TN protocol-dev here. Rocker-lab status be
 
 ## Branch / state
 - **Branch:** `main` (this repo commits direct-to-main per convention).
-  Verified baseline before the 2026-06-28 watchdog RESUME-only update:
-  `origin/main` HEAD: `a98720f` (local==origin), working tree clean. Any later tip should be
+  Verified baseline before the 2026-06-28 peer-confirmed RESUME-only idle refresh:
+  `origin/main` HEAD: `2df4608` (local==origin), working tree clean. Any later tip should be
   a RESUME-only handoff commit unless new code work has been explicitly opened.
   R2-TN reference lives on `profile-a-pathdep` @ `3251c23` (composer's track —
   don't pick it up here). Earlier rocker-lab cut work was at `265b378`.
