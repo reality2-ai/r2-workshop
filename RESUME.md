@@ -1,14 +1,31 @@
 # RESUME — r2-workshop (workshop-worker)
 
 _Owned by this session. Keep current. Last updated 2026-06-27._
-**STATE: STABLE maintenance-mode** (rocker-lab, held per Roy). `main` @ `975beb9`
-(local==origin; includes Roy's firmware OTA-gate `29b1b0a`, devkitc-verified),
+**STATE: STABLE maintenance-mode** (rocker-lab, held per Roy). `main` @ `acbb77d`
+(local==origin; handoff reconciliation after Roy's firmware OTA-gate `29b1b0a`, devkitc-verified),
 `profile-a-pathdep` @ `3251c23` (local==origin, R2-TN reference,
 composer's). Tree clean. tuxedo-dashboard-rebuild artifact pre-built + staged in
 `dist/` (local). All open items Roy/tuxedo-gated — see Next steps. Parked: R2-TN
 (composer owns). No active workshop change pending.
 Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan + DEV_STATUS).
 (Relocated 2026-06-18 from `claude-fleet/fleet-context/`; claude-fleet is now tooling-code-only.)
+
+## Companion re-anchor (2026-06-27, workshop-codex)
+- **Current objective:** carry on / maintain rocker-lab handoff; no active code task found.
+- **Last verified state:** `git status --short --branch` is `## main...origin/main` plus
+  ` M RESUME.md`; `git rev-parse HEAD` and `git rev-parse origin/main` both
+  `acbb77d5500d159fb7c535fd3d626bceca3c96bb`; `git diff --name-only` is
+  `RESUME.md` only.
+- **Changed files this turn:** `RESUME.md` only, to correct stale HEAD notes and record companion
+  re-anchors. No code, build, release, or deploy files were changed.
+- **Coordination:** `fleet ask workshop` succeeded after an initial spend-limit stale inbox entry.
+  Base worker confirms it is idle, has no unrecorded rocker-lab task, and will not touch
+  `RESUME.md` while this handoff edit is uncommitted. Base also confirms R2-TN remains composer-owned.
+- **Next action:** remain parked unless Roy opens a tuxedo deploy window, asks for a server release
+  version, or requests Path-B/no_std build-path work after hive/composer sequencing.
+- **Do not assume:** R2-TN protocol work is still composer-owned; do not publish server releases
+  without Roy's explicit version; do not touch live tuxedo dashboard from Alfred outside a coordinated
+  deploy window.
 
 ## ★ SCOPE (Roy, 2026-06-22)
 workshop's project is the **ROCKER LAB** (this `main`: dense rocker-monitoring rig +
@@ -33,7 +50,7 @@ NOT my active track. Don't pick up R2-TN protocol-dev here. Rocker-lab status be
 
 ## Branch / state
 - **Branch:** `main` (this repo commits direct-to-main per convention).
-  `origin/main` HEAD: `b766203` (local==origin). Working tree clean.
+  `origin/main` HEAD: `acbb77d` (local==origin). Working tree clean.
   R2-TN reference lives on `profile-a-pathdep` @ `3251c23` (composer's track —
   don't pick it up here). Earlier rocker-lab cut work was at `265b378`.
 - **Build-box: fully provisioned & validated** — espup/esp toolchain installed,
