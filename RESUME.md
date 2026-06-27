@@ -1,8 +1,9 @@
 # RESUME — r2-workshop (workshop-worker)
 
-_Owned by this session. Keep current. Last updated 2026-06-27._
-**STATE: STABLE maintenance-mode** (rocker-lab, held per Roy). `main` @ `acbb77d`
-(local==origin; handoff reconciliation after Roy's firmware OTA-gate `29b1b0a`, devkitc-verified),
+_Owned by this session. Keep current. Last updated 2026-06-28._
+**STATE: STABLE maintenance-mode** (rocker-lab, held per Roy). Verified baseline before this
+RESUME-only watchdog update: `main` @ `a98720f`
+(local==origin; includes companion re-anchor after Roy's firmware OTA-gate `29b1b0a`, devkitc-verified),
 `profile-a-pathdep` @ `3251c23` (local==origin, R2-TN reference,
 composer's). Tree clean. tuxedo-dashboard-rebuild artifact pre-built + staged in
 `dist/` (local). All open items Roy/tuxedo-gated — see Next steps. Parked: R2-TN
@@ -12,12 +13,12 @@ Master save (read-only): `r2-fleet/fleet-context/FLEET-CONTEXT-SAVE.md` (+ plan 
 
 ## Companion re-anchor (2026-06-27, workshop-codex)
 - **Current objective:** carry on / maintain rocker-lab handoff; no active code task found.
-- **Last verified state:** `git status --short --branch` is `## main...origin/main` plus
-  ` M RESUME.md`; `git rev-parse HEAD` and `git rev-parse origin/main` both
-  `acbb77d5500d159fb7c535fd3d626bceca3c96bb`; `git diff --name-only` is
-  `RESUME.md` only.
+- **Last verified state:** the re-anchor edit was folded and pushed in `a98720f`; on the
+  2026-06-28 watchdog check before this RESUME-only update, `git status --short --branch` was clean and
+  `git rev-parse HEAD`/`origin/main` both resolved to
+  `a98720f4e1d27f1323acac7b34bbc203f7fba1ee`.
 - **Changed files this turn:** `RESUME.md` only, to correct stale HEAD notes and record companion
-  re-anchors. No code, build, release, or deploy files were changed.
+  re-anchors/watchdog idle state. No code, build, release, or deploy files were changed.
 - **Coordination:** `fleet ask workshop` succeeded after an initial spend-limit stale inbox entry.
   Base worker confirms it is idle, has no unrecorded rocker-lab task, and will not touch
   `RESUME.md` while this handoff edit is uncommitted. Base also confirms R2-TN remains composer-owned.
@@ -50,7 +51,9 @@ NOT my active track. Don't pick up R2-TN protocol-dev here. Rocker-lab status be
 
 ## Branch / state
 - **Branch:** `main` (this repo commits direct-to-main per convention).
-  `origin/main` HEAD: `acbb77d` (local==origin). Working tree clean.
+  Verified baseline before the 2026-06-28 watchdog RESUME-only update:
+  `origin/main` HEAD: `a98720f` (local==origin), working tree clean. Any later tip should be
+  a RESUME-only handoff commit unless new code work has been explicitly opened.
   R2-TN reference lives on `profile-a-pathdep` @ `3251c23` (composer's track —
   don't pick it up here). Earlier rocker-lab cut work was at `265b378`.
 - **Build-box: fully provisioned & validated** — espup/esp toolchain installed,
