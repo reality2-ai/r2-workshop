@@ -1,9 +1,13 @@
 # RESUME — r2-workshop (workshop-worker)
 
-_Owned by the current writer. Keep current. Last updated 2026-06-28._
+_Owned by the current writer. Keep current. Last updated 2026-06-29._
 **STATE: STABLE maintenance-mode** (rocker-lab, held per Roy). Current writer:
-`workshop-codex` after cross-provider fail-over from `workshop` (Claude usage limit).
-Verified baseline before this RESUME-only takeover update: `main` @ `97b1af9`
+`workshop` (Claude) — RESUMED 2026-06-28, reclaiming the lease from `workshop-codex`
+(which held it during the Claude spend-limit window). One-writer coordination restored;
+codex stood back to read-only. Handoff reconciled w/ supervisor 2026-06-29: this commit
+records the lease reclaim (was uncommitted). Verified: `main` @ `10f6fa0` (local==origin),
+tree clean post-commit, no work pending — all open items externally gated (see Next steps).
+Verified baseline before the earlier Codex RESUME-only takeover update: `main` @ `97b1af9`
 (local==origin; includes peer-confirmed idle refresh after Roy's firmware OTA-gate `29b1b0a`, devkitc-verified),
 `profile-a-pathdep` @ `3251c23` (local==origin, R2-TN reference,
 composer's). Tree clean. tuxedo-dashboard-rebuild artifact pre-built + staged in
